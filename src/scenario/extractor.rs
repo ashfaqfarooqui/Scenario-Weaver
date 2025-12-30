@@ -31,8 +31,8 @@ mod tests {
             duration: 10.0,
             ego: ActorSpec {
                 lane: 1,
-                position: 50.0,
-                speed: 15.0,
+                position: ValueOrRange::Value(50.0),
+                speed: ValueOrRange::Value(15.0),
             },
             npc: NpcSpec {
                 lane: 0,

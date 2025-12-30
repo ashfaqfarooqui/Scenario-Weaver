@@ -39,10 +39,12 @@ fn test_parse_example_yaml() {
     assert_eq!(spec.duration, 10.0);
     assert_eq!(spec.num_time_steps(), 20);
 
-    // Verify ego
+    // Verify ego (now supports ranges)
     assert_eq!(spec.ego.lane, 1);
-    assert_eq!(spec.ego.position, 50.0);
-    assert_eq!(spec.ego.speed, 15.0);
+    assert_eq!(spec.ego.position.min(), 45.0);
+    assert_eq!(spec.ego.position.max(), 55.0);
+    assert_eq!(spec.ego.speed.min(), 14.0);
+    assert_eq!(spec.ego.speed.max(), 16.0);
 
     // Verify npc
     assert_eq!(spec.npc.lane, 0);
@@ -72,11 +74,19 @@ fn test_generate_single_scenario_integration() {
     assert_eq!(ego.role, "ego");
     assert_eq!(ego.states.len(), 21); // 0..=20 time steps
 
-    // Verify ego initial conditions
+    // Verify ego initial conditions (should be within ranges)
     let ego_initial = &ego.states[0];
     assert_eq!(ego_initial.lane, 1);
-    assert_eq!(ego_initial.position.x, 50.0);
-    assert_eq!(ego_initial.velocity.vx, 15.0);
+    assert!(
+        ego_initial.position.x >= 45.0 && ego_initial.position.x <= 55.0,
+        "Ego position {} should be in range [45.0, 55.0]",
+        ego_initial.position.x
+    );
+    assert!(
+        ego_initial.velocity.vx >= 14.0 && ego_initial.velocity.vx <= 16.0,
+        "Ego speed {} should be in range [14.0, 16.0]",
+        ego_initial.velocity.vx
+    );
 
     // Verify NPC actor
     let npc = scenario.get_actor("npc").expect("Should have npc actor");

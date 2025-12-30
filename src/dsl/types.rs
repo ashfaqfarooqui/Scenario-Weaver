@@ -2,6 +2,74 @@
 
 use serde::Deserialize;
 
+/// Constraint enforcement mode
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConstraintMode {
+    /// Enforce constraint: G(constraint) - must hold at all times
+    Enforce,
+    /// Violate constraint: F(NOT constraint) - must be violated at some point
+    Violate,
+    /// Ignore constraint: not added to the formula
+    Ignore,
+}
+
+impl Default for ConstraintMode {
+    fn default() -> Self {
+        ConstraintMode::Enforce
+    }
+}
+
+/// Configuration for how constraints should be enforced
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum ConstraintModes {
+    /// Detailed per-constraint configuration
+    Detailed {
+        #[serde(default)]
+        min_ttc: ConstraintMode,
+        #[serde(default)]
+        min_distance: ConstraintMode,
+    },
+    /// Shorthand: "violate_all", "ignore_all", "enforce_all"
+    Shorthand(String),
+}
+
+impl Default for ConstraintModes {
+    fn default() -> Self {
+        ConstraintModes::Detailed {
+            min_ttc: ConstraintMode::Enforce,
+            min_distance: ConstraintMode::Enforce,
+        }
+    }
+}
+
+impl ConstraintModes {
+    /// Get the mode for min_ttc constraint
+    pub fn min_ttc(&self) -> ConstraintMode {
+        match self {
+            ConstraintModes::Detailed { min_ttc, .. } => *min_ttc,
+            ConstraintModes::Shorthand(s) => match s.as_str() {
+                "violate_all" => ConstraintMode::Violate,
+                "ignore_all" => ConstraintMode::Ignore,
+                _ => ConstraintMode::Enforce,
+            },
+        }
+    }
+
+    /// Get the mode for min_distance constraint
+    pub fn min_distance(&self) -> ConstraintMode {
+        match self {
+            ConstraintModes::Detailed { min_distance, .. } => *min_distance,
+            ConstraintModes::Shorthand(s) => match s.as_str() {
+                "violate_all" => ConstraintMode::Violate,
+                "ignore_all" => ConstraintMode::Ignore,
+                _ => ConstraintMode::Enforce,
+            },
+        }
+    }
+}
+
 /// Root scenario specification
 #[derive(Debug, Clone, Deserialize)]
 pub struct ScenarioSpec {
@@ -14,6 +82,9 @@ pub struct ScenarioSpec {
     pub min_distance: f64,    // minimum longitudinal distance (meters)
     pub lane_width: f64,      // meters
     pub num_scenarios: usize, // 1 for single, N for multiple
+    /// Constraint enforcement modes (optional, defaults to enforce_all)
+    #[serde(default)]
+    pub constraint_modes: ConstraintModes,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -30,12 +101,12 @@ impl std::fmt::Display for ScenarioType {
     }
 }
 
-/// Ego vehicle specification (fixed parameters)
+/// Ego vehicle specification (supports ranges)
 #[derive(Debug, Clone, Deserialize)]
 pub struct ActorSpec {
     pub lane: usize,
-    pub position: f64, // meters from start
-    pub speed: f64,    // m/s
+    pub position: ValueOrRange, // meters from start (can be fixed or range)
+    pub speed: ValueOrRange,    // m/s (can be fixed or range)
 }
 
 /// NPC vehicle specification (with ranges for solver)
@@ -109,14 +180,26 @@ impl ScenarioSpec {
         }
 
         // Actor parameters
-        if self.ego.speed <= 0.0 {
+        if self.ego.speed.min() <= 0.0 {
             return Err("ego speed must be positive".to_string());
         }
         if self.npc.speed.min() <= 0.0 {
             return Err("npc speed must be positive".to_string());
         }
 
-        // Range validity
+        // Ego range validity
+        if let ValueOrRange::Range([min, max]) = self.ego.position {
+            if min >= max {
+                return Err("ego position range invalid: min >= max".to_string());
+            }
+        }
+        if let ValueOrRange::Range([min, max]) = self.ego.speed {
+            if min >= max {
+                return Err("ego speed range invalid: min >= max".to_string());
+            }
+        }
+
+        // NPC range validity
         if let ValueOrRange::Range([min, max]) = self.npc.position {
             if min >= max {
                 return Err("npc position range invalid: min >= max".to_string());
@@ -178,8 +261,8 @@ mod tests {
             duration: 10.0,
             ego: ActorSpec {
                 lane: 1,
-                position: 50.0,
-                speed: 15.0,
+                position: ValueOrRange::Value(50.0),
+                speed: ValueOrRange::Value(15.0),
             },
             npc: NpcSpec {
                 lane: 0,

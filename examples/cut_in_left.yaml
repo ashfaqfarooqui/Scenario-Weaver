@@ -5,10 +5,11 @@ time_step: 0.5        # 0.5 second discretization
 duration: 10.0        # 10 second scenario
 
 # Ego vehicle (controlled by AV under test)
+# Both fixed values and ranges are supported
 ego:
-  lane: 1             # right lane
-  position: 50.0      # 50 meters from start
-  speed: 15.0         # 15 m/s (54 km/h)
+  lane: 1                  # right lane
+  position: [45.0, 55.0]   # 45-55 meters from start (Z3 chooses)
+  speed: [14.0, 16.0]      # 14-16 m/s (Z3 chooses)
 
 # NPC vehicle (background actor)
 npc:
@@ -23,4 +24,4 @@ min_distance: 5.0         # minimum 5 meter distance
 lane_width: 3.5           # 3.5 meter lane width
 
 # Generation settings
-num_scenarios: 1          # generate 1 scenario (change to 5 for multiple)
+num_scenarios: 5          # generate 1 scenario (change to 5 for multiple)

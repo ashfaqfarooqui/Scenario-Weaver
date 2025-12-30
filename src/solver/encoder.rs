@@ -97,15 +97,15 @@ impl<'ctx> Z3Encoder<'ctx> {
 
     /// Encode initial conditions from the DSL specification
     pub fn encode_initial_conditions(&mut self) {
-        // Ego initial conditions
+        // Ego initial conditions (may have ranges)
         let ego_id = "ego";
         self.encode_actor_initial_state(
             ego_id,
             self.spec.ego.lane,
-            self.spec.ego.position,
-            self.spec.ego.position, // no range for ego
-            self.spec.ego.speed,
-            self.spec.ego.speed,
+            self.spec.ego.position.min(),
+            self.spec.ego.position.max(),
+            self.spec.ego.speed.min(),
+            self.spec.ego.speed.max(),
         );
 
         // NPC initial conditions (may have ranges)
@@ -765,8 +765,8 @@ mod tests {
             duration: 10.0,
             ego: ActorSpec {
                 lane: 1,
-                position: 50.0,
-                speed: 15.0,
+                position: ValueOrRange::Value(50.0),
+                speed: ValueOrRange::Value(15.0),
             },
             npc: NpcSpec {
                 lane: 0,
