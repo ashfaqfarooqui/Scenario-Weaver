@@ -249,6 +249,507 @@ impl<'ctx> Z3Encoder<'ctx> {
     pub fn get_model(&self) -> Option<z3::Model<'ctx>> {
         self.solver.get_model()
     }
+
+    /// Encode LTL formula into Z3 constraints using bounded model checking
+    ///
+    /// This is the core of Phase 7. We expand temporal operators over the
+    /// finite time horizon, converting them into Boolean combinations of
+    /// propositions at different time steps.
+    pub fn encode_ltl(&mut self, formula: &crate::ltl::formula::LTLFormula) {
+        // Encode the formula starting at time 0, with full horizon
+        let constraint = self.encode_ltl_bounded(formula, 0, self.horizon);
+        self.solver.assert(&constraint);
+    }
+
+    /// Bounded LTL encoding: expand temporal operators over [time, horizon]
+    ///
+    /// This implements bounded model checking for LTL:
+    /// - Eventually(φ): φ[t] ∨ φ[t+1] ∨ ... ∨ φ[horizon]
+    /// - Always(φ): φ[t] ∧ φ[t+1] ∧ ... ∧ φ[horizon]
+    /// - Until(φ, ψ): ψ[t] ∨ (φ[t] ∧ Until(φ,ψ)[t+1])
+    /// - Atom(p): encode proposition at time t
+    fn encode_ltl_bounded(
+        &self,
+        formula: &crate::ltl::formula::LTLFormula,
+        time: usize,
+        horizon: usize,
+    ) -> z3::ast::Bool<'ctx> {
+        use crate::ltl::formula::LTLFormula;
+
+        match formula {
+            // Atomic proposition - encode at specific time
+            LTLFormula::Atom(prop) => self.encode_proposition(prop, time),
+
+            // Boolean operators - recursive encoding
+            LTLFormula::Not(phi) => self.encode_ltl_bounded(phi, time, horizon).not(),
+
+            LTLFormula::And(phi, psi) => {
+                let left = self.encode_ltl_bounded(phi, time, horizon);
+                let right = self.encode_ltl_bounded(psi, time, horizon);
+                z3::ast::Bool::and(self.ctx, &[&left, &right])
+            }
+
+            LTLFormula::Or(phi, psi) => {
+                let left = self.encode_ltl_bounded(phi, time, horizon);
+                let right = self.encode_ltl_bounded(psi, time, horizon);
+                z3::ast::Bool::or(self.ctx, &[&left, &right])
+            }
+
+            LTLFormula::Implies(phi, psi) => {
+                let left = self.encode_ltl_bounded(phi, time, horizon);
+                let right = self.encode_ltl_bounded(psi, time, horizon);
+                left.implies(&right)
+            }
+
+            // Temporal operators - bounded expansion
+
+            // Next: X(φ) = φ[time+1] (if within horizon)
+            LTLFormula::Next(phi) => {
+                if time < horizon {
+                    self.encode_ltl_bounded(phi, time + 1, horizon)
+                } else {
+                    // If at horizon, treat as false (no next state)
+                    z3::ast::Bool::from_bool(self.ctx, false)
+                }
+            }
+
+            // Eventually: F(φ) = φ[time] ∨ φ[time+1] ∨ ... ∨ φ[horizon]
+            LTLFormula::Eventually(phi) => {
+                let mut disjuncts = Vec::new();
+                for t in time..=horizon {
+                    disjuncts.push(self.encode_ltl_bounded(phi, t, horizon));
+                }
+                let refs: Vec<&z3::ast::Bool> = disjuncts.iter().collect();
+                z3::ast::Bool::or(self.ctx, &refs)
+            }
+
+            // Always: G(φ) = φ[time] ∧ φ[time+1] ∧ ... ∧ φ[horizon]
+            LTLFormula::Always(phi) => {
+                let mut conjuncts = Vec::new();
+                for t in time..=horizon {
+                    conjuncts.push(self.encode_ltl_bounded(phi, t, horizon));
+                }
+                let refs: Vec<&z3::ast::Bool> = conjuncts.iter().collect();
+                z3::ast::Bool::and(self.ctx, &refs)
+            }
+
+            // Until: φ U ψ = ψ[time] ∨ (φ[time] ∧ (φ U ψ)[time+1])
+            // Bounded version: must happen within horizon
+            LTLFormula::Until(phi, psi) => {
+                let mut disjuncts = Vec::new();
+
+                for t in time..=horizon {
+                    // ψ happens at time t, and φ holds from time to t-1
+                    let psi_at_t = self.encode_ltl_bounded(psi, t, horizon);
+
+                    if t == time {
+                        // Base case: ψ holds now
+                        disjuncts.push(psi_at_t);
+                    } else {
+                        // φ must hold from time to t-1
+                        let mut phi_conjuncts = Vec::new();
+                        for s in time..t {
+                            phi_conjuncts.push(self.encode_ltl_bounded(phi, s, horizon));
+                        }
+                        let phi_refs: Vec<&z3::ast::Bool> = phi_conjuncts.iter().collect();
+                        let phi_holds = z3::ast::Bool::and(self.ctx, &phi_refs);
+
+                        // (φ[time] ∧ ... ∧ φ[t-1]) ∧ ψ[t]
+                        let both = z3::ast::Bool::and(self.ctx, &[&phi_holds, &psi_at_t]);
+                        disjuncts.push(both);
+                    }
+                }
+
+                let refs: Vec<&z3::ast::Bool> = disjuncts.iter().collect();
+                z3::ast::Bool::or(self.ctx, &refs)
+            }
+        }
+    }
+
+    /// Encode atomic propositions as Z3 constraints at a specific time
+    fn encode_proposition(
+        &self,
+        prop: &crate::ltl::formula::Proposition,
+        time: usize,
+    ) -> z3::ast::Bool<'ctx> {
+        use crate::ltl::formula::Proposition;
+
+        match prop {
+            // InLane(actor, lane): lane_var[t] == lane
+            Proposition::InLane { actor, lane } => {
+                let lane_var = &self.lanes[actor][time];
+                let lane_val = Int::from_i64(self.ctx, *lane as i64);
+                lane_var._eq(&lane_val)
+            }
+
+            // Ahead(actor1, actor2): px1[t] > px2[t]
+            Proposition::Ahead { actor1, actor2 } => {
+                let px1 = &self.positions_x[actor1][time];
+                let px2 = &self.positions_x[actor2][time];
+                px1.gt(px2)
+            }
+
+            // DistanceGT(actor1, actor2, d): |px1[t] - px2[t]| > d
+            Proposition::DistanceGT {
+                actor1,
+                actor2,
+                distance,
+            } => {
+                let px1 = &self.positions_x[actor1][time];
+                let px2 = &self.positions_x[actor2][time];
+                let dist_val = Real::from_real(self.ctx, (*distance * 10.0) as i32, 10);
+
+                // |px1 - px2| > d is equivalent to: (px1 - px2 > d) OR (px2 - px1 > d)
+                let diff_pos = px1 - px2;
+                let diff_neg = px2 - px1;
+
+                let pos_case = diff_pos.gt(&dist_val);
+                let neg_case = diff_neg.gt(&dist_val);
+
+                z3::ast::Bool::or(self.ctx, &[&pos_case, &neg_case])
+            }
+
+            // TTCGT(actor1, actor2, ttc): TTC > ttc (if collision possible)
+            Proposition::TTCGT {
+                actor1,
+                actor2,
+                ttc,
+            } => self.encode_ttc_constraint(actor1, actor2, *ttc, time),
+        }
+    }
+
+    /// Encode TTC (Time-To-Collision) constraint
+    ///
+    /// TTC is only defined when:
+    /// 1. Both actors are in the same lane
+    /// 2. The following actor is moving faster
+    ///
+    /// TTC = (distance between actors) / (relative velocity)
+    ///     = (px_lead - px_follow) / (vx_follow - vx_lead)
+    ///
+    /// We require: TTC > min_ttc OR collision is not possible
+    fn encode_ttc_constraint(
+        &self,
+        actor1: &str,
+        actor2: &str,
+        min_ttc: f64,
+        time: usize,
+    ) -> z3::ast::Bool<'ctx> {
+        let lane1 = &self.lanes[actor1][time];
+        let lane2 = &self.lanes[actor2][time];
+
+        let px1 = &self.positions_x[actor1][time];
+        let px2 = &self.positions_x[actor2][time];
+
+        let vx1 = &self.velocities_x[actor1][time];
+        let vx2 = &self.velocities_x[actor2][time];
+
+        let min_ttc_val = Real::from_real(self.ctx, (min_ttc * 10.0) as i32, 10);
+        let epsilon = Real::from_real(self.ctx, 1, 100); // 0.01 m/s to avoid division by zero
+
+        // Same lane condition
+        let same_lane = lane1._eq(lane2);
+
+        // Determine who is ahead and who is behind
+        // If px1 > px2, then actor1 is ahead (lead), actor2 is behind (follow)
+        // If px2 > px1, then actor2 is ahead (lead), actor1 is behind (follow)
+
+        // Case 1: actor1 ahead, actor2 behind, actor2 faster
+        // TTC = (px1 - px2) / (vx2 - vx1)
+        let actor1_ahead = px1.gt(px2);
+        let actor2_faster = vx2.gt(vx1);
+        let rel_vel_1 = vx2 - vx1;
+        let distance_1 = px1 - px2;
+        let collision_possible_1 = z3::ast::Bool::and(
+            self.ctx,
+            &[&actor1_ahead, &actor2_faster, &rel_vel_1.gt(&epsilon)],
+        );
+        // TTC > min_ttc means: distance / rel_vel > min_ttc
+        // Equivalent to: distance > min_ttc * rel_vel
+        let ttc_safe_1 = distance_1.gt(&(&min_ttc_val * &rel_vel_1));
+
+        // Case 2: actor2 ahead, actor1 behind, actor1 faster
+        // TTC = (px2 - px1) / (vx1 - vx2)
+        let actor2_ahead = px2.gt(px1);
+        let actor1_faster = vx1.gt(vx2);
+        let rel_vel_2 = vx1 - vx2;
+        let distance_2 = px2 - px1;
+        let collision_possible_2 = z3::ast::Bool::and(
+            self.ctx,
+            &[&actor2_ahead, &actor1_faster, &rel_vel_2.gt(&epsilon)],
+        );
+        let ttc_safe_2 = distance_2.gt(&(&min_ttc_val * &rel_vel_2));
+
+        // Overall constraint:
+        // If same_lane AND collision_possible_1, then ttc_safe_1
+        // If same_lane AND collision_possible_2, then ttc_safe_2
+        // Otherwise, true (no collision risk)
+
+        let case1 =
+            z3::ast::Bool::and(self.ctx, &[&same_lane, &collision_possible_1]).implies(&ttc_safe_1);
+        let case2 =
+            z3::ast::Bool::and(self.ctx, &[&same_lane, &collision_possible_2]).implies(&ttc_safe_2);
+
+        z3::ast::Bool::and(self.ctx, &[&case1, &case2])
+    }
+
+    /// Encode all safety constraints (Phase 8)
+    ///
+    /// This includes:
+    /// 1. TTC constraints for all time steps
+    /// 2. Minimum distance constraints for all time steps
+    pub fn encode_safety(&mut self) {
+        let min_ttc = self.spec.min_ttc;
+        let min_distance = self.spec.min_distance;
+
+        let ego = "ego";
+        let npc = "npc";
+
+        for t in 0..=self.horizon {
+            // TTC constraint (already handled by LTL encoding, but we can add direct constraints)
+            let ttc_constraint = self.encode_ttc_constraint(ego, npc, min_ttc, t);
+            self.solver.assert(&ttc_constraint);
+
+            // Minimum distance constraint when in same lane
+            let distance_constraint =
+                self.encode_min_distance_constraint(ego, npc, min_distance, t);
+            self.solver.assert(&distance_constraint);
+        }
+    }
+
+    /// Encode minimum distance constraint between two actors
+    ///
+    /// When actors are in the same lane, they must maintain minimum distance.
+    fn encode_min_distance_constraint(
+        &self,
+        actor1: &str,
+        actor2: &str,
+        min_distance: f64,
+        time: usize,
+    ) -> z3::ast::Bool<'ctx> {
+        let lane1 = &self.lanes[actor1][time];
+        let lane2 = &self.lanes[actor2][time];
+
+        let px1 = &self.positions_x[actor1][time];
+        let px2 = &self.positions_x[actor2][time];
+
+        let min_dist_val = Real::from_real(self.ctx, (min_distance * 10.0) as i32, 10);
+
+        // Same lane condition
+        let same_lane = lane1._eq(lane2);
+
+        // Distance: |px1 - px2|
+        // We need: |px1 - px2| > min_distance
+        // This is: (px1 - px2 > min_distance) OR (px2 - px1 > min_distance)
+        let diff_1 = px1 - px2;
+        let diff_2 = px2 - px1;
+
+        let dist_case_1 = diff_1.gt(&min_dist_val);
+        let dist_case_2 = diff_2.gt(&min_dist_val);
+
+        let distance_ok = z3::ast::Bool::or(self.ctx, &[&dist_case_1, &dist_case_2]);
+
+        // If same lane, then distance must be OK
+        same_lane.implies(&distance_ok)
+    }
+
+    /// Extract scenario from Z3 model (Phase 9)
+    ///
+    /// Converts the Z3 solution (satisfying assignment) into a Scenario
+    /// JSON structure with actor trajectories.
+    pub fn extract_scenario(&self, model: &z3::Model<'ctx>) -> crate::scenario::model::Scenario {
+        let mut scenario = crate::scenario::model::Scenario::new(
+            self.spec.scenario_type.to_string(),
+            self.spec.time_step,
+            self.spec.duration,
+        );
+
+        // Extract ego trajectory
+        let ego_traj = self.extract_actor_trajectory(model, "ego", "ego");
+        scenario.add_actor(ego_traj);
+
+        // Extract NPC trajectory
+        let npc_traj = self.extract_actor_trajectory(model, "npc", "npc");
+        scenario.add_actor(npc_traj);
+
+        // Compute validation metrics
+        self.compute_validation_metrics(&mut scenario);
+
+        scenario
+    }
+
+    /// Extract trajectory for a single actor
+    fn extract_actor_trajectory(
+        &self,
+        model: &z3::Model<'ctx>,
+        actor_id: &str,
+        role: &str,
+    ) -> crate::scenario::model::ActorTrajectory {
+        use crate::scenario::model::{ActorTrajectory, Position, State, Velocity};
+
+        let mut trajectory = ActorTrajectory::new(actor_id.to_string(), role.to_string());
+
+        for t in 0..=self.horizon {
+            let time = t as f64 * self.spec.time_step;
+
+            // Extract position
+            let px = self.extract_real(model, &self.positions_x[actor_id][t]);
+            let py = self.extract_real(model, &self.positions_y[actor_id][t]);
+
+            // Extract velocity
+            let vx = self.extract_real(model, &self.velocities_x[actor_id][t]);
+            let vy = self.extract_real(model, &self.velocities_y[actor_id][t]);
+
+            // Extract lane
+            let lane = self.extract_int(model, &self.lanes[actor_id][t]);
+
+            let state = State::new(time, Position::new(px, py), Velocity::new(vx, vy), lane);
+
+            trajectory.add_state(state);
+        }
+
+        trajectory
+    }
+
+    /// Extract a real value from Z3 model
+    fn extract_real(&self, model: &z3::Model<'ctx>, var: &Real<'ctx>) -> f64 {
+        let ast = model
+            .eval(var, true)
+            .expect("Failed to evaluate real variable");
+
+        // Z3 returns rationals as strings like "50", "525/10", "(/ 525 10)", or "(-525/10)"
+        let ast_str = ast.to_string();
+
+        // Handle negative values wrapped in parentheses like "(- 525)"
+        let cleaned = ast_str.trim_start_matches('(').trim_end_matches(')');
+
+        // Check for various formats
+        if cleaned.starts_with("/ ") {
+            // Format: "(/ numerator denominator)"
+            let parts: Vec<&str> = cleaned.split_whitespace().collect();
+            if parts.len() == 3 {
+                let numerator: f64 = parts[1].parse().expect("Failed to parse numerator");
+                let denominator: f64 = parts[2].parse().expect("Failed to parse denominator");
+                return numerator / denominator;
+            }
+        } else if cleaned.starts_with("- ") {
+            // Format: "(- value)"
+            let parts: Vec<&str> = cleaned.split_whitespace().collect();
+            if parts.len() == 2 {
+                let value: f64 = parts[1].parse().expect("Failed to parse negative value");
+                return -value;
+            }
+        } else if cleaned.contains('/') {
+            // Format: "525/10" or "-525/10"
+            let parts: Vec<&str> = cleaned.split('/').collect();
+            let numerator: f64 = parts[0].trim().parse().expect("Failed to parse numerator");
+            let denominator: f64 = parts[1]
+                .trim()
+                .parse()
+                .expect("Failed to parse denominator");
+            return numerator / denominator;
+        }
+
+        // Default: try to parse as a simple number
+        cleaned
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse real value from Z3: '{}'", ast_str))
+    }
+
+    /// Extract an integer value from Z3 model
+    fn extract_int(&self, model: &z3::Model<'ctx>, var: &Int<'ctx>) -> usize {
+        let ast = model
+            .eval(var, true)
+            .expect("Failed to evaluate int variable");
+        let ast_str = ast.to_string();
+
+        // Handle negative values like "(- 5)" or simple values like "1"
+        let cleaned = ast_str.trim_start_matches('(').trim_end_matches(')');
+
+        if cleaned.starts_with("- ") {
+            // Format: "(- value)" - but usize can't be negative, so this would be an error
+            panic!("Cannot extract negative integer as usize: '{}'", ast_str);
+        }
+
+        cleaned
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse int value from Z3: '{}'", ast_str))
+    }
+
+    /// Compute validation metrics from the scenario trajectories
+    fn compute_validation_metrics(&self, scenario: &mut crate::scenario::model::Scenario) {
+        let ego_traj = scenario.get_actor("ego").expect("Ego trajectory missing");
+        let npc_traj = scenario.get_actor("npc").expect("NPC trajectory missing");
+
+        let mut min_ttc = f64::INFINITY;
+        let mut min_distance = f64::INFINITY;
+        let mut violations = Vec::new();
+
+        for t in 0..=self.horizon {
+            let ego_state = &ego_traj.states[t];
+            let npc_state = &npc_traj.states[t];
+
+            // Compute longitudinal distance
+            let distance = (ego_state.position.x - npc_state.position.x).abs();
+
+            // Only consider distance when in same lane
+            if ego_state.lane == npc_state.lane {
+                if distance < min_distance {
+                    min_distance = distance;
+                }
+
+                // Check minimum distance violation
+                if distance < self.spec.min_distance {
+                    violations.push(format!(
+                        "Distance violation at t={:.1}s: {:.2}m < {:.2}m",
+                        t as f64 * self.spec.time_step,
+                        distance,
+                        self.spec.min_distance
+                    ));
+                }
+            }
+
+            // Compute TTC (only when in same lane and approaching)
+            if ego_state.lane == npc_state.lane {
+                let rel_vel = (ego_state.velocity.vx - npc_state.velocity.vx).abs();
+
+                if rel_vel > 0.01 {
+                    // Someone is catching up
+                    let ttc = distance / rel_vel;
+
+                    if ttc < min_ttc {
+                        min_ttc = ttc;
+                    }
+
+                    // Check TTC violation
+                    if ttc < self.spec.min_ttc {
+                        violations.push(format!(
+                            "TTC violation at t={:.1}s: {:.2}s < {:.2}s",
+                            t as f64 * self.spec.time_step,
+                            ttc,
+                            self.spec.min_ttc
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Update validation info
+        scenario.validation.min_ttc = if min_ttc.is_infinite() {
+            999.0
+        } else {
+            min_ttc
+        };
+        scenario.validation.min_distance = if min_distance.is_infinite() {
+            999.0
+        } else {
+            min_distance
+        };
+        scenario.validation.all_constraints_satisfied = violations.is_empty();
+        scenario.validation.safety_violations = violations;
+    }
 }
 
 #[cfg(test)]
@@ -387,5 +888,292 @@ mod tests {
 
         // px[1] should be px[0] + vx[0] * 0.5
         // 50.0 + 15.0 * 0.5 = 57.5
+    }
+
+    #[test]
+    fn test_ltl_encoding_simple() {
+        use crate::ltl::formula::{LTLFormula, Proposition};
+
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let spec = create_test_spec();
+
+        let mut encoder = Z3Encoder::new(&ctx, spec);
+        encoder.create_variables();
+        encoder.encode_initial_conditions();
+        encoder.encode_kinematics();
+
+        // Test simple atomic proposition: InLane(ego, 1)
+        let formula = LTLFormula::Atom(Proposition::InLane {
+            actor: "ego".to_string(),
+            lane: 1,
+        });
+
+        encoder.encode_ltl(&formula);
+        assert_eq!(encoder.check(), SatResult::Sat);
+    }
+
+    #[test]
+    fn test_ltl_encoding_eventually() {
+        use crate::ltl::formula::{LTLFormula, Proposition};
+
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let spec = create_test_spec();
+
+        let mut encoder = Z3Encoder::new(&ctx, spec);
+        encoder.create_variables();
+        encoder.encode_initial_conditions();
+        encoder.encode_kinematics();
+
+        // Test Eventually: F(InLane(npc, 1))
+        // NPC should eventually be in lane 1
+        let formula = LTLFormula::Atom(Proposition::InLane {
+            actor: "npc".to_string(),
+            lane: 1,
+        })
+        .eventually();
+
+        encoder.encode_ltl(&formula);
+        assert_eq!(encoder.check(), SatResult::Sat);
+
+        let model = encoder.get_model().unwrap();
+
+        // Check that NPC is in lane 1 at some point
+        let mut found_lane_1 = false;
+        for t in 0..=encoder.horizon {
+            let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
+            if lane.to_string() == "1" {
+                found_lane_1 = true;
+                println!("NPC in lane 1 at time {}", t);
+                break;
+            }
+        }
+        assert!(found_lane_1, "NPC should eventually be in lane 1");
+    }
+
+    #[test]
+    fn test_ltl_encoding_always() {
+        use crate::ltl::formula::{LTLFormula, Proposition};
+
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let spec = create_test_spec();
+
+        let mut encoder = Z3Encoder::new(&ctx, spec);
+        encoder.create_variables();
+        encoder.encode_initial_conditions();
+        encoder.encode_kinematics();
+
+        // Test Always: G(InLane(ego, 1))
+        // Ego should always be in lane 1
+        let formula = LTLFormula::Atom(Proposition::InLane {
+            actor: "ego".to_string(),
+            lane: 1,
+        })
+        .always();
+
+        encoder.encode_ltl(&formula);
+        assert_eq!(encoder.check(), SatResult::Sat);
+
+        let model = encoder.get_model().unwrap();
+
+        // Check that ego is in lane 1 at all times
+        for t in 0..=encoder.horizon {
+            let lane = model.eval(&encoder.lanes["ego"][t], true).unwrap();
+            assert_eq!(lane.to_string(), "1", "Ego should always be in lane 1");
+        }
+    }
+
+    #[test]
+    fn test_ltl_encoding_until() {
+        use crate::ltl::formula::{LTLFormula, Proposition};
+
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let spec = create_test_spec();
+
+        let mut encoder = Z3Encoder::new(&ctx, spec);
+        encoder.create_variables();
+        encoder.encode_initial_conditions();
+        encoder.encode_kinematics();
+
+        // Test Until: InLane(npc, 0) U InLane(npc, 1)
+        // NPC stays in lane 0 until it moves to lane 1
+        let formula = LTLFormula::Atom(Proposition::InLane {
+            actor: "npc".to_string(),
+            lane: 0,
+        })
+        .until(LTLFormula::Atom(Proposition::InLane {
+            actor: "npc".to_string(),
+            lane: 1,
+        }));
+
+        encoder.encode_ltl(&formula);
+        assert_eq!(encoder.check(), SatResult::Sat);
+
+        let model = encoder.get_model().unwrap();
+
+        // Find when NPC transitions to lane 1
+        let mut transition_time = None;
+        for t in 0..=encoder.horizon {
+            let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
+            if lane.to_string() == "1" {
+                transition_time = Some(t);
+                break;
+            }
+        }
+
+        if let Some(trans_t) = transition_time {
+            println!("NPC transitions to lane 1 at time {}", trans_t);
+            // Before transition, should be in lane 0
+            for t in 0..trans_t {
+                let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
+                assert_eq!(
+                    lane.to_string(),
+                    "0",
+                    "NPC should be in lane 0 before transition"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_safety_constraints() {
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let spec = create_test_spec();
+
+        let mut encoder = Z3Encoder::new(&ctx, spec);
+        encoder.create_variables();
+        encoder.encode_initial_conditions();
+        encoder.encode_kinematics();
+        encoder.encode_safety();
+
+        // Safety constraints should be satisfiable
+        assert_eq!(encoder.check(), SatResult::Sat);
+    }
+
+    #[test]
+    fn test_full_cut_in_scenario() {
+        use crate::ltl::generator::LTLGenerator;
+
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let spec = create_test_spec();
+
+        let mut encoder = Z3Encoder::new(&ctx, spec.clone());
+        encoder.create_variables();
+        encoder.encode_initial_conditions();
+        encoder.encode_kinematics();
+
+        // Generate and encode full cut-in LTL formula
+        let ltl_formula = LTLGenerator::generate(&spec);
+        encoder.encode_ltl(&ltl_formula);
+
+        // Add safety constraints
+        encoder.encode_safety();
+
+        // Check satisfiability
+        let result = encoder.check();
+        assert_eq!(
+            result,
+            SatResult::Sat,
+            "Full cut-in scenario should be satisfiable"
+        );
+
+        if result == SatResult::Sat {
+            let model = encoder.get_model().unwrap();
+
+            // Verify initial conditions
+            let ego_lane_0 = model.eval(&encoder.lanes["ego"][0], true).unwrap();
+            let npc_lane_0 = model.eval(&encoder.lanes["npc"][0], true).unwrap();
+            assert_eq!(ego_lane_0.to_string(), "1");
+            assert_eq!(npc_lane_0.to_string(), "0");
+
+            // Verify NPC eventually changes lanes
+            let mut npc_in_lane_1 = false;
+            for t in 0..=encoder.horizon {
+                let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
+                if lane.to_string() == "1" {
+                    npc_in_lane_1 = true;
+                    println!("NPC changes to lane 1 at time step {}", t);
+                    break;
+                }
+            }
+            assert!(npc_in_lane_1, "NPC should eventually change to lane 1");
+
+            println!("Full cut-in scenario test passed!");
+        }
+    }
+
+    #[test]
+    fn test_scenario_extraction() {
+        use crate::ltl::generator::LTLGenerator;
+
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let spec = create_test_spec();
+
+        let mut encoder = Z3Encoder::new(&ctx, spec.clone());
+        encoder.create_variables();
+        encoder.encode_initial_conditions();
+        encoder.encode_kinematics();
+
+        // Generate and encode full cut-in LTL formula
+        let ltl_formula = LTLGenerator::generate(&spec);
+        encoder.encode_ltl(&ltl_formula);
+        encoder.encode_safety();
+
+        // Check satisfiability
+        let result = encoder.check();
+        assert_eq!(result, SatResult::Sat, "Should be satisfiable");
+
+        if result == SatResult::Sat {
+            let model = encoder.get_model().unwrap();
+
+            // Extract scenario
+            let scenario = encoder.extract_scenario(&model);
+
+            // Verify basic structure
+            assert_eq!(scenario.actors.len(), 2);
+            assert_eq!(scenario.time_step, 0.5);
+            assert_eq!(scenario.duration, 10.0);
+
+            // Verify ego trajectory
+            let ego = scenario.get_actor("ego").expect("Ego missing");
+            assert_eq!(ego.id, "ego");
+            assert_eq!(ego.states.len(), 21); // 0..=20
+
+            // Verify NPC trajectory
+            let npc = scenario.get_actor("npc").expect("NPC missing");
+            assert_eq!(npc.id, "npc");
+            assert_eq!(npc.states.len(), 21);
+
+            // Verify initial conditions
+            assert_eq!(ego.states[0].lane, 1);
+            assert_eq!(npc.states[0].lane, 0);
+
+            // Verify NPC position is ahead initially
+            assert!(npc.states[0].position.x > ego.states[0].position.x);
+
+            // Verify validation metrics exist
+            println!("Min TTC: {}", scenario.validation.min_ttc);
+            println!("Min distance: {}", scenario.validation.min_distance);
+            println!(
+                "All constraints satisfied: {}",
+                scenario.validation.all_constraints_satisfied
+            );
+
+            // Test JSON serialization
+            let json = serde_json::to_string_pretty(&scenario).unwrap();
+            println!("Extracted scenario JSON:\n{}", json);
+
+            // Verify it can be deserialized
+            let _deserialized: crate::scenario::model::Scenario =
+                serde_json::from_str(&json).unwrap();
+
+            println!("Scenario extraction test passed!");
+        }
     }
 }

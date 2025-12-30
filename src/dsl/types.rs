@@ -22,6 +22,14 @@ pub enum ScenarioType {
     CutInLeft,
 }
 
+impl std::fmt::Display for ScenarioType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScenarioType::CutInLeft => write!(f, "cut_in_left"),
+        }
+    }
+}
+
 /// Ego vehicle specification (fixed parameters)
 #[derive(Debug, Clone, Deserialize)]
 pub struct ActorSpec {
