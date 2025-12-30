@@ -58,7 +58,7 @@ impl LTLFormula {
     }
 
     /// Logical NOT
-    pub fn not(self) -> Self {
+    pub fn negate(self) -> Self {
         LTLFormula::Not(Box::new(self))
     }
 

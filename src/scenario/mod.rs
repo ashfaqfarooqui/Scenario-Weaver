@@ -4,3 +4,5 @@
 
 pub mod extractor;
 pub mod model;
+
+pub use model::{ActorTrajectory, Position, Scenario, State, ValidationInfo, Velocity};
