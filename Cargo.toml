@@ -1,0 +1,38 @@
+[package]
+name = "carla-scenario-generator"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "carla-scenario-gen"
+path = "src/main.rs"
+
+[lib]
+name = "carla_scenario_generator"
+path = "src/lib.rs"
+
+[dependencies]
+# Z3 SMT Solver - core constraint solving
+# Using system Z3 library instead of static linking
+z3 = "0.13"
+
+# Serialization - YAML input, JSON output
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }  # Timestamps
+uuid = { version = "1.6", features = ["v4", "serde"] }  # Scenario IDs
+anyhow = "1.0"  # Error handling convenience
+thiserror = "1.0"  # Custom error types
+
+# CLI (will be used in Phase 12)
+clap = { version = "4.4", features = ["derive"] }
+
+# Logging (will be used in Phase 12)
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[dev-dependencies]
+pretty_assertions = "1.4"  # Better test output
