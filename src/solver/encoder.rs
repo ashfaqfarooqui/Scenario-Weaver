@@ -15,7 +15,7 @@ pub struct Z3Encoder<'ctx> {
     ctx: &'ctx Context,
 
     /// Z3 solver instance
-    solver: Solver<'ctx>,
+    pub(crate) solver: Solver<'ctx>,
 
     /// Original scenario specification
     spec: ScenarioSpec,
@@ -25,13 +25,13 @@ pub struct Z3Encoder<'ctx> {
 
     // Variable maps: actor_id -> Vec<variable> (one per time step)
     /// Longitudinal positions (m)
-    positions_x: HashMap<String, Vec<Real<'ctx>>>,
+    pub(crate) positions_x: HashMap<String, Vec<Real<'ctx>>>,
 
     /// Lateral positions (m)
     positions_y: HashMap<String, Vec<Real<'ctx>>>,
 
     /// Longitudinal velocities (m/s)
-    velocities_x: HashMap<String, Vec<Real<'ctx>>>,
+    pub(crate) velocities_x: HashMap<String, Vec<Real<'ctx>>>,
 
     /// Lateral velocities (m/s)
     velocities_y: HashMap<String, Vec<Real<'ctx>>>,
