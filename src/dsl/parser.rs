@@ -9,8 +9,7 @@ pub fn parse_yaml(yaml_content: &str) -> Result<ScenarioSpec> {
         serde_yaml::from_str(yaml_content).map_err(ScenarioGenError::YamlParse)?;
 
     // Validate the parsed specification
-    spec.validate()
-        .map_err(ScenarioGenError::InvalidSpec)?;
+    spec.validate().map_err(ScenarioGenError::InvalidSpec)?;
 
     Ok(spec)
 }

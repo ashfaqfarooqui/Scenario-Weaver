@@ -1,1 +1,152 @@
-//! LTL formula AST (Phase 3)
+//! LTL (Linear Temporal Logic) formula AST
+
+use std::fmt;
+
+/// LTL Formula Abstract Syntax Tree
+#[derive(Debug, Clone, PartialEq)]
+pub enum LTLFormula {
+    // Atomic propositions
+    Atom(Proposition),
+
+    // Boolean operators
+    Not(Box<LTLFormula>),
+    And(Box<LTLFormula>, Box<LTLFormula>),
+    Or(Box<LTLFormula>, Box<LTLFormula>),
+    Implies(Box<LTLFormula>, Box<LTLFormula>),
+
+    // Temporal operators
+    Next(Box<LTLFormula>),                   // X φ
+    Eventually(Box<LTLFormula>),             // F φ (◊φ)
+    Always(Box<LTLFormula>),                 // G φ (□φ)
+    Until(Box<LTLFormula>, Box<LTLFormula>), // φ U ψ
+}
+
+/// Atomic propositions about scenario state
+#[derive(Debug, Clone, PartialEq)]
+pub enum Proposition {
+    /// Actor is in a specific lane
+    InLane { actor: String, lane: usize },
+
+    /// Actor1 is ahead of Actor2 (longitudinally)
+    Ahead { actor1: String, actor2: String },
+
+    /// Longitudinal distance between actors > threshold
+    DistanceGT {
+        actor1: String,
+        actor2: String,
+        distance: f64,
+    },
+
+    /// Time-To-Collision between actors > threshold
+    TTCGT {
+        actor1: String,
+        actor2: String,
+        ttc: f64,
+    },
+}
+
+// Builder methods for ergonomic formula construction
+impl LTLFormula {
+    /// Logical AND
+    pub fn and(self, other: Self) -> Self {
+        LTLFormula::And(Box::new(self), Box::new(other))
+    }
+
+    /// Logical OR
+    pub fn or(self, other: Self) -> Self {
+        LTLFormula::Or(Box::new(self), Box::new(other))
+    }
+
+    /// Logical NOT
+    pub fn not(self) -> Self {
+        LTLFormula::Not(Box::new(self))
+    }
+
+    /// Implication
+    pub fn implies(self, other: Self) -> Self {
+        LTLFormula::Implies(Box::new(self), Box::new(other))
+    }
+
+    /// Eventually (F φ) - will be true at some future point
+    pub fn eventually(self) -> Self {
+        LTLFormula::Eventually(Box::new(self))
+    }
+
+    /// Always (G φ) - will be true at all future points
+    pub fn always(self) -> Self {
+        LTLFormula::Always(Box::new(self))
+    }
+
+    /// Until (φ U ψ) - φ holds until ψ becomes true
+    pub fn until(self, other: Self) -> Self {
+        LTLFormula::Until(Box::new(self), Box::new(other))
+    }
+
+    /// Next (X φ) - true in next time step
+    pub fn next(self) -> Self {
+        LTLFormula::Next(Box::new(self))
+    }
+}
+
+/// Display implementation for debugging
+impl fmt::Display for LTLFormula {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LTLFormula::Atom(p) => write!(f, "{:?}", p),
+            LTLFormula::Not(phi) => write!(f, "¬({})", phi),
+            LTLFormula::And(phi, psi) => write!(f, "({} ∧ {})", phi, psi),
+            LTLFormula::Or(phi, psi) => write!(f, "({} ∨ {})", phi, psi),
+            LTLFormula::Implies(phi, psi) => write!(f, "({} → {})", phi, psi),
+            LTLFormula::Next(phi) => write!(f, "X({})", phi),
+            LTLFormula::Eventually(phi) => write!(f, "F({})", phi),
+            LTLFormula::Always(phi) => write!(f, "G({})", phi),
+            LTLFormula::Until(phi, psi) => write!(f, "({} U {})", phi, psi),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_builder_methods() {
+        let p1 = LTLFormula::Atom(Proposition::InLane {
+            actor: "ego".to_string(),
+            lane: 1,
+        });
+        let p2 = LTLFormula::Atom(Proposition::InLane {
+            actor: "npc".to_string(),
+            lane: 0,
+        });
+
+        // Test and
+        let formula = p1.clone().and(p2.clone());
+        assert!(matches!(formula, LTLFormula::And(_, _)));
+
+        // Test eventually
+        let formula = p1.clone().eventually();
+        assert!(matches!(formula, LTLFormula::Eventually(_)));
+
+        // Test always
+        let formula = p1.clone().always();
+        assert!(matches!(formula, LTLFormula::Always(_)));
+
+        // Test complex formula
+        let formula = p1.clone().until(p2.clone()).eventually();
+        println!("Formula: {}", formula);
+    }
+
+    #[test]
+    fn test_display() {
+        let formula = LTLFormula::Atom(Proposition::InLane {
+            actor: "ego".to_string(),
+            lane: 1,
+        })
+        .eventually();
+
+        let display = format!("{}", formula);
+        assert!(display.contains("F("));
+        println!("Display: {}", display);
+    }
+}
