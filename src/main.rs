@@ -84,34 +84,12 @@ fn main() -> Result<()> {
 
     tracing::info!("Successfully generated {} scenario(s)", scenarios.len());
 
-    // Write output
+    // Write output - BOTH JSON and XOSC formats
     if scenarios.len() == 1 {
-        // Single scenario: write to single JSON file
-        let json = serde_json::to_string_pretty(&scenarios[0])?;
-        std::fs::write(&cli.output, json)?;
-        tracing::info!("Wrote scenario to: {:?}", cli.output);
-
-        // Print summary
+        write_single_scenario(&scenarios[0], &cli.output)?;
         print_scenario_summary(&scenarios[0]);
     } else {
-        // Multiple scenarios: create directory and write files
-        std::fs::create_dir_all(&cli.output)?;
-
-        for (i, scenario) in scenarios.iter().enumerate() {
-            let filename = format!("scenario_{}.json", i);
-            let path = cli.output.join(filename);
-            let json = serde_json::to_string_pretty(scenario)?;
-            std::fs::write(&path, json)?;
-            tracing::debug!("Wrote scenario {} to: {:?}", i, path);
-        }
-
-        tracing::info!(
-            "Wrote {} scenarios to directory: {:?}",
-            scenarios.len(),
-            cli.output
-        );
-
-        // Print summaries
+        write_multiple_scenarios(&scenarios, &cli.output)?;
         for (i, scenario) in scenarios.iter().enumerate() {
             println!("\n--- Scenario {} ---", i);
             print_scenario_summary(scenario);
@@ -119,6 +97,60 @@ fn main() -> Result<()> {
     }
 
     tracing::info!("Done!");
+    Ok(())
+}
+
+/// Write a single scenario in both JSON and XOSC formats
+fn write_single_scenario(
+    scenario: &carla_scenario_generator::scenario::model::Scenario,
+    output_path: &PathBuf,
+) -> Result<()> {
+    let base_path = output_path.with_extension("");
+
+    // Write JSON
+    let json_path = base_path.with_extension("json");
+    let json = serde_json::to_string_pretty(scenario)?;
+    std::fs::write(&json_path, json)?;
+    tracing::info!("Wrote JSON to: {:?}", json_path);
+
+    // Write XOSC
+    let xosc_path = base_path.with_extension("xosc");
+    let xosc_xml = carla_scenario_generator::scenario::export_to_xosc(scenario)?;
+    std::fs::write(&xosc_path, xosc_xml)?;
+    tracing::info!("Wrote XOSC to: {:?}", xosc_path);
+
+    Ok(())
+}
+
+/// Write multiple scenarios in both JSON and XOSC formats
+fn write_multiple_scenarios(
+    scenarios: &[carla_scenario_generator::scenario::model::Scenario],
+    output_dir: &PathBuf,
+) -> Result<()> {
+    std::fs::create_dir_all(output_dir)?;
+
+    for (i, scenario) in scenarios.iter().enumerate() {
+        let base = format!("scenario_{}", i);
+
+        // Write JSON
+        let json_path = output_dir.join(format!("{}.json", base));
+        let json = serde_json::to_string_pretty(scenario)?;
+        std::fs::write(&json_path, json)?;
+        tracing::debug!("Wrote JSON {} to: {:?}", i, json_path);
+
+        // Write XOSC
+        let xosc_path = output_dir.join(format!("{}.xosc", base));
+        let xosc_xml = carla_scenario_generator::scenario::export_to_xosc(scenario)?;
+        std::fs::write(&xosc_path, xosc_xml)?;
+        tracing::debug!("Wrote XOSC {} to: {:?}", i, xosc_path);
+    }
+
+    tracing::info!(
+        "Wrote {} scenario pairs (JSON+XOSC) to directory: {:?}",
+        scenarios.len(),
+        output_dir
+    );
+
     Ok(())
 }
 

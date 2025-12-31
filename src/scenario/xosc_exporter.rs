@@ -5,7 +5,7 @@
 //! basic vehicle entities and trajectory information in the description.
 
 use crate::error::Result;
-use crate::scenario::model::{ActorTrajectory, Scenario, State};
+use crate::scenario::model::{Scenario, State};
 use openscenario_rs::ScenarioBuilder;
 
 /// Export a scenario to OpenSCENARIO XML format
@@ -102,7 +102,7 @@ fn compute_heading(state: &State) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scenario::model::{Position, Velocity};
+    use crate::scenario::model::{ActorTrajectory, Position, Velocity};
 
     #[test]
     fn test_compute_heading() {
