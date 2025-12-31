@@ -23,16 +23,21 @@ pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
     let description = build_scenario_description(scenario);
 
     // Create basic OpenSCENARIO structure using the builder
-    let openscenario = ScenarioBuilder::new()
+    let mut builder = ScenarioBuilder::new()
         .with_header(&description, "CARLA Scenario Generator")
-        .with_entities()
-        .build()
-        .map_err(|e| {
-            crate::error::ScenarioGenError::XoscExport(format!(
-                "Failed to build OpenSCENARIO structure: {}",
-                e
-            ))
-        })?;
+        .with_entities();
+
+    // Add vehicle entity for each actor
+    for actor in &scenario.actors {
+        builder = builder.add_vehicle(&actor.id, |vehicle| vehicle.car());
+    }
+
+    let openscenario = builder.build().map_err(|e| {
+        crate::error::ScenarioGenError::XoscExport(format!(
+            "Failed to build OpenSCENARIO structure: {}",
+            e
+        ))
+    })?;
 
     // Serialize to XML string
     let xml = openscenario_rs::serialize_to_string(&openscenario).map_err(|e| {
