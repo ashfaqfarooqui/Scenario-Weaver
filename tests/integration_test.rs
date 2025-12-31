@@ -263,14 +263,8 @@ fn test_xosc_export() {
         xosc_xml.contains(&scenario.scenario_id),
         "XOSC should contain scenario ID"
     );
-    assert!(
-        xosc_xml.contains("ego"),
-        "XOSC should mention ego actor"
-    );
-    assert!(
-        xosc_xml.contains("npc"),
-        "XOSC should mention npc actor"
-    );
+    assert!(xosc_xml.contains("ego"), "XOSC should mention ego actor");
+    assert!(xosc_xml.contains("npc"), "XOSC should mention npc actor");
 
     // Verify structure contains FileHeader
     assert!(
@@ -291,7 +285,10 @@ fn test_xosc_export_multiple() {
     let scenarios = carla_scenario_generator::generate_multiple_scenarios(&yaml_content, 3)
         .expect("Should generate multiple scenarios successfully");
 
-    assert!(!scenarios.is_empty(), "Should generate at least one scenario");
+    assert!(
+        !scenarios.is_empty(),
+        "Should generate at least one scenario"
+    );
 
     // Export each scenario to XOSC
     for (i, scenario) in scenarios.iter().enumerate() {

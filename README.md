@@ -144,7 +144,27 @@ num_scenarios: 1          # generate 1 scenario (or use -n flag)
 
 ## Output Format
 
-Generated scenarios are JSON files with complete actor trajectories:
+The generator automatically produces scenarios in **two formats**: JSON and OpenSCENARIO (.xosc).
+
+### Dual Output
+
+**Single scenario mode:**
+```bash
+cargo run --release -- -i examples/cut_in_left.yaml -o output
+# Creates: output.json + output.xosc
+```
+
+**Multiple scenario mode:**
+```bash
+cargo run --release -- -i examples/cut_in_left.yaml -o scenarios/ -n 5
+# Creates: scenarios/scenario_0.json + scenario_0.xosc
+#          scenarios/scenario_1.json + scenario_1.xosc
+#          ... (5 pairs total)
+```
+
+### JSON Format
+
+Complete actor trajectories with validation metrics:
 
 ```json
 {
@@ -179,6 +199,27 @@ Generated scenarios are JSON files with complete actor trajectories:
     "safety_violations": []
   }
 }
+```
+
+### OpenSCENARIO Format (.xosc)
+
+Valid OpenSCENARIO XML files for simulator compatibility:
+- Standard OpenSCENARIO 1.0+ structure
+- File header with scenario metadata
+- Vehicle entities for all actors
+- Trajectory data embedded in description field
+- Compatible with CARLA and other OpenSCENARIO-compliant simulators
+
+**Programmatic export:**
+```rust
+use carla_scenario_generator::{generate_single_scenario, export_scenario_to_xosc};
+
+let yaml = std::fs::read_to_string("scenario.yaml")?;
+let scenario = generate_single_scenario(&yaml)?;
+
+// Export to XOSC
+let xosc_xml = export_scenario_to_xosc(&scenario)?;
+std::fs::write("scenario.xosc", xosc_xml)?;
 ```
 
 ## CLI Options

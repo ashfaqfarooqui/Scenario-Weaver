@@ -157,10 +157,7 @@ impl LTLGenerator {
             })
             .negate())
         } else {
-            constraints
-                .into_iter()
-                .reduce(|acc, c| acc.and(c))
-                .unwrap()
+            constraints.into_iter().reduce(|acc, c| acc.and(c)).unwrap()
         }
     }
 }
