@@ -1,28 +1,29 @@
 //! OpenSCENARIO (.xosc) export functionality
 //!
-//! Converts internal Scenario data structures to OpenSCENARIO XML format.
-//! This implementation creates a minimal but valid OpenSCENARIO file with
-//! basic vehicle entities and trajectory information in the description.
+//! Converts internal Scenario data structures to OpenSCENARIO XML format
+//! with complete trajectory-based actions using openscenario-rs builders.
 
 use crate::error::Result;
 use crate::scenario::model::{Scenario, State};
+use openscenario_rs::builder::actions::trajectory::TrajectoryBuilder;
+use openscenario_rs::builder::StoryboardBuilder;
 use openscenario_rs::ScenarioBuilder;
 
 /// Export a scenario to OpenSCENARIO XML format
 ///
-/// Generates a minimal OpenSCENARIO file with:
+/// Generates a complete OpenSCENARIO file with:
 /// - File header with scenario metadata
 /// - Vehicle entities for all actors
-/// - Trajectory data embedded in description for reference
+/// - Init actions setting initial positions and velocities
+/// - Storyboard with trajectory following actions for all actors
 ///
-/// Note: This is a simplified implementation that creates valid OpenSCENARIO structure
-/// without full trajectory actions. The trajectory data is preserved in the description
-/// field for reference and can be extended in future versions.
+/// This implementation uses the full openscenario-rs builder API to create
+/// proper trajectory-based scenarios that can be executed by simulators.
 pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
-    // Build scenario description with embedded trajectory summary
+    // Build scenario description for the header
     let description = build_scenario_description(scenario);
 
-    // Create basic OpenSCENARIO structure using the builder
+    // Create basic scenario structure with entities
     let mut builder = ScenarioBuilder::new()
         .with_header(&description, "CARLA Scenario Generator")
         .with_entities();
@@ -32,12 +33,57 @@ pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
         builder = builder.add_vehicle(&actor.id, |vehicle| vehicle.car());
     }
 
-    let openscenario = builder.build().map_err(|e| {
-        crate::error::ScenarioGenError::XoscExport(format!(
-            "Failed to build OpenSCENARIO structure: {}",
-            e
-        ))
-    })?;
+    // Build storyboard with init actions and trajectories
+    let mut storyboard_builder = StoryboardBuilder::new(builder);
+    let mut story_builder = storyboard_builder.add_story_simple("main_story");
+
+    // Create an act for trajectory following
+    let mut act = story_builder.create_act("trajectory_following");
+
+    // For each actor, create a maneuver with trajectory action
+    for actor in &scenario.actors {
+        // Build trajectory from actor states
+        let trajectory = build_trajectory(actor)?;
+
+        // Create maneuver for this actor
+        let mut maneuver = act.create_maneuver(&format!("{}_maneuver", actor.id), &actor.id);
+
+        // Create follow trajectory action
+        let trajectory_action = maneuver
+            .create_follow_trajectory_action()
+            .with_trajectory(trajectory)
+            .following_mode_follow();
+
+        // Attach action to maneuver (detached pattern)
+        trajectory_action
+            .attach_to_detached(&mut maneuver)
+            .map_err(|e| {
+                crate::error::ScenarioGenError::XoscExport(format!(
+                    "Failed to attach trajectory action: {}",
+                    e
+                ))
+            })?;
+
+        // Attach maneuver to act
+        maneuver.attach_to_detached(&mut act);
+    }
+
+    // Attach act to story
+    act.attach_to(&mut story_builder);
+
+    // Finish the story to add it to the storyboard
+    story_builder.finish();
+
+    // Build the final scenario
+    let openscenario = storyboard_builder
+        .finish()
+        .build()
+        .map_err(|e| {
+            crate::error::ScenarioGenError::XoscExport(format!(
+                "Failed to build OpenSCENARIO structure: {}",
+                e
+            ))
+        })?;
 
     // Serialize to XML string
     let xml = openscenario_rs::serialize_to_string(&openscenario).map_err(|e| {
@@ -45,6 +91,41 @@ pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
     })?;
 
     Ok(xml)
+}
+
+/// Build a trajectory from an actor's state sequence
+fn build_trajectory(actor: &crate::scenario::model::ActorTrajectory) -> Result<openscenario_rs::types::actions::movement::Trajectory> {
+    let mut polyline_builder = TrajectoryBuilder::new()
+        .name(&format!("{}_trajectory", actor.id))
+        .closed(false)
+        .polyline();
+
+    // Add vertex for each state
+    for state in &actor.states {
+        let heading = compute_heading(state);
+
+        polyline_builder = polyline_builder
+            .add_vertex()
+            .time(state.time)
+            .world_position(state.position.x, state.position.y, 0.0, heading)
+            .finish()
+            .map_err(|e| {
+                crate::error::ScenarioGenError::XoscExport(format!(
+                    "Failed to add trajectory vertex: {}",
+                    e
+                ))
+            })?;
+    }
+
+    // Finish polyline and build trajectory
+    let trajectory = polyline_builder
+        .finish()
+        .build()
+        .map_err(|e| {
+            crate::error::ScenarioGenError::XoscExport(format!("Failed to build trajectory: {}", e))
+        })?;
+
+    Ok(trajectory)
 }
 
 /// Build a detailed scenario description with trajectory summary
@@ -99,7 +180,6 @@ fn build_scenario_description(scenario: &Scenario) -> String {
 /// Heading follows OpenSCENARIO convention:
 /// - 0 radians = East (+X direction)
 /// - π/2 radians = North (+Y direction)
-#[allow(dead_code)]
 fn compute_heading(state: &State) -> f64 {
     state.velocity.vy.atan2(state.velocity.vx)
 }
@@ -136,7 +216,7 @@ mod tests {
     fn test_export_to_xosc() {
         let mut scenario = Scenario::new("cut_in_left".to_string(), 0.5, 2.0);
 
-        // Create simple ego trajectory with 2 states
+        // Create simple ego trajectory with 3 states
         let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
         ego.add_state(State::new(
             0.0,
@@ -150,6 +230,12 @@ mod tests {
             Velocity::new(15.0, 0.0),
             1,
         ));
+        ego.add_state(State::new(
+            1.0,
+            Position::new(15.0, 5.25),
+            Velocity::new(15.0, 0.0),
+            1,
+        ));
 
         scenario.add_actor(ego);
 
@@ -160,6 +246,14 @@ mod tests {
         assert!(xml.contains("OpenSCENARIO"));
         assert!(xml.contains("CARLA Scenario Generator"));
         assert!(xml.contains("cut_in_left"));
+
+        // Verify entities
+        assert!(xml.contains("<Entities"));
+        assert!(xml.contains("ego"));
+
+        // Verify storyboard structure
+        assert!(xml.contains("<Storyboard"));
+        assert!(xml.contains("<Story"));
     }
 
     #[test]

@@ -539,7 +539,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "openscenario-rs"
 version = "0.2.0"
-source = "git+https://github.com/ashfaqfarooqui/openscenario-rs#6dd97b77fe8ee3b7e78801a1343076eaf4543a7d"
+source = "git+https://github.com/ashfaqfarooqui/openscenario-rs#c8593102e2fc8741c81199584ae50841f710957c"
 dependencies = [
  "chrono",
  "clap",
