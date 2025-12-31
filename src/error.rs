@@ -25,6 +25,9 @@ pub enum ScenarioGenError {
     #[error("Scenario extraction failed: {0}")]
     ExtractionFailed(String),
 
+    #[error("OpenSCENARIO export failed: {0}")]
+    XoscExport(String),
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }
