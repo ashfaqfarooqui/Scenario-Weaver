@@ -97,3 +97,30 @@ pub fn generate_multiple_scenarios(
     // Use multi-solve module to generate multiple scenarios
     solver::multi_solve::generate_scenarios(&spec, &ltl_formula, num_scenarios)
 }
+
+/// Export a scenario to OpenSCENARIO XML format
+///
+/// Converts an internally generated scenario to OpenSCENARIO (.xosc) format
+/// for use with simulation platforms like CARLA.
+///
+/// # Arguments
+/// * `scenario` - The scenario to export
+///
+/// # Returns
+/// XML string in OpenSCENARIO format
+///
+/// # Errors
+/// Returns error if XML serialization fails
+///
+/// # Example
+/// ```no_run
+/// use carla_scenario_generator::{generate_single_scenario, export_scenario_to_xosc};
+///
+/// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
+/// let scenario = generate_single_scenario(&yaml).unwrap();
+/// let xosc_xml = export_scenario_to_xosc(&scenario).unwrap();
+/// std::fs::write("scenario.xosc", xosc_xml).unwrap();
+/// ```
+pub fn export_scenario_to_xosc(scenario: &Scenario) -> Result<String> {
+    scenario::export_to_xosc(scenario)
+}
