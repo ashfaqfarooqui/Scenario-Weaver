@@ -225,3 +225,107 @@ fn test_scenario_json_serialization() {
 
     println!("JSON serialization test passed");
 }
+
+#[test]
+fn test_xosc_export() {
+    // Generate a scenario
+    let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
+        .expect("Should read example YAML file");
+
+    let scenario = carla_scenario_generator::generate_single_scenario(&yaml_content)
+        .expect("Should generate scenario successfully");
+
+    // Export to XOSC
+    let xosc_xml = carla_scenario_generator::export_scenario_to_xosc(&scenario)
+        .expect("Should export to XOSC format");
+
+    // Validate XML structure
+    assert!(!xosc_xml.is_empty(), "XOSC XML should not be empty");
+    assert!(
+        xosc_xml.contains("<?xml"),
+        "XOSC should contain XML declaration"
+    );
+    assert!(
+        xosc_xml.contains("OpenSCENARIO"),
+        "XOSC should contain OpenSCENARIO root element"
+    );
+    assert!(
+        xosc_xml.contains("CARLA Scenario Generator"),
+        "XOSC should contain author info"
+    );
+
+    // Verify scenario-specific content in description
+    assert!(
+        xosc_xml.contains("cut_in_left"),
+        "XOSC should mention scenario type"
+    );
+    assert!(
+        xosc_xml.contains(&scenario.scenario_id),
+        "XOSC should contain scenario ID"
+    );
+    assert!(
+        xosc_xml.contains("ego"),
+        "XOSC should mention ego actor"
+    );
+    assert!(
+        xosc_xml.contains("npc"),
+        "XOSC should mention npc actor"
+    );
+
+    // Verify structure contains FileHeader
+    assert!(
+        xosc_xml.contains("FileHeader"),
+        "XOSC should have FileHeader element"
+    );
+
+    println!("XOSC export test passed");
+    println!("Generated XML length: {} bytes", xosc_xml.len());
+}
+
+#[test]
+fn test_xosc_export_multiple() {
+    // Generate multiple scenarios
+    let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
+        .expect("Should read example YAML file");
+
+    let scenarios = carla_scenario_generator::generate_multiple_scenarios(&yaml_content, 3)
+        .expect("Should generate multiple scenarios successfully");
+
+    assert!(!scenarios.is_empty(), "Should generate at least one scenario");
+
+    // Export each scenario to XOSC
+    for (i, scenario) in scenarios.iter().enumerate() {
+        let xosc_xml = carla_scenario_generator::export_scenario_to_xosc(scenario)
+            .expect("Should export scenario to XOSC");
+
+        // Validate each XOSC output
+        assert!(
+            xosc_xml.contains("OpenSCENARIO"),
+            "Scenario {} XOSC should contain OpenSCENARIO element",
+            i
+        );
+        assert!(
+            xosc_xml.contains(&scenario.scenario_id),
+            "Scenario {} XOSC should contain its scenario ID",
+            i
+        );
+
+        println!("Scenario {} XOSC export: {} bytes", i, xosc_xml.len());
+    }
+
+    // Verify XOSC outputs are different (if we have multiple scenarios)
+    if scenarios.len() >= 2 {
+        let xosc0 = carla_scenario_generator::export_scenario_to_xosc(&scenarios[0])
+            .expect("Should export scenario 0");
+        let xosc1 = carla_scenario_generator::export_scenario_to_xosc(&scenarios[1])
+            .expect("Should export scenario 1");
+
+        assert_ne!(
+            xosc0, xosc1,
+            "Different scenarios should produce different XOSC outputs"
+        );
+        println!("Verified XOSC outputs are unique");
+    }
+
+    println!("Multiple XOSC export test passed");
+}
