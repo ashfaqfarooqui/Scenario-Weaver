@@ -1,9 +1,9 @@
 //! DSL data structures for scenario specification
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Constraint enforcement mode
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ConstraintMode {
     /// Enforce constraint: G(constraint) - must hold at all times
@@ -21,7 +21,7 @@ impl Default for ConstraintMode {
 }
 
 /// Configuration for how constraints should be enforced
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ConstraintModes {
     /// Detailed per-constraint configuration
@@ -71,7 +71,7 @@ impl ConstraintModes {
 }
 
 /// Root scenario specification
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ScenarioSpec {
     pub scenario_type: ScenarioType,
     pub time_step: f64, // seconds per discretization step
@@ -87,7 +87,7 @@ pub struct ScenarioSpec {
     pub constraint_modes: ConstraintModes,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ScenarioType {
     CutInLeft,
@@ -102,7 +102,7 @@ impl std::fmt::Display for ScenarioType {
 }
 
 /// Ego vehicle specification (supports ranges)
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ActorSpec {
     pub lane: usize,
     pub position: ValueOrRange, // meters from start (can be fixed or range)
@@ -110,7 +110,7 @@ pub struct ActorSpec {
 }
 
 /// NPC vehicle specification (with ranges for solver)
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct NpcSpec {
     pub lane: usize,
     pub position: ValueOrRange,    // starting position
@@ -119,7 +119,7 @@ pub struct NpcSpec {
 }
 
 /// Value that can be either fixed or a range for Z3 to solve
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ValueOrRange {
     Value(f64),
@@ -219,6 +219,13 @@ impl ScenarioSpec {
             }
         }
 
+        // Warn if violating constraints
+        if self.constraint_modes.min_ttc() == ConstraintMode::Violate
+            || self.constraint_modes.min_distance() == ConstraintMode::Violate
+        {
+            eprintln!("WARNING: Adversarial mode enabled - constraints will be violated");
+        }
+
         Ok(())
     }
 
@@ -274,6 +281,7 @@ mod tests {
             min_distance: 5.0,
             lane_width: 3.5,
             num_scenarios: 1,
+            constraint_modes: ConstraintModes::default(),
         }
     }
 }

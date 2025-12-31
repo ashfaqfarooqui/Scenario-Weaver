@@ -44,6 +44,7 @@ mod tests {
             min_distance: 5.0,
             lane_width: 3.5,
             num_scenarios: 1,
+            constraint_modes: crate::dsl::types::ConstraintModes::default(),
         }
     }
 

@@ -25,6 +25,10 @@ struct Cli {
     /// Enable verbose logging
     #[arg(short, long)]
     verbose: bool,
+
+    /// Override constraint modes to violate all safety constraints
+    #[arg(long)]
+    adversarial: bool,
 }
 
 fn main() -> Result<()> {
@@ -48,19 +52,34 @@ fn main() -> Result<()> {
     // Read YAML file
     let yaml_content = std::fs::read_to_string(&cli.input)?;
 
-    // Parse to get num_scenarios (either from CLI or YAML)
-    let spec = carla_scenario_generator::dsl::parser::parse_yaml(&yaml_content)?;
+    // Parse specification
+    let mut spec = carla_scenario_generator::dsl::parser::parse_yaml(&yaml_content)?;
+
+    // Apply CLI override for adversarial mode
+    if cli.adversarial {
+        use carla_scenario_generator::dsl::types::ConstraintModes;
+        tracing::warn!("CLI override: Setting all constraints to VIOLATE mode");
+        spec.constraint_modes = ConstraintModes::Shorthand("violate_all".to_string());
+    }
+
     let num_scenarios = cli.num.unwrap_or(spec.num_scenarios);
 
     tracing::info!("Generating {} scenario(s)...", num_scenarios);
 
+    // Re-serialize spec to YAML if modified
+    let final_yaml = if cli.adversarial {
+        serde_yaml::to_string(&spec)?
+    } else {
+        yaml_content
+    };
+
     // Generate scenarios
     let scenarios = if num_scenarios == 1 {
         vec![carla_scenario_generator::generate_single_scenario(
-            &yaml_content,
+            &final_yaml,
         )?]
     } else {
-        carla_scenario_generator::generate_multiple_scenarios(&yaml_content, num_scenarios)?
+        carla_scenario_generator::generate_multiple_scenarios(&final_yaml, num_scenarios)?
     };
 
     tracing::info!("Successfully generated {} scenario(s)", scenarios.len());

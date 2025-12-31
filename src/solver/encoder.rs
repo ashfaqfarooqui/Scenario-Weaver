@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use z3::ast::{Ast, Int, Real};
 use z3::{Context, SatResult, Solver};
 
-use crate::dsl::types::ScenarioSpec;
+use crate::dsl::types::{ConstraintMode, ScenarioSpec};
 
 /// Z3 SMT encoder for scenario constraints
 ///
@@ -495,9 +495,8 @@ impl<'ctx> Z3Encoder<'ctx> {
 
     /// Encode all safety constraints (Phase 8)
     ///
-    /// This includes:
-    /// 1. TTC constraints for all time steps
-    /// 2. Minimum distance constraints for all time steps
+    /// When constraints are "enforced", we add direct Z3 assertions at each timestep.
+    /// When "violated" or "ignored", we rely on LTL encoding only.
     pub fn encode_safety(&mut self) {
         let min_ttc = self.spec.min_ttc;
         let min_distance = self.spec.min_distance;
@@ -505,15 +504,22 @@ impl<'ctx> Z3Encoder<'ctx> {
         let ego = "ego";
         let npc = "npc";
 
-        for t in 0..=self.horizon {
-            // TTC constraint (already handled by LTL encoding, but we can add direct constraints)
-            let ttc_constraint = self.encode_ttc_constraint(ego, npc, min_ttc, t);
-            self.solver.assert(&ttc_constraint);
+        // Only add direct safety assertions if constraints are enforced
+        // For violate/ignore modes, the LTL formula handles it
 
-            // Minimum distance constraint when in same lane
-            let distance_constraint =
-                self.encode_min_distance_constraint(ego, npc, min_distance, t);
-            self.solver.assert(&distance_constraint);
+        if self.spec.constraint_modes.min_ttc() == ConstraintMode::Enforce {
+            for t in 0..=self.horizon {
+                let ttc_constraint = self.encode_ttc_constraint(ego, npc, min_ttc, t);
+                self.solver.assert(&ttc_constraint);
+            }
+        }
+
+        if self.spec.constraint_modes.min_distance() == ConstraintMode::Enforce {
+            for t in 0..=self.horizon {
+                let distance_constraint =
+                    self.encode_min_distance_constraint(ego, npc, min_distance, t);
+                self.solver.assert(&distance_constraint);
+            }
         }
     }
 
@@ -778,6 +784,7 @@ mod tests {
             min_distance: 5.0,
             lane_width: 3.5,
             num_scenarios: 1,
+            constraint_modes: crate::dsl::types::ConstraintModes::default(),
         }
     }
 

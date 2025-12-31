@@ -4,11 +4,13 @@ Automatically generate diverse, safety-critical driving test scenarios from high
 
 ## Features
 
-- Declarative YAML-based scenario specifications
-- Automatic constraint solving with Z3
-- Built-in safety validation (TTC, minimum distance)
-- Multiple diverse scenario generation
-- JSON output compatible with CARLA simulator
+- **Declarative YAML-based scenario specifications**
+- **Automatic constraint solving with Z3**
+- **Built-in safety validation** (TTC, minimum distance)
+- **Multiple diverse scenario generation**
+- **Adversarial scenario generation** - Generate scenarios that violate safety constraints for testing edge cases
+- **Per-constraint control** - Enforce, violate, or ignore each constraint independently
+- **JSON output** compatible with CARLA simulator
 
 ## Quick Start
 
@@ -49,6 +51,63 @@ This creates `scenarios/scenario_0.json`, `scenarios/scenario_1.json`, etc.
 ```bash
 cargo run --release -- -i examples/cut_in_left.yaml -o output.json -v
 ```
+
+## Adversarial Scenario Generation (NEW!)
+
+Generate scenarios that **intentionally violate safety constraints** to test autonomous vehicle edge cases and failure modes.
+
+### Quick Example - CLI Override
+
+```bash
+# Generate scenarios that violate ALL safety constraints
+cargo run --release -- -i examples/cut_in_left.yaml -o adversarial/ --adversarial
+```
+
+### YAML Configuration
+
+Control which constraints to violate:
+
+```yaml
+# examples/cut_in_left_adversarial_ttc.yaml
+scenario_type: cut_in_left
+# ... standard config ...
+
+min_ttc: 3.0
+min_distance: 5.0
+
+# Per-constraint modes: enforce, violate, or ignore
+constraint_modes:
+  min_ttc: violate       # Find TTC violations (< 3.0s)
+  min_distance: enforce  # Maintain safe distance (≥ 5.0m)
+
+num_scenarios: 10
+```
+
+**Result:** 10 scenarios where TTC is violated but distance is maintained.
+
+### Shorthand Mode
+
+```yaml
+# Violate all constraints
+constraint_modes: violate_all
+
+# Ignore all constraints (maximum freedom)
+constraint_modes: ignore_all
+
+# Enforce all constraints (default, can be omitted)
+constraint_modes: enforce_all
+```
+
+### Use Cases
+
+- **Test emergency systems** - Validate braking/collision avoidance
+- **Find edge cases** - Discover worst-case scenarios
+- **ML training data** - Generate diverse datasets with violations
+- **Compliance testing** - Document safety system behavior under hazards (ISO 26262)
+
+**📖 See [README_ADVERSARIAL.md](README_ADVERSARIAL.md) for detailed documentation, architecture, and extension guide.**
+
+---
 
 ## YAML Specification Format
 
@@ -132,6 +191,7 @@ Options:
   -o, --output <PATH>    Output JSON file (or directory for multiple scenarios)
   -n, --num <NUM>        Number of scenarios to generate (overrides YAML)
   -v, --verbose          Enable verbose logging
+      --adversarial      Override constraint modes to violate all safety constraints
   -h, --help             Print help
   -V, --version          Print version
 ```
@@ -178,6 +238,7 @@ The generator pipeline:
 
 ## Documentation
 
+- **[README_ADVERSARIAL.md](README_ADVERSARIAL.md)**: Complete guide to adversarial scenario generation (uses, architecture, extensions)
 - `Implementation_plan.md`: Master implementation plan
 - `design_decisions.md`: Design rationale and alternatives
 - `plans/`: Phase-by-phase implementation guides

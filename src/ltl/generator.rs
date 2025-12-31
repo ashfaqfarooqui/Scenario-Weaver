@@ -1,6 +1,6 @@
 //! LTL formula generation from DSL specifications
 
-use crate::dsl::types::{ScenarioSpec, ScenarioType};
+use crate::dsl::types::{ConstraintMode, ScenarioSpec, ScenarioType};
 use crate::ltl::formula::{LTLFormula, Proposition};
 
 pub struct LTLGenerator;
@@ -80,28 +80,88 @@ impl LTLGenerator {
         eventually_in_lane.and(stay_until_change)
     }
 
-    /// Safety constraints
+    /// Safety constraints with configurable modes
     ///
-    /// - Always: TTC > min_ttc
-    /// - Always: Distance > min_distance
+    /// - Enforce: G(constraint) - always maintain safety
+    /// - Violate: F(NOT constraint) - eventually violate safety
+    /// - Ignore: constraint not added
     fn safety_constraints(spec: &ScenarioSpec, ego: &str, npc: &str) -> LTLFormula {
-        // Always maintain minimum TTC: G(TTC > min_ttc)
-        let ttc_constraint = LTLFormula::Atom(Proposition::TTCGT {
-            actor1: ego.to_string(),
-            actor2: npc.to_string(),
-            ttc: spec.min_ttc,
-        })
-        .always();
+        let mut constraints = Vec::new();
 
-        // Always maintain minimum distance: G(Distance > min_distance)
-        let distance_constraint = LTLFormula::Atom(Proposition::DistanceGT {
-            actor1: ego.to_string(),
-            actor2: npc.to_string(),
-            distance: spec.min_distance,
-        })
-        .always();
+        // TTC constraint
+        match spec.constraint_modes.min_ttc() {
+            ConstraintMode::Enforce => {
+                // G(TTC > min_ttc)
+                let ttc_constraint = LTLFormula::Atom(Proposition::TTCGT {
+                    actor1: ego.to_string(),
+                    actor2: npc.to_string(),
+                    ttc: spec.min_ttc,
+                })
+                .always();
+                constraints.push(ttc_constraint);
+            }
+            ConstraintMode::Violate => {
+                // F(NOT (TTC > min_ttc))
+                let ttc_violation = LTLFormula::Atom(Proposition::TTCGT {
+                    actor1: ego.to_string(),
+                    actor2: npc.to_string(),
+                    ttc: spec.min_ttc,
+                })
+                .negate()
+                .eventually();
+                constraints.push(ttc_violation);
+            }
+            ConstraintMode::Ignore => {
+                // Don't add any constraint
+            }
+        }
 
-        ttc_constraint.and(distance_constraint)
+        // Distance constraint
+        match spec.constraint_modes.min_distance() {
+            ConstraintMode::Enforce => {
+                // G(Distance > min_distance)
+                let distance_constraint = LTLFormula::Atom(Proposition::DistanceGT {
+                    actor1: ego.to_string(),
+                    actor2: npc.to_string(),
+                    distance: spec.min_distance,
+                })
+                .always();
+                constraints.push(distance_constraint);
+            }
+            ConstraintMode::Violate => {
+                // F(NOT (Distance > min_distance))
+                let distance_violation = LTLFormula::Atom(Proposition::DistanceGT {
+                    actor1: ego.to_string(),
+                    actor2: npc.to_string(),
+                    distance: spec.min_distance,
+                })
+                .negate()
+                .eventually();
+                constraints.push(distance_violation);
+            }
+            ConstraintMode::Ignore => {
+                // Don't add any constraint
+            }
+        }
+
+        // Combine all constraints with AND
+        if constraints.is_empty() {
+            // Return a tautology (always true)
+            LTLFormula::Atom(Proposition::InLane {
+                actor: ego.to_string(),
+                lane: spec.ego.lane,
+            })
+            .or(LTLFormula::Atom(Proposition::InLane {
+                actor: ego.to_string(),
+                lane: spec.ego.lane,
+            })
+            .negate())
+        } else {
+            constraints
+                .into_iter()
+                .reduce(|acc, c| acc.and(c))
+                .unwrap()
+        }
     }
 }
 
@@ -130,6 +190,7 @@ mod tests {
             min_distance: 5.0,
             lane_width: 3.5,
             num_scenarios: 1,
+            constraint_modes: crate::dsl::types::ConstraintModes::default(),
         }
     }
 
