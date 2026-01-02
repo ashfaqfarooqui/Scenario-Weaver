@@ -49,6 +49,9 @@ pub struct State {
     /// Velocity
     pub velocity: Velocity,
 
+    /// Acceleration
+    pub acceleration: Acceleration,
+
     /// Current lane
     pub lane: usize,
 }
@@ -73,6 +76,16 @@ pub struct Velocity {
     pub vy: f64,
 }
 
+/// 2D acceleration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Acceleration {
+    /// Longitudinal acceleration (m/s²)
+    pub ax: f64,
+
+    /// Lateral acceleration (m/s², for lane changes)
+    pub ay: f64,
+}
+
 /// Validation information for the scenario
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationInfo {
@@ -88,6 +101,18 @@ pub struct ValidationInfo {
     /// List of any safety violations detected
     #[serde(default)]
     pub safety_violations: Vec<String>,
+
+    /// Maximum acceleration observed (m/s²)
+    #[serde(default)]
+    pub max_acceleration: f64,
+
+    /// Maximum deceleration observed (m/s², negative value)
+    #[serde(default)]
+    pub max_deceleration: f64,
+
+    /// List of acceleration constraint violations
+    #[serde(default)]
+    pub acceleration_violations: Vec<String>,
 }
 
 impl Scenario {
@@ -104,6 +129,9 @@ impl Scenario {
                 min_distance: 999.0,
                 all_constraints_satisfied: false,
                 safety_violations: Vec::new(),
+                max_acceleration: 0.0,
+                max_deceleration: 0.0,
+                acceleration_violations: Vec::new(),
             },
         }
     }
@@ -154,11 +182,18 @@ impl ActorTrajectory {
 
 impl State {
     /// Create a new state
-    pub fn new(time: f64, position: Position, velocity: Velocity, lane: usize) -> Self {
+    pub fn new(
+        time: f64,
+        position: Position,
+        velocity: Velocity,
+        acceleration: Acceleration,
+        lane: usize,
+    ) -> Self {
         Self {
             time,
             position,
             velocity,
+            acceleration,
             lane,
         }
     }
@@ -198,6 +233,18 @@ impl Velocity {
     }
 }
 
+impl Acceleration {
+    /// Create a new acceleration
+    pub fn new(ax: f64, ay: f64) -> Self {
+        Self { ax, ay }
+    }
+
+    /// Compute acceleration magnitude
+    pub fn magnitude(&self) -> f64 {
+        (self.ax.powi(2) + self.ay.powi(2)).sqrt()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,7 +263,13 @@ mod tests {
     fn test_actor_trajectory() {
         let mut traj = ActorTrajectory::new("ego".to_string(), "ego".to_string());
 
-        let state = State::new(0.0, Position::new(50.0, 5.25), Velocity::new(15.0, 0.0), 1);
+        let state = State::new(
+            0.0,
+            Position::new(50.0, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        );
 
         traj.add_state(state);
         assert_eq!(traj.num_steps(), 1);
@@ -248,6 +301,7 @@ mod tests {
             0.0,
             Position::new(50.0, 5.25),
             Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
             1,
         ));
 

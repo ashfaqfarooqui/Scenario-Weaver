@@ -30,6 +30,8 @@ pub enum ConstraintModes {
         min_ttc: ConstraintMode,
         #[serde(default)]
         min_distance: ConstraintMode,
+        #[serde(default)]
+        max_acceleration: ConstraintMode,
     },
     /// Shorthand: "violate_all", "ignore_all", "enforce_all"
     Shorthand(String),
@@ -40,6 +42,7 @@ impl Default for ConstraintModes {
         ConstraintModes::Detailed {
             min_ttc: ConstraintMode::Enforce,
             min_distance: ConstraintMode::Enforce,
+            max_acceleration: ConstraintMode::Enforce,
         }
     }
 }
@@ -68,6 +71,18 @@ impl ConstraintModes {
             },
         }
     }
+
+    /// Get the mode for max_acceleration constraint
+    pub fn max_acceleration(&self) -> ConstraintMode {
+        match self {
+            ConstraintModes::Detailed { max_acceleration, .. } => *max_acceleration,
+            ConstraintModes::Shorthand(s) => match s.as_str() {
+                "violate_all" => ConstraintMode::Violate,
+                "ignore_all" => ConstraintMode::Ignore,
+                _ => ConstraintMode::Enforce,
+            },
+        }
+    }
 }
 
 /// Root scenario specification
@@ -85,6 +100,12 @@ pub struct ScenarioSpec {
     /// Constraint enforcement modes (optional, defaults to enforce_all)
     #[serde(default)]
     pub constraint_modes: ConstraintModes,
+    /// Optional global maximum acceleration constraint (m/s²)
+    #[serde(default)]
+    pub max_acceleration: Option<f64>,
+    /// Optional global maximum deceleration constraint (m/s², should be negative)
+    #[serde(default)]
+    pub max_deceleration: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -105,8 +126,9 @@ impl std::fmt::Display for ScenarioType {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ActorSpec {
     pub lane: usize,
-    pub position: ValueOrRange, // meters from start (can be fixed or range)
-    pub speed: ValueOrRange,    // m/s (can be fixed or range)
+    pub position: ValueOrRange,     // meters from start (can be fixed or range)
+    pub speed: ValueOrRange,        // m/s (can be fixed or range)
+    pub acceleration: ValueOrRange, // m/s² (can be fixed or range)
 }
 
 /// NPC vehicle specification (with ranges for solver)
@@ -116,6 +138,7 @@ pub struct NpcSpec {
     pub position: ValueOrRange,    // starting position
     pub speed: ValueOrRange,       // velocity
     pub cut_in_time: ValueOrRange, // when to perform lane change (seconds)
+    pub acceleration: ValueOrRange, // m/s² (can be fixed or range)
 }
 
 /// Value that can be either fixed or a range for Z3 to solve
@@ -185,6 +208,27 @@ impl ScenarioSpec {
         }
         if self.npc.speed.min() <= 0.0 {
             return Err("npc speed must be positive".to_string());
+        }
+
+        // Validate acceleration ranges
+        if let Some(max_accel) = self.max_acceleration {
+            if max_accel <= 0.0 {
+                return Err("max_acceleration must be positive".to_string());
+            }
+        }
+
+        if let Some(max_decel) = self.max_deceleration {
+            if max_decel >= 0.0 {
+                return Err("max_deceleration must be negative".to_string());
+            }
+        }
+
+        // Validate actor acceleration ranges
+        if self.ego.acceleration.min() >= self.ego.acceleration.max() {
+            return Err("ego acceleration range invalid".to_string());
+        }
+        if self.npc.acceleration.min() >= self.npc.acceleration.max() {
+            return Err("npc acceleration range invalid".to_string());
         }
 
         // Ego range validity
@@ -270,18 +314,22 @@ mod tests {
                 lane: 1,
                 position: ValueOrRange::Value(50.0),
                 speed: ValueOrRange::Value(15.0),
+                acceleration: ValueOrRange::Range([-8.0, 3.0]),
             },
             npc: NpcSpec {
                 lane: 0,
                 position: ValueOrRange::Range([60.0, 80.0]),
                 speed: ValueOrRange::Range([12.0, 14.0]),
                 cut_in_time: ValueOrRange::Range([2.5, 7.5]),
+                acceleration: ValueOrRange::Range([-8.0, 3.0]),
             },
             min_ttc: 3.0,
             min_distance: 5.0,
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: ConstraintModes::default(),
+            max_acceleration: None,
+            max_deceleration: None,
         }
     }
 }
