@@ -10,6 +10,7 @@ ego:
   lane: 1             # right lane
   position: 50.0      # fixed at 50 meters from start
   speed: 15.0         # fixed at 15 m/s (54 km/h)
+  acceleration: [-8.0, 3.0]  # -8.0 to 3.0 m/s²
 
 # NPC vehicle (background actor)
 npc:
@@ -17,6 +18,7 @@ npc:
   position: [60.0, 80.0]   # start 60-80m from start (Z3 chooses)
   speed: [12.0, 14.0]      # slightly slower (Z3 chooses)
   cut_in_time: [2.5, 7.5]  # cut in between 2.5-7.5 seconds
+  acceleration: [-8.0, 3.0]  # -8.0 to 3.0 m/s²
 
 # Safety constraints
 min_ttc: 3.0              # minimum 3 second time-to-collision
