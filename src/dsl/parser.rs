@@ -36,12 +36,14 @@ ego:
   lane: 1
   position: 50.0
   speed: 15.0
+  acceleration: [-8.0, 3.0]
 
 npc:
   lane: 0
   position: [60.0, 80.0]
   speed: [12.0, 14.0]
   cut_in_time: [2.5, 7.5]
+  acceleration: [-8.0, 3.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -66,8 +68,8 @@ num_scenarios: 1
 scenario_type: cut_in_left
 time_step: -0.5
 duration: 10.0
-ego: { lane: 1, position: 50.0, speed: 15.0 }
-npc: { lane: 0, position: 60.0, speed: 13.0, cut_in_time: 5.0 }
+ego: { lane: 1, position: 50.0, speed: 15.0, acceleration: [-8.0, 3.0] }
+npc: { lane: 0, position: 60.0, speed: 13.0, cut_in_time: 5.0, acceleration: [-8.0, 3.0] }
 min_ttc: 3.0
 min_distance: 5.0
 lane_width: 3.5
@@ -89,8 +91,8 @@ num_scenarios: 1
 scenario_type: cut_in_left
 time_step: 0.5
 duration: 10.0
-ego: { lane: 1, position: 50.0, speed: 15.0 }
-npc: { lane: 0, position: 65.0, speed: 13.0, cut_in_time: 5.0 }
+ego: { lane: 1, position: 50.0, speed: 15.0, acceleration: [-8.0, 3.0] }
+npc: { lane: 0, position: 65.0, speed: 13.0, cut_in_time: 5.0, acceleration: [-8.0, 3.0] }
 min_ttc: 3.0
 min_distance: 5.0
 lane_width: 3.5

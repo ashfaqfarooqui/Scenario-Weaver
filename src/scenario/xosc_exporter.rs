@@ -250,28 +250,58 @@ fn build_init_actions(scenario: &Scenario) -> Result<openscenario_rs::types::sce
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scenario::model::{ActorTrajectory, Position, Velocity};
+    use crate::scenario::model::{Acceleration, ActorTrajectory, Position, Velocity};
 
     #[test]
     fn test_compute_heading() {
         // East (along X axis)
-        let state = State::new(0.0, Position::new(0.0, 0.0), Velocity::new(15.0, 0.0), 1);
+        let state = State::new(
+            0.0,
+            Position::new(0.0, 0.0),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        );
         assert!((compute_heading(&state) - 0.0).abs() < 1e-10);
 
         // North (along Y axis)
-        let state = State::new(0.0, Position::new(0.0, 0.0), Velocity::new(0.0, 15.0), 1);
+        let state = State::new(
+            0.0,
+            Position::new(0.0, 0.0),
+            Velocity::new(0.0, 15.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        );
         assert!((compute_heading(&state) - std::f64::consts::FRAC_PI_2).abs() < 1e-10);
 
         // West (negative X)
-        let state = State::new(0.0, Position::new(0.0, 0.0), Velocity::new(-15.0, 0.0), 1);
+        let state = State::new(
+            0.0,
+            Position::new(0.0, 0.0),
+            Velocity::new(-15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        );
         assert!((compute_heading(&state) - std::f64::consts::PI).abs() < 1e-10);
 
         // South (negative Y)
-        let state = State::new(0.0, Position::new(0.0, 0.0), Velocity::new(0.0, -15.0), 1);
+        let state = State::new(
+            0.0,
+            Position::new(0.0, 0.0),
+            Velocity::new(0.0, -15.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        );
         assert!((compute_heading(&state) + std::f64::consts::FRAC_PI_2).abs() < 1e-10);
 
         // Northeast (45 degrees)
-        let state = State::new(0.0, Position::new(0.0, 0.0), Velocity::new(10.0, 10.0), 1);
+        let state = State::new(
+            0.0,
+            Position::new(0.0, 0.0),
+            Velocity::new(10.0, 10.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        );
         assert!((compute_heading(&state) - std::f64::consts::FRAC_PI_4).abs() < 1e-10);
     }
 
@@ -285,18 +315,21 @@ mod tests {
             0.0,
             Position::new(0.0, 5.25),
             Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
             1,
         ));
         ego.add_state(State::new(
             0.5,
             Position::new(7.5, 5.25),
             Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
             1,
         ));
         ego.add_state(State::new(
             1.0,
             Position::new(15.0, 5.25),
             Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
             1,
         ));
 
@@ -328,12 +361,14 @@ mod tests {
             0.0,
             Position::new(0.0, 5.0),
             Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
             1,
         ));
         ego.add_state(State::new(
             10.0,
             Position::new(150.0, 5.0),
             Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
             1,
         ));
 

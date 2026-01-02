@@ -33,18 +33,22 @@ mod tests {
                 lane: 1,
                 position: ValueOrRange::Value(50.0),
                 speed: ValueOrRange::Value(15.0),
+                acceleration: ValueOrRange::Range([-8.0, 3.0]),
             },
             npc: NpcSpec {
                 lane: 0,
                 position: ValueOrRange::Range([60.0, 80.0]),
                 speed: ValueOrRange::Range([12.0, 14.0]),
                 cut_in_time: ValueOrRange::Range([2.5, 7.5]),
+                acceleration: ValueOrRange::Range([-8.0, 3.0]),
             },
             min_ttc: 3.0,
             min_distance: 5.0,
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: crate::dsl::types::ConstraintModes::default(),
+            max_acceleration: None,
+            max_deceleration: None,
         }
     }
 
