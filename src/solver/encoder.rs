@@ -38,6 +38,12 @@ pub struct Z3Encoder<'ctx> {
 
     /// Lane numbers (integer)
     lanes: HashMap<String, Vec<Int<'ctx>>>,
+
+    /// Longitudinal accelerations (m/s²)
+    accelerations_x: HashMap<String, Vec<Real<'ctx>>>,
+
+    /// Lateral accelerations (m/s²)
+    accelerations_y: HashMap<String, Vec<Real<'ctx>>>,
 }
 
 impl<'ctx> Z3Encoder<'ctx> {
@@ -56,6 +62,8 @@ impl<'ctx> Z3Encoder<'ctx> {
             velocities_x: HashMap::new(),
             velocities_y: HashMap::new(),
             lanes: HashMap::new(),
+            accelerations_x: HashMap::new(),
+            accelerations_y: HashMap::new(),
         }
     }
 
@@ -67,6 +75,8 @@ impl<'ctx> Z3Encoder<'ctx> {
     /// - py_t: lateral position
     /// - vx_t: longitudinal velocity
     /// - vy_t: lateral velocity
+    /// - ax_t: longitudinal acceleration
+    /// - ay_t: lateral acceleration
     /// - lane_t: lane number
     pub fn create_variables(&mut self) {
         let actor_ids = vec!["ego".to_string(), "npc".to_string()];
@@ -77,6 +87,8 @@ impl<'ctx> Z3Encoder<'ctx> {
             let mut vx_vars = Vec::new();
             let mut vy_vars = Vec::new();
             let mut lane_vars = Vec::new();
+            let mut ax_vars = Vec::new();
+            let mut ay_vars = Vec::new();
 
             // Create variables for each time step
             for t in 0..=self.horizon {
@@ -85,6 +97,8 @@ impl<'ctx> Z3Encoder<'ctx> {
                 vx_vars.push(Real::new_const(self.ctx, format!("{}_vx_{}", actor_id, t)));
                 vy_vars.push(Real::new_const(self.ctx, format!("{}_vy_{}", actor_id, t)));
                 lane_vars.push(Int::new_const(self.ctx, format!("{}_lane_{}", actor_id, t)));
+                ax_vars.push(Real::new_const(self.ctx, format!("{}_ax_{}", actor_id, t)));
+                ay_vars.push(Real::new_const(self.ctx, format!("{}_ay_{}", actor_id, t)));
             }
 
             self.positions_x.insert(actor_id.clone(), px_vars);
@@ -92,6 +106,8 @@ impl<'ctx> Z3Encoder<'ctx> {
             self.velocities_x.insert(actor_id.clone(), vx_vars);
             self.velocities_y.insert(actor_id.clone(), vy_vars);
             self.lanes.insert(actor_id.clone(), lane_vars);
+            self.accelerations_x.insert(actor_id.clone(), ax_vars);
+            self.accelerations_y.insert(actor_id.clone(), ay_vars);
         }
     }
 
@@ -106,6 +122,8 @@ impl<'ctx> Z3Encoder<'ctx> {
             self.spec.ego.position.max(),
             self.spec.ego.speed.min(),
             self.spec.ego.speed.max(),
+            self.spec.ego.acceleration.min(),
+            self.spec.ego.acceleration.max(),
         );
 
         // NPC initial conditions (may have ranges)
@@ -117,6 +135,8 @@ impl<'ctx> Z3Encoder<'ctx> {
             self.spec.npc.position.max(),
             self.spec.npc.speed.min(),
             self.spec.npc.speed.max(),
+            self.spec.npc.acceleration.min(),
+            self.spec.npc.acceleration.max(),
         );
 
         // Initial lateral position matches lane center
@@ -133,6 +153,8 @@ impl<'ctx> Z3Encoder<'ctx> {
         pos_max: f64,
         speed_min: f64,
         speed_max: f64,
+        accel_min: f64,
+        accel_max: f64,
     ) {
         // Lane at t=0
         let lane_var = &self.lanes[actor_id][0];
@@ -171,6 +193,24 @@ impl<'ctx> Z3Encoder<'ctx> {
         let vy_var = &self.velocities_y[actor_id][0];
         let zero = Real::from_real(self.ctx, 0, 1);
         self.solver.assert(&vy_var._eq(&zero));
+
+        // Initial acceleration at t=0
+        let ax_var = &self.accelerations_x[actor_id][0];
+        if (accel_min - accel_max).abs() < 1e-6 {
+            // Fixed acceleration
+            let accel_val = Real::from_real(self.ctx, (accel_min * 10.0) as i32, 10);
+            self.solver.assert(&ax_var._eq(&accel_val));
+        } else {
+            // Acceleration range
+            let min_val = Real::from_real(self.ctx, (accel_min * 10.0) as i32, 10);
+            let max_val = Real::from_real(self.ctx, (accel_max * 10.0) as i32, 10);
+            self.solver.assert(&ax_var.ge(&min_val));
+            self.solver.assert(&ax_var.le(&max_val));
+        }
+
+        // Initial lateral acceleration is zero
+        let ay_var = &self.accelerations_y[actor_id][0];
+        self.solver.assert(&ay_var._eq(&zero));
     }
 
     /// Encode constraint: lateral position matches lane center
@@ -189,54 +229,74 @@ impl<'ctx> Z3Encoder<'ctx> {
         self.solver.assert(&py_var._eq(&expected_py));
     }
 
-    /// Encode kinematic constraints (constant velocity model)
+    /// Encode kinematic constraints with acceleration support
     pub fn encode_kinematics(&mut self) {
         let dt = self.spec.time_step;
         let dt_real = Real::from_real(self.ctx, (dt * 10.0) as i32, 10);
+        let zero = Real::from_real(self.ctx, 0, 1);
 
         for actor_id in &["ego".to_string(), "npc".to_string()] {
+            // Get acceleration bounds for this actor
+            let (ax_min, ax_max) = self.get_acceleration_bounds(actor_id);
+            let ax_min_real = Real::from_real(self.ctx, (ax_min * 10.0) as i32, 10);
+            let ax_max_real = Real::from_real(self.ctx, (ax_max * 10.0) as i32, 10);
+
             for t in 0..self.horizon {
+                // ========== LONGITUDINAL DYNAMICS ==========
+
+                // Acceleration bounds at each timestep
+                let ax_t = &self.accelerations_x[actor_id][t];
+                self.solver.assert(&ax_t.ge(&ax_min_real));
+                self.solver.assert(&ax_t.le(&ax_max_real));
+
+                // Velocity update: vx[t+1] = vx[t] + ax[t] * dt
+                let vx_t = &self.velocities_x[actor_id][t];
+                let vx_t1 = &self.velocities_x[actor_id][t + 1];
+                let expected_vx = vx_t + &(ax_t * &dt_real);
+                self.solver.assert(&vx_t1._eq(&expected_vx));
+
+                // Non-negative velocity (no reversing)
+                self.solver.assert(&vx_t.ge(&zero));
+
                 // Position update: px[t+1] = px[t] + vx[t] * dt
                 let px_t = &self.positions_x[actor_id][t];
                 let px_t1 = &self.positions_x[actor_id][t + 1];
-                let vx_t = &self.velocities_x[actor_id][t];
-
                 let expected_px = px_t + &(vx_t * &dt_real);
                 self.solver.assert(&px_t1._eq(&expected_px));
 
-                // Same for lateral: py[t+1] = py[t] + vy[t] * dt
+                // ========== LATERAL DYNAMICS ==========
+
+                // Lateral position update: py[t+1] = py[t] + vy[t] * dt
                 let py_t = &self.positions_y[actor_id][t];
                 let py_t1 = &self.positions_y[actor_id][t + 1];
                 let vy_t = &self.velocities_y[actor_id][t];
-
                 let expected_py = py_t + &(vy_t * &dt_real);
                 self.solver.assert(&py_t1._eq(&expected_py));
+
+                // Ego never changes lanes (vy = 0)
+                if actor_id == "ego" {
+                    self.solver.assert(&vy_t._eq(&zero));
+                }
             }
-        }
 
-        // Ego: constant velocity (no acceleration)
-        for t in 0..self.horizon {
-            let vx_t = &self.velocities_x["ego"][t];
-            let vx_t1 = &self.velocities_x["ego"][t + 1];
-            self.solver.assert(&vx_t1._eq(vx_t));
-
-            // Ego never changes lanes
-            let vy_t = &self.velocities_y["ego"][t];
-            let zero = Real::from_real(self.ctx, 0, 1);
-            self.solver.assert(&vy_t._eq(&zero));
-        }
-
-        // NPC: constant longitudinal velocity
-        for t in 0..self.horizon {
-            let vx_t = &self.velocities_x["npc"][t];
-            let vx_t1 = &self.velocities_x["npc"][t + 1];
-            self.solver.assert(&vx_t1._eq(vx_t));
+            // Ensure final velocity is non-negative
+            let vx_final = &self.velocities_x[actor_id][self.horizon];
+            self.solver.assert(&vx_final.ge(&zero));
         }
 
         // Lane-position coupling for all time steps
         for t in 0..=self.horizon {
             self.encode_lane_position_coupling_at_time("ego", t);
             self.encode_lane_position_coupling_at_time("npc", t);
+        }
+    }
+
+    /// Helper to get acceleration bounds for an actor
+    fn get_acceleration_bounds(&self, actor_id: &str) -> (f64, f64) {
+        if actor_id == "ego" {
+            (self.spec.ego.acceleration.min(), self.spec.ego.acceleration.max())
+        } else {
+            (self.spec.npc.acceleration.min(), self.spec.npc.acceleration.max())
         }
     }
 
@@ -559,6 +619,44 @@ impl<'ctx> Z3Encoder<'ctx> {
         same_lane.implies(&distance_ok)
     }
 
+    /// Encode global max acceleration constraints (if specified)
+    pub fn encode_acceleration_constraints(&mut self) {
+        let zero = Real::from_real(self.ctx, 0, 1);
+
+        // Only apply if max_acceleration/max_deceleration specified AND mode is Enforce
+        if let Some(max_accel) = self.spec.max_acceleration {
+            let mode = self.spec.constraint_modes.max_acceleration();
+
+            if mode == ConstraintMode::Enforce {
+                let max_real = Real::from_real(self.ctx, (max_accel * 10.0) as i32, 10);
+
+                for actor_id in &["ego".to_string(), "npc".to_string()] {
+                    for t in 0..=self.horizon {
+                        let ax = &self.accelerations_x[actor_id][t];
+                        self.solver.assert(&ax.le(&max_real));
+                    }
+                }
+            }
+            // Violate and Ignore modes handled via LTL
+        }
+
+        if let Some(max_decel) = self.spec.max_deceleration {
+            // max_decel should be negative (e.g., -3.0)
+            let mode = self.spec.constraint_modes.max_acceleration();
+
+            if mode == ConstraintMode::Enforce {
+                let min_real = Real::from_real(self.ctx, (max_decel * 10.0) as i32, 10);
+
+                for actor_id in &["ego".to_string(), "npc".to_string()] {
+                    for t in 0..=self.horizon {
+                        let ax = &self.accelerations_x[actor_id][t];
+                        self.solver.assert(&ax.ge(&min_real));
+                    }
+                }
+            }
+        }
+    }
+
     /// Extract scenario from Z3 model (Phase 9)
     ///
     /// Converts the Z3 solution (satisfying assignment) into a Scenario
@@ -591,7 +689,7 @@ impl<'ctx> Z3Encoder<'ctx> {
         actor_id: &str,
         role: &str,
     ) -> crate::scenario::model::ActorTrajectory {
-        use crate::scenario::model::{ActorTrajectory, Position, State, Velocity};
+        use crate::scenario::model::{Acceleration, ActorTrajectory, Position, State, Velocity};
 
         let mut trajectory = ActorTrajectory::new(actor_id.to_string(), role.to_string());
 
@@ -606,10 +704,20 @@ impl<'ctx> Z3Encoder<'ctx> {
             let vx = self.extract_real(model, &self.velocities_x[actor_id][t]);
             let vy = self.extract_real(model, &self.velocities_y[actor_id][t]);
 
+            // Extract acceleration
+            let ax = self.extract_real(model, &self.accelerations_x[actor_id][t]);
+            let ay = self.extract_real(model, &self.accelerations_y[actor_id][t]);
+
             // Extract lane
             let lane = self.extract_int(model, &self.lanes[actor_id][t]);
 
-            let state = State::new(time, Position::new(px, py), Velocity::new(vx, vy), lane);
+            let state = State::new(
+                time,
+                Position::new(px, py),
+                Velocity::new(vx, vy),
+                Acceleration::new(ax, ay),
+                lane,
+            );
 
             trajectory.add_state(state);
         }
@@ -623,42 +731,50 @@ impl<'ctx> Z3Encoder<'ctx> {
             .eval(var, true)
             .expect("Failed to evaluate real variable");
 
-        // Z3 returns rationals as strings like "50", "525/10", "(/ 525 10)", or "(-525/10)"
+        // Z3 returns rationals in various formats
         let ast_str = ast.to_string();
 
-        // Handle negative values wrapped in parentheses like "(- 525)"
-        let cleaned = ast_str.trim_start_matches('(').trim_end_matches(')');
+        // Remove all parentheses and work with the content
+        let cleaned = ast_str.replace('(', "").replace(')', "");
+
+        // Split by whitespace to get components
+        let parts: Vec<&str> = cleaned.split_whitespace().collect();
 
         // Check for various formats
-        if cleaned.starts_with("/ ") {
-            // Format: "(/ numerator denominator)"
-            let parts: Vec<&str> = cleaned.split_whitespace().collect();
-            if parts.len() == 3 {
-                let numerator: f64 = parts[1].parse().expect("Failed to parse numerator");
-                let denominator: f64 = parts[2].parse().expect("Failed to parse denominator");
-                return numerator / denominator;
-            }
-        } else if cleaned.starts_with("- ") {
-            // Format: "(- value)"
-            let parts: Vec<&str> = cleaned.split_whitespace().collect();
-            if parts.len() == 2 {
-                let value: f64 = parts[1].parse().expect("Failed to parse negative value");
-                return -value;
-            }
-        } else if cleaned.contains('/') {
-            // Format: "525/10" or "-525/10"
-            let parts: Vec<&str> = cleaned.split('/').collect();
-            let numerator: f64 = parts[0].trim().parse().expect("Failed to parse numerator");
-            let denominator: f64 = parts[1]
-                .trim()
-                .parse()
-                .expect("Failed to parse denominator");
+        if parts.is_empty() {
+            panic!("Failed to parse real value from Z3: '{}'", ast_str);
+        }
+
+        // Format: "- / numerator denominator" -> negative fraction
+        if parts.len() >= 4 && parts[0] == "-" && parts[1] == "/" {
+            let numerator: f64 = parts[2].parse().expect("Failed to parse numerator");
+            let denominator: f64 = parts[3].parse().expect("Failed to parse denominator");
+            return -(numerator / denominator);
+        }
+
+        // Format: "/ numerator denominator" -> positive fraction
+        if parts.len() >= 3 && parts[0] == "/" {
+            let numerator: f64 = parts[1].parse().expect("Failed to parse numerator");
+            let denominator: f64 = parts[2].parse().expect("Failed to parse denominator");
+            return numerator / denominator;
+        }
+
+        // Format: "- value" -> simple negative
+        if parts.len() == 2 && parts[0] == "-" {
+            let value: f64 = parts[1].parse().expect("Failed to parse negative value");
+            return -value;
+        }
+
+        // Format: "numerator/denominator" or "-numerator/denominator"
+        if parts.len() == 1 && parts[0].contains('/') {
+            let frac_parts: Vec<&str> = parts[0].split('/').collect();
+            let numerator: f64 = frac_parts[0].parse().expect("Failed to parse numerator");
+            let denominator: f64 = frac_parts[1].parse().expect("Failed to parse denominator");
             return numerator / denominator;
         }
 
         // Default: try to parse as a simple number
-        cleaned
-            .trim()
+        parts[0]
             .parse()
             .unwrap_or_else(|_| panic!("Failed to parse real value from Z3: '{}'", ast_str))
     }
@@ -742,6 +858,53 @@ impl<'ctx> Z3Encoder<'ctx> {
             }
         }
 
+        // Compute acceleration metrics
+        let mut max_accel = 0.0;
+        let mut max_decel = 0.0;
+        let mut accel_violations = Vec::new();
+
+        for actor_traj in &scenario.actors {
+            for state in &actor_traj.states {
+                let ax = state.acceleration.ax;
+
+                // Track maximum values
+                if ax > max_accel {
+                    max_accel = ax;
+                }
+                if ax < max_decel {
+                    max_decel = ax;
+                }
+
+                // Check for global constraint violations
+                if let Some(max_a) = self.spec.max_acceleration {
+                    if ax > max_a {
+                        accel_violations.push(format!(
+                            "{} harsh acceleration at t={:.1}s: {:.2} m/s² > {:.2} m/s²",
+                            actor_traj.id, state.time, ax, max_a
+                        ));
+                    }
+                }
+
+                if let Some(max_d) = self.spec.max_deceleration {
+                    if ax < max_d {
+                        accel_violations.push(format!(
+                            "{} harsh braking at t={:.1}s: {:.2} m/s² < {:.2} m/s²",
+                            actor_traj.id, state.time, ax, max_d
+                        ));
+                    }
+                }
+            }
+        }
+
+        scenario.validation.max_acceleration = max_accel;
+        scenario.validation.max_deceleration = max_decel;
+        scenario.validation.acceleration_violations = accel_violations.clone();
+
+        // Update all_constraints_satisfied if there are acceleration violations
+        if !accel_violations.is_empty() {
+            scenario.validation.all_constraints_satisfied = false;
+        }
+
         // Update validation info
         scenario.validation.min_ttc = if min_ttc.is_infinite() {
             999.0
@@ -753,7 +916,8 @@ impl<'ctx> Z3Encoder<'ctx> {
         } else {
             min_distance
         };
-        scenario.validation.all_constraints_satisfied = violations.is_empty();
+        scenario.validation.all_constraints_satisfied =
+            violations.is_empty() && accel_violations.is_empty();
         scenario.validation.safety_violations = violations;
     }
 }
@@ -773,18 +937,22 @@ mod tests {
                 lane: 1,
                 position: ValueOrRange::Value(50.0),
                 speed: ValueOrRange::Value(15.0),
+                acceleration: ValueOrRange::Range([-8.0, 3.0]),
             },
             npc: NpcSpec {
                 lane: 0,
                 position: ValueOrRange::Range([60.0, 80.0]),
                 speed: ValueOrRange::Range([12.0, 14.0]),
                 cut_in_time: ValueOrRange::Range([2.5, 7.5]),
+                acceleration: ValueOrRange::Range([-8.0, 3.0]),
             },
             min_ttc: 3.0,
             min_distance: 5.0,
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: crate::dsl::types::ConstraintModes::default(),
+            max_acceleration: None,
+            max_deceleration: None,
         }
     }
 
