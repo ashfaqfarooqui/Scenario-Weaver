@@ -6,6 +6,8 @@
 use crate::error::Result;
 use crate::scenario::model::{Scenario, State};
 use openscenario_rs::builder::actions::trajectory::TrajectoryBuilder;
+use openscenario_rs::builder::init::InitActionBuilder;
+use openscenario_rs::builder::positions::WorldPositionBuilder;
 use openscenario_rs::builder::StoryboardBuilder;
 use openscenario_rs::ScenarioBuilder;
 
@@ -35,6 +37,11 @@ pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
 
     // Build storyboard with init actions and trajectories
     let mut storyboard_builder = StoryboardBuilder::new(builder);
+
+    // Add init actions for all actors (position + speed)
+    let init_actions = build_init_actions(scenario)?;
+    storyboard_builder = storyboard_builder.with_init_actions(init_actions);
+
     let mut story_builder = storyboard_builder.add_story_simple("main_story");
 
     // Create an act for trajectory following
@@ -73,6 +80,16 @@ pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
 
     // Finish the story to add it to the storyboard
     story_builder.finish();
+
+    // Add stop trigger based on scenario duration
+    let storyboard_builder = storyboard_builder
+        .stop_after_time(scenario.duration)
+        .map_err(|e| {
+            crate::error::ScenarioGenError::XoscExport(format!(
+                "Failed to add stop trigger: {}",
+                e
+            ))
+        })?;
 
     // Build the final scenario
     let openscenario = storyboard_builder
@@ -182,6 +199,52 @@ fn build_scenario_description(scenario: &Scenario) -> String {
 /// - π/2 radians = North (+Y direction)
 fn compute_heading(state: &State) -> f64 {
     state.velocity.vy.atan2(state.velocity.vx)
+}
+
+/// Build init actions for all actors (position + speed)
+///
+/// Creates Init section with Private actions for each actor:
+/// - TeleportAction: Sets initial world position
+/// - SpeedAction: Sets initial speed from velocity magnitude
+fn build_init_actions(scenario: &Scenario) -> Result<openscenario_rs::types::scenario::init::Init> {
+    let mut init_builder = InitActionBuilder::new();
+
+    for actor in &scenario.actors {
+        // Get initial state
+        let initial_state = actor.states.first().ok_or_else(|| {
+            crate::error::ScenarioGenError::XoscExport(format!(
+                "Actor {} has no states",
+                actor.id
+            ))
+        })?;
+
+        // Calculate speed from velocity magnitude
+        let speed = (initial_state.velocity.vx.powi(2) + initial_state.velocity.vy.powi(2)).sqrt();
+
+        // Calculate heading from velocity
+        let heading = compute_heading(initial_state);
+
+        // Create world position
+        let position = WorldPositionBuilder::new()
+            .at_coordinates(initial_state.position.x, initial_state.position.y, 0.0)
+            .with_heading(heading)
+            .build()
+            .map_err(|e| {
+                crate::error::ScenarioGenError::XoscExport(format!(
+                    "Failed to build world position: {}",
+                    e
+                ))
+            })?;
+
+        // Add speed action first, then teleport (to match reference format)
+        init_builder = init_builder
+            .add_speed_action(&actor.id, speed)
+            .add_teleport_action(&actor.id, position);
+    }
+
+    init_builder.build().map_err(|e| {
+        crate::error::ScenarioGenError::XoscExport(format!("Failed to build init actions: {}", e))
+    })
 }
 
 #[cfg(test)]
