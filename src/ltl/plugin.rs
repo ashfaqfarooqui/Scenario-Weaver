@@ -1,4 +1,4 @@
-use crate::dsl::types::{ActorSpec, ConstraintMode, ScenarioSpec, ScenarioType};
+use crate::dsl::types::{ConstraintMode, ScenarioSpec, ScenarioType};
 use crate::ltl::formula::{LTLFormula, Proposition};
 use anyhow::Result;
 use std::collections::HashMap;

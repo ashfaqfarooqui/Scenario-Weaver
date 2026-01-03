@@ -761,8 +761,6 @@ impl<'ctx> Z3Encoder<'ctx> {
 
     /// Encode global max acceleration constraints (if specified)
     pub fn encode_acceleration_constraints(&mut self) {
-        let zero = Real::from_real(self.ctx, 0, 1);
-
         // Only apply if max_acceleration/max_deceleration specified AND mode is Enforce
         if let Some(max_accel) = self.spec.max_acceleration {
             let mode = self.spec.constraint_modes.max_acceleration();
