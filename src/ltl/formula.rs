@@ -24,6 +24,7 @@ pub enum LTLFormula {
 /// Atomic propositions about scenario state
 #[derive(Debug, Clone, PartialEq)]
 pub enum Proposition {
+    // Existing propositions
     /// Actor is in a specific lane
     InLane { actor: String, lane: usize },
 
@@ -43,6 +44,61 @@ pub enum Proposition {
         actor2: String,
         ttc: f64,
     },
+
+    // Kinematic propositions
+    /// Actor speed > threshold
+    SpeedGT { actor: String, speed: f64 },
+
+    /// Actor speed < threshold
+    SpeedLT { actor: String, speed: f64 },
+
+    /// Actor speed in range [min, max]
+    SpeedInRange {
+        actor: String,
+        min: f64,
+        max: f64,
+    },
+
+    /// Actor is changing lanes (lateral velocity != 0)
+    ChangingLane { actor: String },
+
+    // Spatial propositions
+    /// Both actors in same lane
+    SameLane { actor1: String, actor2: String },
+
+    /// Actor position > threshold
+    PositionGT { actor: String, position: f64 },
+
+    /// Actor position < threshold
+    PositionLT { actor: String, position: f64 },
+
+    /// Lateral distance between actors > threshold
+    LateralDistanceGT {
+        actor1: String,
+        actor2: String,
+        distance: f64,
+    },
+
+    // Behavioral propositions
+    /// Follower maintains gap behind leader
+    Following {
+        follower: String,
+        leader: String,
+        gap: f64,
+    },
+
+    /// Actor1 is overtaking actor2
+    Overtaking { actor1: String, actor2: String },
+
+    /// Longitudinal distance between actors < threshold
+    DistanceLT {
+        actor1: String,
+        actor2: String,
+        distance: f64,
+    },
+
+    /// Actors are approaching each other (closing gap)
+    Approaching { actor1: String, actor2: String },
 }
 
 // Builder methods for ergonomic formula construction

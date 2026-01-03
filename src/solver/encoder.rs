@@ -434,21 +434,19 @@ impl<'ctx> Z3Encoder<'ctx> {
         use crate::ltl::formula::Proposition;
 
         match prop {
-            // InLane(actor, lane): lane_var[t] == lane
+            // Existing propositions
             Proposition::InLane { actor, lane } => {
                 let lane_var = &self.lanes[actor][time];
                 let lane_val = Int::from_i64(self.ctx, *lane as i64);
                 lane_var._eq(&lane_val)
             }
 
-            // Ahead(actor1, actor2): px1[t] > px2[t]
             Proposition::Ahead { actor1, actor2 } => {
                 let px1 = &self.positions_x[actor1][time];
                 let px2 = &self.positions_x[actor2][time];
                 px1.gt(px2)
             }
 
-            // DistanceGT(actor1, actor2, d): |px1[t] - px2[t]| > d
             Proposition::DistanceGT {
                 actor1,
                 actor2,
@@ -458,7 +456,6 @@ impl<'ctx> Z3Encoder<'ctx> {
                 let px2 = &self.positions_x[actor2][time];
                 let dist_val = Real::from_real(self.ctx, (*distance * 10.0) as i32, 10);
 
-                // |px1 - px2| > d is equivalent to: (px1 - px2 > d) OR (px2 - px1 > d)
                 let diff_pos = px1 - px2;
                 let diff_neg = px2 - px1;
 
@@ -468,12 +465,165 @@ impl<'ctx> Z3Encoder<'ctx> {
                 z3::ast::Bool::or(self.ctx, &[&pos_case, &neg_case])
             }
 
-            // TTCGT(actor1, actor2, ttc): TTC > ttc (if collision possible)
             Proposition::TTCGT {
                 actor1,
                 actor2,
                 ttc,
             } => self.encode_ttc_constraint(actor1, actor2, *ttc, time),
+
+            // Kinematic propositions
+            Proposition::SpeedGT { actor, speed } => {
+                let vx = &self.velocities_x[actor][time];
+                let threshold = Real::from_real(self.ctx, (*speed * 10.0) as i32, 10);
+                vx.gt(&threshold)
+            }
+
+            Proposition::SpeedLT { actor, speed } => {
+                let vx = &self.velocities_x[actor][time];
+                let threshold = Real::from_real(self.ctx, (*speed * 10.0) as i32, 10);
+                vx.lt(&threshold)
+            }
+
+            Proposition::SpeedInRange { actor, min, max } => {
+                let vx = &self.velocities_x[actor][time];
+                let min_threshold = Real::from_real(self.ctx, (*min * 10.0) as i32, 10);
+                let max_threshold = Real::from_real(self.ctx, (*max * 10.0) as i32, 10);
+                z3::ast::Bool::and(
+                    self.ctx,
+                    &[&vx.gt(&min_threshold), &vx.lt(&max_threshold)],
+                )
+            }
+
+            Proposition::ChangingLane { actor } => {
+                let vy = &self.velocities_y[actor][time];
+                let epsilon = Real::from_real(self.ctx, 1, 100); // 0.01 m/s threshold
+                z3::ast::Bool::or(self.ctx, &[&vy.gt(&epsilon), &vy.lt(&(-&epsilon))])
+            }
+
+            // Spatial propositions
+            Proposition::SameLane { actor1, actor2 } => {
+                let lane1 = &self.lanes[actor1][time];
+                let lane2 = &self.lanes[actor2][time];
+                lane1._eq(lane2)
+            }
+
+            Proposition::PositionGT { actor, position } => {
+                let px = &self.positions_x[actor][time];
+                let threshold = Real::from_real(self.ctx, (*position * 10.0) as i32, 10);
+                px.gt(&threshold)
+            }
+
+            Proposition::PositionLT { actor, position } => {
+                let px = &self.positions_x[actor][time];
+                let threshold = Real::from_real(self.ctx, (*position * 10.0) as i32, 10);
+                px.lt(&threshold)
+            }
+
+            Proposition::LateralDistanceGT {
+                actor1,
+                actor2,
+                distance,
+            } => {
+                let py1 = &self.positions_y[actor1][time];
+                let py2 = &self.positions_y[actor2][time];
+                let diff = py1 - py2;
+                let threshold = Real::from_real(self.ctx, (*distance * 10.0) as i32, 10);
+
+                // Absolute value: (diff > threshold) OR (diff < -threshold)
+                z3::ast::Bool::or(self.ctx, &[&diff.gt(&threshold), &diff.lt(&(-&threshold))])
+            }
+
+            // Behavioral propositions
+            Proposition::Following {
+                follower,
+                leader,
+                gap,
+            } => {
+                let px_follower = &self.positions_x[follower][time];
+                let px_leader = &self.positions_x[leader][time];
+                let distance = px_leader - px_follower;
+                let target_gap = Real::from_real(self.ctx, (*gap * 10.0) as i32, 10);
+
+                // Following: leader ahead, same lane, maintaining gap
+                let ahead = self.encode_proposition(
+                    &Proposition::Ahead {
+                        actor1: leader.clone(),
+                        actor2: follower.clone(),
+                    },
+                    time,
+                );
+                let same_lane = self.encode_proposition(
+                    &Proposition::SameLane {
+                        actor1: leader.clone(),
+                        actor2: follower.clone(),
+                    },
+                    time,
+                );
+                z3::ast::Bool::and(
+                    self.ctx,
+                    &[&ahead, &same_lane, &distance._eq(&target_gap)],
+                )
+            }
+
+            Proposition::Overtaking { actor1, actor2 } => {
+                // Overtaking: actor1 faster than actor2, approaching from behind
+                let ahead = self.encode_proposition(
+                    &Proposition::Ahead {
+                        actor1: actor2.clone(),
+                        actor2: actor1.clone(),
+                    },
+                    time,
+                );
+                let approaching = self.encode_proposition(
+                    &Proposition::Approaching {
+                        actor1: actor1.clone(),
+                        actor2: actor2.clone(),
+                    },
+                    time,
+                );
+                z3::ast::Bool::and(self.ctx, &[&ahead, &approaching])
+            }
+
+            Proposition::DistanceLT {
+                actor1,
+                actor2,
+                distance,
+            } => {
+                let px1 = &self.positions_x[actor1][time];
+                let px2 = &self.positions_x[actor2][time];
+                let diff = px1 - px2;
+                let threshold = Real::from_real(self.ctx, (*distance * 10.0) as i32, 10);
+                let neg_threshold = Real::from_real(self.ctx, (-*distance * 10.0) as i32, 10);
+
+                // |diff| < threshold => diff > -threshold AND diff < threshold
+                z3::ast::Bool::and(
+                    self.ctx,
+                    &[&diff.gt(&neg_threshold), &diff.lt(&threshold)],
+                )
+            }
+
+            Proposition::Approaching { actor1, actor2 } => {
+                let vx1 = &self.velocities_x[actor1][time];
+                let vx2 = &self.velocities_x[actor2][time];
+                let px1 = &self.positions_x[actor1][time];
+                let px2 = &self.positions_x[actor2][time];
+
+                // Approaching: relative velocity is closing the gap
+                // If actor1 ahead: vx1 < vx2 (actor2 faster, catching up)
+                // If actor2 ahead: vx1 > vx2 (actor1 faster, catching up)
+                let ahead1 = px1.gt(px2);
+                let ahead2 = px2.gt(px1);
+                let rel_vel_closing1 = vx1.lt(vx2);
+                let rel_vel_closing2 = vx1.gt(vx2);
+
+                z3::ast::Bool::or(
+                    self.ctx,
+                    &[
+                        &z3::ast::Bool::and(self.ctx, &[&ahead1, &rel_vel_closing1]),
+                        &z3::ast::Bool::and(self.ctx, &[&ahead2, &rel_vel_closing2]),
+                    ],
+                )
+            }
         }
     }
 
