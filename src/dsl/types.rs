@@ -112,12 +112,16 @@ pub struct ScenarioSpec {
 #[serde(rename_all = "snake_case")]
 pub enum ScenarioType {
     CutInLeft,
+    CutInRight,
+    Following,
 }
 
 impl std::fmt::Display for ScenarioType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ScenarioType::CutInLeft => write!(f, "cut_in_left"),
+            ScenarioType::CutInRight => write!(f, "cut_in_right"),
+            ScenarioType::Following => write!(f, "following"),
         }
     }
 }

@@ -114,6 +114,8 @@ impl PluginRegistry {
 
         // Register built-in plugins
         registry.register(ScenarioType::CutInLeft, Box::new(CutInLeftPlugin));
+        registry.register(ScenarioType::CutInRight, Box::new(CutInRightPlugin));
+        registry.register(ScenarioType::Following, Box::new(FollowingPlugin));
 
         registry
     }
@@ -202,6 +204,136 @@ impl ScenarioPlugin for CutInLeftPlugin {
                 lane: 1,
             })),
         );
+
+        // Safety constraints
+        let safety = self.safety_constraints(spec);
+
+        Ok(init.and(behavior).and(safety))
+    }
+}
+
+// Plugin implementation for CutInRight scenario
+struct CutInRightPlugin;
+
+impl ScenarioPlugin for CutInRightPlugin {
+    fn name(&self) -> &str {
+        "Cut-In Right"
+    }
+
+    fn validate_spec(&self, spec: &ScenarioSpec) -> Result<()> {
+        let npc_count = spec.npcs().count();
+        if npc_count != 1 {
+            anyhow::bail!(
+                "Cut-in right requires exactly 1 NPC, found {}",
+                npc_count
+            );
+        }
+
+        let ego = spec.ego();
+        let npc = spec.npcs().next().unwrap();
+
+        if ego.lane != 0 {
+            anyhow::bail!(
+                "Cut-in right requires ego in lane 0, found lane {}",
+                ego.lane
+            );
+        }
+        if npc.lane != 1 {
+            anyhow::bail!(
+                "Cut-in right requires NPC in lane 1, found lane {}",
+                npc.lane
+            );
+        }
+
+        Ok(())
+    }
+
+    fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
+        let ego = spec.ego();
+        let npc = spec.npcs().next().unwrap();
+
+        // Initial conditions
+        let init = self
+            .initial_conditions(spec)
+            .and(LTLFormula::Atom(Proposition::Ahead {
+                actor1: npc.id.clone(),
+                actor2: ego.id.clone(),
+            }));
+
+        // Behavior: NPC eventually changes to lane 0
+        let behavior = LTLFormula::Atom(Proposition::InLane {
+            actor: npc.id.clone(),
+            lane: 0,
+        })
+        .eventually()
+        .and(
+            LTLFormula::Atom(Proposition::InLane {
+                actor: npc.id.clone(),
+                lane: 1,
+            })
+            .until(LTLFormula::Atom(Proposition::InLane {
+                actor: npc.id.clone(),
+                lane: 0,
+            })),
+        );
+
+        // Safety constraints
+        let safety = self.safety_constraints(spec);
+
+        Ok(init.and(behavior).and(safety))
+    }
+}
+
+// Plugin implementation for Following scenario
+struct FollowingPlugin;
+
+impl ScenarioPlugin for FollowingPlugin {
+    fn name(&self) -> &str {
+        "Following"
+    }
+
+    fn validate_spec(&self, spec: &ScenarioSpec) -> Result<()> {
+        let npc_count = spec.npcs().count();
+        if npc_count != 1 {
+            anyhow::bail!("Following requires exactly 1 NPC, found {}", npc_count);
+        }
+
+        let ego = spec.ego();
+        let npc = spec.npcs().next().unwrap();
+
+        if ego.lane != npc.lane {
+            anyhow::bail!(
+                "Following requires both actors in same lane: ego={}, npc={}",
+                ego.lane,
+                npc.lane
+            );
+        }
+
+        Ok(())
+    }
+
+    fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
+        let ego = spec.ego();
+        let npc = spec.npcs().next().unwrap();
+
+        // Initial conditions: both in same lane, NPC ahead
+        let init = self
+            .initial_conditions(spec)
+            .and(LTLFormula::Atom(Proposition::Ahead {
+                actor1: npc.id.clone(),
+                actor2: ego.id.clone(),
+            }));
+
+        // Behavior: Always in same lane, maintain distance
+        let behavior = LTLFormula::Atom(Proposition::SameLane {
+            actor1: ego.id.clone(),
+            actor2: npc.id.clone(),
+        })
+        .always()
+        .and(LTLFormula::Atom(Proposition::Ahead {
+            actor1: npc.id.clone(),
+            actor2: ego.id.clone(),
+        }).always());
 
         // Safety constraints
         let safety = self.safety_constraints(spec);
