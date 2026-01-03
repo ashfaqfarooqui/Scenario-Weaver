@@ -768,7 +768,8 @@ impl<'ctx> Z3Encoder<'ctx> {
             if mode == ConstraintMode::Enforce {
                 let max_real = Real::from_real(self.ctx, (max_accel * 10.0) as i32, 10);
 
-                for actor_id in &["ego".to_string(), "npc".to_string()] {
+                let actor_ids: Vec<_> = self.spec.actors.iter().map(|a| a.id.clone()).collect();
+                for actor_id in &actor_ids {
                     for t in 0..=self.horizon {
                         let ax = &self.accelerations_x[actor_id][t];
                         self.solver.assert(&ax.le(&max_real));
@@ -785,7 +786,8 @@ impl<'ctx> Z3Encoder<'ctx> {
             if mode == ConstraintMode::Enforce {
                 let min_real = Real::from_real(self.ctx, (max_decel * 10.0) as i32, 10);
 
-                for actor_id in &["ego".to_string(), "npc".to_string()] {
+                let actor_ids: Vec<_> = self.spec.actors.iter().map(|a| a.id.clone()).collect();
+                for actor_id in &actor_ids {
                     for t in 0..=self.horizon {
                         let ax = &self.accelerations_x[actor_id][t];
                         self.solver.assert(&ax.ge(&min_real));
