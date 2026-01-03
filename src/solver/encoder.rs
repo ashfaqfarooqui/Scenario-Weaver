@@ -114,29 +114,31 @@ impl<'ctx> Z3Encoder<'ctx> {
     /// Encode initial conditions from the DSL specification
     pub fn encode_initial_conditions(&mut self) {
         // Ego initial conditions (may have ranges)
+        let ego = self.spec.ego();
         let ego_id = "ego";
         self.encode_actor_initial_state(
             ego_id,
-            self.spec.ego.lane,
-            self.spec.ego.position.min(),
-            self.spec.ego.position.max(),
-            self.spec.ego.speed.min(),
-            self.spec.ego.speed.max(),
-            self.spec.ego.acceleration.min(),
-            self.spec.ego.acceleration.max(),
+            ego.lane,
+            ego.position.min(),
+            ego.position.max(),
+            ego.speed.min(),
+            ego.speed.max(),
+            ego.acceleration.min(),
+            ego.acceleration.max(),
         );
 
         // NPC initial conditions (may have ranges)
+        let npc = self.spec.npcs().next().unwrap();
         let npc_id = "npc";
         self.encode_actor_initial_state(
             npc_id,
-            self.spec.npc.lane,
-            self.spec.npc.position.min(),
-            self.spec.npc.position.max(),
-            self.spec.npc.speed.min(),
-            self.spec.npc.speed.max(),
-            self.spec.npc.acceleration.min(),
-            self.spec.npc.acceleration.max(),
+            npc.lane,
+            npc.position.min(),
+            npc.position.max(),
+            npc.speed.min(),
+            npc.speed.max(),
+            npc.acceleration.min(),
+            npc.acceleration.max(),
         );
 
         // Initial lateral position matches lane center
@@ -293,11 +295,8 @@ impl<'ctx> Z3Encoder<'ctx> {
 
     /// Helper to get acceleration bounds for an actor
     fn get_acceleration_bounds(&self, actor_id: &str) -> (f64, f64) {
-        if actor_id == "ego" {
-            (self.spec.ego.acceleration.min(), self.spec.ego.acceleration.max())
-        } else {
-            (self.spec.npc.acceleration.min(), self.spec.npc.acceleration.max())
-        }
+        let actor = self.spec.actors.iter().find(|a| a.id == actor_id).unwrap();
+        (actor.acceleration.min(), actor.acceleration.max())
     }
 
     /// Check if the constraints are satisfiable (for testing)
@@ -925,27 +924,42 @@ impl<'ctx> Z3Encoder<'ctx> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorSpec, NpcSpec, ScenarioType, ValueOrRange};
+    use crate::dsl::types::{ActorRole, ActorSpec, ScenarioType, ValueOrRange};
+    use std::collections::HashMap;
     use z3::Config;
 
     fn create_test_spec() -> ScenarioSpec {
+        let ego = ActorSpec {
+            id: "ego".to_string(),
+            role: ActorRole::Ego,
+            lane: 1,
+            position: ValueOrRange::Value(50.0),
+            speed: ValueOrRange::Value(15.0),
+            acceleration: ValueOrRange::Range([-8.0, 3.0]),
+            behavior: HashMap::new(),
+        };
+
+        let mut npc_behavior = HashMap::new();
+        npc_behavior.insert(
+            "cut_in_time".to_string(),
+            serde_json::json!([2.5, 7.5]),
+        );
+
+        let npc = ActorSpec {
+            id: "npc".to_string(),
+            role: ActorRole::Npc,
+            lane: 0,
+            position: ValueOrRange::Range([60.0, 80.0]),
+            speed: ValueOrRange::Range([12.0, 14.0]),
+            acceleration: ValueOrRange::Range([-8.0, 3.0]),
+            behavior: npc_behavior,
+        };
+
         ScenarioSpec {
             scenario_type: ScenarioType::CutInLeft,
             time_step: 0.5,
             duration: 10.0,
-            ego: ActorSpec {
-                lane: 1,
-                position: ValueOrRange::Value(50.0),
-                speed: ValueOrRange::Value(15.0),
-                acceleration: ValueOrRange::Range([-8.0, 3.0]),
-            },
-            npc: NpcSpec {
-                lane: 0,
-                position: ValueOrRange::Range([60.0, 80.0]),
-                speed: ValueOrRange::Range([12.0, 14.0]),
-                cut_in_time: ValueOrRange::Range([2.5, 7.5]),
-                acceleration: ValueOrRange::Range([-8.0, 3.0]),
-            },
+            actors: vec![ego, npc],
             min_ttc: 3.0,
             min_distance: 5.0,
             lane_width: 3.5,

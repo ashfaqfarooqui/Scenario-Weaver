@@ -19,29 +19,44 @@ pub fn extract_scenario_from_model<'ctx>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorSpec, NpcSpec, ScenarioSpec, ScenarioType, ValueOrRange};
+    use crate::dsl::types::{ActorRole, ActorSpec, ScenarioSpec, ScenarioType, ValueOrRange};
     use crate::ltl::generator::LTLGenerator;
     use crate::solver::encoder::Z3Encoder;
+    use std::collections::HashMap;
     use z3::{Config, Context, SatResult};
 
     fn create_test_spec() -> ScenarioSpec {
+        let ego = ActorSpec {
+            id: "ego".to_string(),
+            role: ActorRole::Ego,
+            lane: 1,
+            position: ValueOrRange::Value(50.0),
+            speed: ValueOrRange::Value(15.0),
+            acceleration: ValueOrRange::Range([-8.0, 3.0]),
+            behavior: HashMap::new(),
+        };
+
+        let mut npc_behavior = HashMap::new();
+        npc_behavior.insert(
+            "cut_in_time".to_string(),
+            serde_json::json!([2.5, 7.5]),
+        );
+
+        let npc = ActorSpec {
+            id: "npc".to_string(),
+            role: ActorRole::Npc,
+            lane: 0,
+            position: ValueOrRange::Range([60.0, 80.0]),
+            speed: ValueOrRange::Range([12.0, 14.0]),
+            acceleration: ValueOrRange::Range([-8.0, 3.0]),
+            behavior: npc_behavior,
+        };
+
         ScenarioSpec {
             scenario_type: ScenarioType::CutInLeft,
             time_step: 0.5,
             duration: 10.0,
-            ego: ActorSpec {
-                lane: 1,
-                position: ValueOrRange::Value(50.0),
-                speed: ValueOrRange::Value(15.0),
-                acceleration: ValueOrRange::Range([-8.0, 3.0]),
-            },
-            npc: NpcSpec {
-                lane: 0,
-                position: ValueOrRange::Range([60.0, 80.0]),
-                speed: ValueOrRange::Range([12.0, 14.0]),
-                cut_in_time: ValueOrRange::Range([2.5, 7.5]),
-                acceleration: ValueOrRange::Range([-8.0, 3.0]),
-            },
+            actors: vec![ego, npc],
             min_ttc: 3.0,
             min_distance: 5.0,
             lane_width: 3.5,

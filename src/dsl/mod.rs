@@ -6,4 +6,4 @@ pub mod parser;
 pub mod types;
 
 pub use parser::{parse_yaml, parse_yaml_file};
-pub use types::{ActorSpec, NpcSpec, ScenarioSpec, ScenarioType, ValueOrRange};
+pub use types::{ActorRole, ActorSpec, ScenarioSpec, ScenarioType, ValueOrRange};

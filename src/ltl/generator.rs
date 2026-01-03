@@ -40,11 +40,11 @@ impl LTLGenerator {
     fn initial_conditions(spec: &ScenarioSpec, ego: &str, npc: &str) -> LTLFormula {
         LTLFormula::Atom(Proposition::InLane {
             actor: ego.to_string(),
-            lane: spec.ego.lane,
+            lane: spec.ego().lane,
         })
         .and(LTLFormula::Atom(Proposition::InLane {
             actor: npc.to_string(),
-            lane: spec.npc.lane,
+            lane: spec.npcs().next().unwrap().lane,
         }))
         .and(LTLFormula::Atom(Proposition::Ahead {
             actor1: npc.to_string(),
@@ -57,8 +57,8 @@ impl LTLGenerator {
     /// - Eventually: NPC moves to ego's lane
     /// - Until: NPC stays in left lane until it changes
     fn cut_in_behavior(spec: &ScenarioSpec, _ego: &str, npc: &str) -> LTLFormula {
-        let target_lane = spec.ego.lane;
-        let initial_lane = spec.npc.lane;
+        let target_lane = spec.ego().lane;
+        let initial_lane = spec.npcs().next().unwrap().lane;
 
         // Eventually NPC moves to ego's lane: F(InLane(npc, 1))
         let eventually_in_lane = LTLFormula::Atom(Proposition::InLane {
@@ -149,11 +149,11 @@ impl LTLGenerator {
             // Return a tautology (always true)
             LTLFormula::Atom(Proposition::InLane {
                 actor: ego.to_string(),
-                lane: spec.ego.lane,
+                lane: spec.ego().lane,
             })
             .or(LTLFormula::Atom(Proposition::InLane {
                 actor: ego.to_string(),
-                lane: spec.ego.lane,
+                lane: spec.ego().lane,
             })
             .negate())
         } else {
@@ -165,26 +165,41 @@ impl LTLGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorSpec, NpcSpec, ValueOrRange};
+    use crate::dsl::types::{ActorRole, ActorSpec, ValueOrRange};
+    use std::collections::HashMap;
 
     fn create_test_spec() -> ScenarioSpec {
+        let ego = ActorSpec {
+            id: "ego".to_string(),
+            role: ActorRole::Ego,
+            lane: 1,
+            position: ValueOrRange::Value(50.0),
+            speed: ValueOrRange::Value(15.0),
+            acceleration: ValueOrRange::Range([-8.0, 3.0]),
+            behavior: HashMap::new(),
+        };
+
+        let mut npc_behavior = HashMap::new();
+        npc_behavior.insert(
+            "cut_in_time".to_string(),
+            serde_json::json!([2.5, 7.5]),
+        );
+
+        let npc = ActorSpec {
+            id: "npc".to_string(),
+            role: ActorRole::Npc,
+            lane: 0,
+            position: ValueOrRange::Range([60.0, 80.0]),
+            speed: ValueOrRange::Range([12.0, 14.0]),
+            acceleration: ValueOrRange::Range([-8.0, 3.0]),
+            behavior: npc_behavior,
+        };
+
         ScenarioSpec {
             scenario_type: ScenarioType::CutInLeft,
             time_step: 0.5,
             duration: 10.0,
-            ego: ActorSpec {
-                lane: 1,
-                position: ValueOrRange::Value(50.0),
-                speed: ValueOrRange::Value(15.0),
-                acceleration: ValueOrRange::Range([-8.0, 3.0]),
-            },
-            npc: NpcSpec {
-                lane: 0,
-                position: ValueOrRange::Range([60.0, 80.0]),
-                speed: ValueOrRange::Range([12.0, 14.0]),
-                cut_in_time: ValueOrRange::Range([2.5, 7.5]),
-                acceleration: ValueOrRange::Range([-8.0, 3.0]),
-            },
+            actors: vec![ego, npc],
             min_ttc: 3.0,
             min_distance: 5.0,
             lane_width: 3.5,

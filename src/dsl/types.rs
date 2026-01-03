@@ -1,6 +1,7 @@
 //! DSL data structures for scenario specification
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Constraint enforcement mode
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -91,8 +92,7 @@ pub struct ScenarioSpec {
     pub scenario_type: ScenarioType,
     pub time_step: f64, // seconds per discretization step
     pub duration: f64,  // total scenario duration (seconds)
-    pub ego: ActorSpec,
-    pub npc: NpcSpec,
+    pub actors: Vec<ActorSpec>,
     pub min_ttc: f64,         // minimum time-to-collision (seconds)
     pub min_distance: f64,    // minimum longitudinal distance (meters)
     pub lane_width: f64,      // meters
@@ -122,23 +122,27 @@ impl std::fmt::Display for ScenarioType {
     }
 }
 
-/// Ego vehicle specification (supports ranges)
+/// Actor role in the scenario
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ActorRole {
+    Ego,
+    Npc,
+}
+
+/// Actor specification (supports ranges)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ActorSpec {
+    pub id: String,
+    pub role: ActorRole,
     pub lane: usize,
     pub position: ValueOrRange,     // meters from start (can be fixed or range)
     pub speed: ValueOrRange,        // m/s (can be fixed or range)
     pub acceleration: ValueOrRange, // m/s² (can be fixed or range)
-}
 
-/// NPC vehicle specification (with ranges for solver)
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct NpcSpec {
-    pub lane: usize,
-    pub position: ValueOrRange,    // starting position
-    pub speed: ValueOrRange,       // velocity
-    pub cut_in_time: ValueOrRange, // when to perform lane change (seconds)
-    pub acceleration: ValueOrRange, // m/s² (can be fixed or range)
+    /// Generic behavior parameters (scenario plugins parse this)
+    #[serde(default)]
+    pub behavior: HashMap<String, serde_json::Value>,
 }
 
 /// Value that can be either fixed or a range for Z3 to solve
@@ -173,6 +177,19 @@ impl ValueOrRange {
 }
 
 impl ScenarioSpec {
+    /// Get the ego actor (must be exactly one)
+    pub fn ego(&self) -> &ActorSpec {
+        self.actors
+            .iter()
+            .find(|a| a.role == ActorRole::Ego)
+            .expect("Scenario must have exactly one ego actor")
+    }
+
+    /// Get iterator over all NPC actors
+    pub fn npcs(&self) -> impl Iterator<Item = &ActorSpec> {
+        self.actors.iter().filter(|a| a.role == ActorRole::Npc)
+    }
+
     /// Validate the specification
     pub fn validate(&self) -> Result<(), String> {
         // Time parameters
@@ -202,12 +219,48 @@ impl ScenarioSpec {
             return Err("num_scenarios must be at least 1".to_string());
         }
 
-        // Actor parameters
-        if self.ego.speed.min() <= 0.0 {
-            return Err("ego speed must be positive".to_string());
+        // Actor constraints
+        let ego_count = self.actors.iter().filter(|a| a.role == ActorRole::Ego).count();
+        if ego_count != 1 {
+            return Err(format!("Scenario must have exactly 1 ego actor, found {}", ego_count));
         }
-        if self.npc.speed.min() <= 0.0 {
-            return Err("npc speed must be positive".to_string());
+
+        let npc_count = self.actors.iter().filter(|a| a.role == ActorRole::Npc).count();
+        if npc_count == 0 {
+            return Err("Scenario must have at least 1 NPC actor".to_string());
+        }
+
+        // Validate unique actor IDs
+        let mut seen_ids = std::collections::HashSet::new();
+        for actor in &self.actors {
+            if !seen_ids.insert(&actor.id) {
+                return Err(format!("Duplicate actor ID: {}", actor.id));
+            }
+        }
+
+        // Validate actor parameters
+        for actor in &self.actors {
+            if actor.speed.min() <= 0.0 {
+                return Err(format!("{} speed must be positive", actor.id));
+            }
+
+            if actor.acceleration.min() >= actor.acceleration.max() {
+                return Err(format!("{} acceleration range invalid", actor.id));
+            }
+
+            // Position range validity
+            if let ValueOrRange::Range([min, max]) = actor.position {
+                if min >= max {
+                    return Err(format!("{} position range invalid: min >= max", actor.id));
+                }
+            }
+
+            // Speed range validity
+            if let ValueOrRange::Range([min, max]) = actor.speed {
+                if min >= max {
+                    return Err(format!("{} speed range invalid: min >= max", actor.id));
+                }
+            }
         }
 
         // Validate acceleration ranges
@@ -220,46 +273,6 @@ impl ScenarioSpec {
         if let Some(max_decel) = self.max_deceleration {
             if max_decel >= 0.0 {
                 return Err("max_deceleration must be negative".to_string());
-            }
-        }
-
-        // Validate actor acceleration ranges
-        if self.ego.acceleration.min() >= self.ego.acceleration.max() {
-            return Err("ego acceleration range invalid".to_string());
-        }
-        if self.npc.acceleration.min() >= self.npc.acceleration.max() {
-            return Err("npc acceleration range invalid".to_string());
-        }
-
-        // Ego range validity
-        if let ValueOrRange::Range([min, max]) = self.ego.position {
-            if min >= max {
-                return Err("ego position range invalid: min >= max".to_string());
-            }
-        }
-        if let ValueOrRange::Range([min, max]) = self.ego.speed {
-            if min >= max {
-                return Err("ego speed range invalid: min >= max".to_string());
-            }
-        }
-
-        // NPC range validity
-        if let ValueOrRange::Range([min, max]) = self.npc.position {
-            if min >= max {
-                return Err("npc position range invalid: min >= max".to_string());
-            }
-        }
-        if let ValueOrRange::Range([min, max]) = self.npc.speed {
-            if min >= max {
-                return Err("npc speed range invalid: min >= max".to_string());
-            }
-        }
-        if let ValueOrRange::Range([min, max]) = self.npc.cut_in_time {
-            if min >= max {
-                return Err("npc cut_in_time range invalid: min >= max".to_string());
-            }
-            if max > self.duration {
-                return Err("npc cut_in_time max exceeds scenario duration".to_string());
             }
         }
 
@@ -306,23 +319,37 @@ mod tests {
     }
 
     fn create_test_spec() -> ScenarioSpec {
+        let ego = ActorSpec {
+            id: "ego".to_string(),
+            role: ActorRole::Ego,
+            lane: 1,
+            position: ValueOrRange::Value(50.0),
+            speed: ValueOrRange::Value(15.0),
+            acceleration: ValueOrRange::Range([-8.0, 3.0]),
+            behavior: HashMap::new(),
+        };
+
+        let mut npc_behavior = HashMap::new();
+        npc_behavior.insert(
+            "cut_in_time".to_string(),
+            serde_json::json!([2.5, 7.5]),
+        );
+
+        let npc = ActorSpec {
+            id: "npc".to_string(),
+            role: ActorRole::Npc,
+            lane: 0,
+            position: ValueOrRange::Range([60.0, 80.0]),
+            speed: ValueOrRange::Range([12.0, 14.0]),
+            acceleration: ValueOrRange::Range([-8.0, 3.0]),
+            behavior: npc_behavior,
+        };
+
         ScenarioSpec {
             scenario_type: ScenarioType::CutInLeft,
             time_step: 0.5,
             duration: 10.0,
-            ego: ActorSpec {
-                lane: 1,
-                position: ValueOrRange::Value(50.0),
-                speed: ValueOrRange::Value(15.0),
-                acceleration: ValueOrRange::Range([-8.0, 3.0]),
-            },
-            npc: NpcSpec {
-                lane: 0,
-                position: ValueOrRange::Range([60.0, 80.0]),
-                speed: ValueOrRange::Range([12.0, 14.0]),
-                cut_in_time: ValueOrRange::Range([2.5, 7.5]),
-                acceleration: ValueOrRange::Range([-8.0, 3.0]),
-            },
+            actors: vec![ego, npc],
             min_ttc: 3.0,
             min_distance: 5.0,
             lane_width: 3.5,

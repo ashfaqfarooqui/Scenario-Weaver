@@ -1,17 +1,108 @@
 //! YAML parser for DSL specifications
 
-use super::types::ScenarioSpec;
+use super::types::{ActorRole, ActorSpec, ConstraintModes, ScenarioSpec, ScenarioType, ValueOrRange};
 use crate::error::{Result, ScenarioGenError};
+use serde::Deserialize;
+use std::collections::HashMap;
 
 /// Parse YAML string into ScenarioSpec
 pub fn parse_yaml(yaml_content: &str) -> Result<ScenarioSpec> {
-    let spec: ScenarioSpec =
-        serde_yaml::from_str(yaml_content).map_err(ScenarioGenError::YamlParse)?;
+    // Try new format first
+    match serde_yaml::from_str::<ScenarioSpec>(yaml_content) {
+        Ok(spec) => {
+            spec.validate().map_err(ScenarioGenError::InvalidSpec)?;
+            Ok(spec)
+        }
+        Err(_) => {
+            // Fall back to legacy format
+            let legacy: LegacyScenarioSpec = serde_yaml::from_str(yaml_content)
+                .map_err(ScenarioGenError::YamlParse)?;
+            let spec = ScenarioSpec::from(legacy);
+            spec.validate().map_err(ScenarioGenError::InvalidSpec)?;
+            Ok(spec)
+        }
+    }
+}
 
-    // Validate the parsed specification
-    spec.validate().map_err(ScenarioGenError::InvalidSpec)?;
+// Legacy format support
+#[derive(Deserialize)]
+struct LegacyScenarioSpec {
+    scenario_type: ScenarioType,
+    time_step: f64,
+    duration: f64,
+    ego: LegacyActorSpec,
+    npc: LegacyNpcSpec,
+    min_ttc: f64,
+    min_distance: f64,
+    lane_width: f64,
+    #[serde(default)]
+    constraint_modes: ConstraintModes,
+    #[serde(default)]
+    max_acceleration: Option<f64>,
+    #[serde(default)]
+    max_deceleration: Option<f64>,
+    num_scenarios: usize,
+}
 
-    Ok(spec)
+#[derive(Deserialize)]
+struct LegacyActorSpec {
+    lane: usize,
+    position: ValueOrRange,
+    speed: ValueOrRange,
+    acceleration: ValueOrRange,
+}
+
+#[derive(Deserialize)]
+struct LegacyNpcSpec {
+    lane: usize,
+    position: ValueOrRange,
+    speed: ValueOrRange,
+    acceleration: ValueOrRange,
+    cut_in_time: ValueOrRange,
+}
+
+impl From<LegacyScenarioSpec> for ScenarioSpec {
+    fn from(legacy: LegacyScenarioSpec) -> Self {
+        let ego_actor = ActorSpec {
+            id: "ego".to_string(),
+            role: ActorRole::Ego,
+            lane: legacy.ego.lane,
+            position: legacy.ego.position,
+            speed: legacy.ego.speed,
+            acceleration: legacy.ego.acceleration,
+            behavior: HashMap::new(),
+        };
+
+        let mut npc_behavior = HashMap::new();
+        npc_behavior.insert(
+            "cut_in_time".to_string(),
+            serde_json::to_value(legacy.npc.cut_in_time).unwrap(),
+        );
+
+        let npc_actor = ActorSpec {
+            id: "npc".to_string(),
+            role: ActorRole::Npc,
+            lane: legacy.npc.lane,
+            position: legacy.npc.position,
+            speed: legacy.npc.speed,
+            acceleration: legacy.npc.acceleration,
+            behavior: npc_behavior,
+        };
+
+        ScenarioSpec {
+            scenario_type: legacy.scenario_type,
+            time_step: legacy.time_step,
+            duration: legacy.duration,
+            actors: vec![ego_actor, npc_actor],
+            min_ttc: legacy.min_ttc,
+            min_distance: legacy.min_distance,
+            lane_width: legacy.lane_width,
+            constraint_modes: legacy.constraint_modes,
+            max_acceleration: legacy.max_acceleration,
+            max_deceleration: legacy.max_deceleration,
+            num_scenarios: legacy.num_scenarios,
+        }
+    }
 }
 
 /// Parse YAML file into ScenarioSpec
@@ -58,8 +149,8 @@ num_scenarios: 1
             super::super::types::ScenarioType::CutInLeft
         );
         assert_eq!(spec.time_step, 0.5);
-        assert_eq!(spec.ego.lane, 1);
-        assert_eq!(spec.npc.position.min(), 60.0);
+        assert_eq!(spec.ego().lane, 1);
+        assert_eq!(spec.npcs().next().unwrap().position.min(), 60.0);
     }
 
     #[test]
@@ -100,7 +191,8 @@ num_scenarios: 1
 "#;
 
         let spec = parse_yaml(yaml).unwrap();
-        assert!(spec.npc.position.is_fixed());
-        assert_eq!(spec.npc.position.min(), 65.0);
+        let npc = spec.npcs().next().unwrap();
+        assert!(npc.position.is_fixed());
+        assert_eq!(npc.position.min(), 65.0);
     }
 }
