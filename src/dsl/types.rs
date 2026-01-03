@@ -108,7 +108,7 @@ pub struct ScenarioSpec {
     pub max_deceleration: Option<f64>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum ScenarioType {
     CutInLeft,

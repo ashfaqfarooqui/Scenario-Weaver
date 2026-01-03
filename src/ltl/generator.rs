@@ -2,15 +2,18 @@
 
 use crate::dsl::types::{ConstraintMode, ScenarioSpec, ScenarioType};
 use crate::ltl::formula::{LTLFormula, Proposition};
+use crate::ltl::plugin::REGISTRY;
 
 pub struct LTLGenerator;
 
 impl LTLGenerator {
     /// Generate LTL formula from scenario specification
     pub fn generate(spec: &ScenarioSpec) -> LTLFormula {
-        match spec.scenario_type {
-            ScenarioType::CutInLeft => Self::generate_cut_in_left(spec),
-        }
+        REGISTRY
+            .lock()
+            .unwrap()
+            .generate(spec)
+            .expect("Failed to generate LTL formula")
     }
 
     /// Generate LTL formula for cut-in from left scenario
@@ -22,6 +25,7 @@ impl LTLGenerator {
     /// - φ_init: Initial conditions (lanes, positions)
     /// - φ_behavior: Cut-in behavior (eventually changes lanes, stays left until change)
     /// - φ_safety: Safety constraints (always maintain TTC and distance)
+    #[deprecated(note = "Use plugin system via REGISTRY instead")]
     pub fn generate_cut_in_left(spec: &ScenarioSpec) -> LTLFormula {
         let ego = "ego";
         let npc = "npc";
@@ -37,6 +41,7 @@ impl LTLGenerator {
     /// - Ego in right lane (lane 1)
     /// - NPC in left lane (lane 0)
     /// - NPC ahead of ego
+    #[deprecated(note = "Use plugin system via REGISTRY instead")]
     fn initial_conditions(spec: &ScenarioSpec, ego: &str, npc: &str) -> LTLFormula {
         LTLFormula::Atom(Proposition::InLane {
             actor: ego.to_string(),
@@ -56,6 +61,7 @@ impl LTLGenerator {
     ///
     /// - Eventually: NPC moves to ego's lane
     /// - Until: NPC stays in left lane until it changes
+    #[deprecated(note = "Use plugin system via REGISTRY instead")]
     fn cut_in_behavior(spec: &ScenarioSpec, _ego: &str, npc: &str) -> LTLFormula {
         let target_lane = spec.ego().lane;
         let initial_lane = spec.npcs().next().unwrap().lane;
@@ -85,6 +91,7 @@ impl LTLGenerator {
     /// - Enforce: G(constraint) - always maintain safety
     /// - Violate: F(NOT constraint) - eventually violate safety
     /// - Ignore: constraint not added
+    #[deprecated(note = "Use plugin system via REGISTRY instead")]
     fn safety_constraints(spec: &ScenarioSpec, ego: &str, npc: &str) -> LTLFormula {
         let mut constraints = Vec::new();
 

@@ -26,6 +26,7 @@ chrono = { version = "0.4", features = ["serde"] }  # Timestamps
 uuid = { version = "1.6", features = ["v4", "serde"] }  # Scenario IDs
 anyhow = "1.0"  # Error handling convenience
 thiserror = "1.0"  # Custom error types
+lazy_static = "1.4"  # Global static initialization
 
 # CLI (will be used in Phase 12)
 clap = { version = "4.4", features = ["derive"] }
