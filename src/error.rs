@@ -30,6 +30,9 @@ pub enum ScenarioGenError {
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("Scenario validation failed: {0}")]
+    ValidationFailed(#[from] anyhow::Error),
 }
 
 pub type Result<T> = std::result::Result<T, ScenarioGenError>;
