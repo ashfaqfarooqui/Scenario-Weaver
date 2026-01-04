@@ -7,6 +7,7 @@ pub mod dsl;
 pub mod error;
 pub mod ltl;
 pub mod scenario;
+pub mod scenarios;
 pub mod solver;
 
 use error::{Result, ScenarioGenError};
@@ -15,7 +16,7 @@ use z3::SatResult;
 
 /// Generate a single scenario from YAML specification
 ///
-/// This is the main entry point for Phase 10 - single scenario generation.
+/// This is the main entry point for scenario generation.
 ///
 /// # Arguments
 /// * `yaml_content` - YAML specification string
@@ -29,38 +30,45 @@ use z3::SatResult;
 /// - Specification is invalid
 /// - Z3 solver returns UNSAT (no solution exists)
 pub fn generate_single_scenario(yaml_content: &str) -> Result<Scenario> {
-    // Phase 1-2: Parse YAML into DSL specification
+    // Parse YAML into DSL specification
     let spec = dsl::parser::parse_yaml(yaml_content)?;
 
-    // Phase 3-4: Generate LTL formula from specification
+    // Get scenario model and validate scenario-specific requirements
+    let scenario_model = spec.scenario_type.get_model();
+    scenario_model.validate(&spec)?;
+
+    // Generate LTL using trait (behavior + safety combined)
     let ltl_formula = ltl::generator::LTLGenerator::generate(&spec);
 
-    // Phase 5-9: Setup Z3 and solve
+    // Setup Z3 and solve
     let cfg = z3::Config::new();
     let ctx = z3::Context::new(&cfg);
     let mut encoder = solver::Z3Encoder::new(&ctx, spec);
 
-    // Phase 6: Create Z3 variables
+    // Create variables
     encoder.create_variables();
 
-    // Phase 6: Encode initial conditions
+    // Encode initial conditions and kinematics
     encoder.encode_initial_conditions();
-
-    // Phase 6: Encode kinematic constraints
     encoder.encode_kinematics();
 
-    // Phase 7: Encode LTL formula
+    // Encode LTL formula
     encoder.encode_ltl(&ltl_formula);
 
-    // Phase 8: Encode safety constraints
+    // Call scenario-specific Z3 constraints (if any)
+    encoder.encode_scenario_specific_constraints(&*scenario_model)?;
+
+    // Encode safety constraints
     encoder.encode_safety();
 
-    // Phase 9: Solve and extract scenario
+    // Solve and extract scenario
     match encoder.check() {
         SatResult::Sat => {
-            let model = encoder.get_model().ok_or_else(|| {
-                ScenarioGenError::ExtractionFailed("Failed to get Z3 model".to_string())
-            })?;
+            let model = encoder
+                .get_model()
+                .ok_or_else(|| {
+                    ScenarioGenError::ExtractionFailed("Failed to get Z3 model".to_string())
+                })?;
             Ok(encoder.extract_scenario(&model))
         }
         SatResult::Unsat => Err(ScenarioGenError::Unsatisfiable),
