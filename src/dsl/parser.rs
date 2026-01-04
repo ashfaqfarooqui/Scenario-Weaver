@@ -32,18 +32,22 @@ scenario_type: cut_in_left
 time_step: 0.5
 duration: 10.0
 
-ego:
-  lane: 1
-  position: 50.0
-  speed: 15.0
-  acceleration: [-8.0, 3.0]
+actors:
+  - id: ego
+    role: ego
+    lane: 1
+    position: 50.0
+    speed: 15.0
+    acceleration: [-8.0, 3.0]
 
-npc:
-  lane: 0
-  position: [60.0, 80.0]
-  speed: [12.0, 14.0]
-  cut_in_time: [2.5, 7.5]
-  acceleration: [-8.0, 3.0]
+  - id: npc
+    role: npc
+    lane: 0
+    position: [60.0, 80.0]
+    speed: [12.0, 14.0]
+    acceleration: [-8.0, 3.0]
+    behavior:
+      cut_in_time: [2.5, 7.5]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -58,8 +62,8 @@ num_scenarios: 1
             super::super::types::ScenarioType::CutInLeft
         );
         assert_eq!(spec.time_step, 0.5);
-        assert_eq!(spec.ego.lane, 1);
-        assert_eq!(spec.npc.position.min(), 60.0);
+        assert_eq!(spec.ego().unwrap().lane, 1);
+        assert_eq!(spec.npcs()[0].position.min(), 60.0);
     }
 
     #[test]
@@ -68,8 +72,21 @@ num_scenarios: 1
 scenario_type: cut_in_left
 time_step: -0.5
 duration: 10.0
-ego: { lane: 1, position: 50.0, speed: 15.0, acceleration: [-8.0, 3.0] }
-npc: { lane: 0, position: 60.0, speed: 13.0, cut_in_time: 5.0, acceleration: [-8.0, 3.0] }
+actors:
+  - id: ego
+    role: ego
+    lane: 1
+    position: 50.0
+    speed: 15.0
+    acceleration: [-8.0, 3.0]
+  - id: npc
+    role: npc
+    lane: 0
+    position: 60.0
+    speed: 13.0
+    acceleration: [-8.0, 3.0]
+    behavior:
+      cut_in_time: 5.0
 min_ttc: 3.0
 min_distance: 5.0
 lane_width: 3.5
@@ -91,8 +108,21 @@ num_scenarios: 1
 scenario_type: cut_in_left
 time_step: 0.5
 duration: 10.0
-ego: { lane: 1, position: 50.0, speed: 15.0, acceleration: [-8.0, 3.0] }
-npc: { lane: 0, position: 65.0, speed: 13.0, cut_in_time: 5.0, acceleration: [-8.0, 3.0] }
+actors:
+  - id: ego
+    role: ego
+    lane: 1
+    position: 50.0
+    speed: 15.0
+    acceleration: [-8.0, 3.0]
+  - id: npc
+    role: npc
+    lane: 0
+    position: 65.0
+    speed: 13.0
+    acceleration: [-8.0, 3.0]
+    behavior:
+      cut_in_time: 5.0
 min_ttc: 3.0
 min_distance: 5.0
 lane_width: 3.5
@@ -100,7 +130,8 @@ num_scenarios: 1
 "#;
 
         let spec = parse_yaml(yaml).unwrap();
-        assert!(spec.npc.position.is_fixed());
-        assert_eq!(spec.npc.position.min(), 65.0);
+        let npc = spec.npcs()[0];
+        assert!(npc.position.is_fixed());
+        assert_eq!(npc.position.min(), 65.0);
     }
 }
