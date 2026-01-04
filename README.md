@@ -120,18 +120,25 @@ scenario_type: cut_in_left
 time_step: 0.5        # 0.5 second discretization
 duration: 10.0        # 10 second scenario
 
-# Ego vehicle (controlled by AV under test)
-ego:
-  lane: 1             # right lane
-  position: 50.0      # 50 meters from start
-  speed: 15.0         # 15 m/s (54 km/h)
+# Actor specifications (generic actor system)
+actors:
+  # Ego vehicle (controlled by AV under test)
+  - id: ego
+    role: ego
+    lane: 1                  # right lane
+    position: [45.0, 55.0]   # 45-55 meters from start (Z3 chooses)
+    speed: [14.0, 16.0]      # 14-16 m/s (Z3 chooses)
+    acceleration: [-8.0, 3.0]  # -8.0 to 3.0 m/s² (braking to acceleration)
 
-# NPC vehicle (background actor)
-npc:
-  lane: 0             # left lane
-  position: [60.0, 80.0]   # start 60-80m from start (Z3 chooses)
-  speed: [12.0, 14.0]      # slightly slower (Z3 chooses)
-  cut_in_time: [2.5, 7.5]  # cut in between 2.5-7.5 seconds
+  # NPC vehicle (background actor)
+  - id: npc
+    role: npc
+    lane: 0                  # left lane
+    position: [60.0, 80.0]   # start 60-80m from start (Z3 chooses)
+    speed: [12.0, 14.0]      # slightly slower (Z3 chooses)
+    acceleration: [-8.0, 3.0]  # -8.0 to 3.0 m/s²
+    behavior:
+      cut_in_time: [2.5, 7.5]  # cut in between 2.5-7.5 seconds
 
 # Safety constraints
 min_ttc: 3.0              # minimum 3 second time-to-collision
@@ -141,6 +148,12 @@ lane_width: 3.5           # 3.5 meter lane width
 # Generation settings
 num_scenarios: 1          # generate 1 scenario (or use -n flag)
 ```
+
+### Value Formats
+
+- **Fixed values**: `position: 50.0` - Z3 must use exactly 50.0
+- **Ranges**: `position: [45.0, 55.0]` - Z3 chooses any value in range
+- **Behavior parameters**: Scenario-specific values in the `behavior` map (e.g., `cut_in_time`)
 
 ## Output Format
 
@@ -237,6 +250,234 @@ Options:
   -V, --version          Print version
 ```
 
+## Creating New Scenario Types
+
+The scenario generator uses a **plugin system** that makes adding new scenario types simple. Adding a new scenario requires only **3 steps**:
+
+### Overview
+
+Each scenario type implements the `ScenarioModel` trait, which defines:
+- **Validation**: Scenario-specific requirements (e.g., number of actors, behavior parameters)
+- **Behavior LTL**: Temporal logic defining the scenario behavior
+- **Safety**: Optional custom safety constraints (default: pairwise TTC/distance)
+- **Z3 constraints**: Optional custom Z3 assertions (default: none)
+
+### Step-by-Step Example
+
+Let's add a new "lane change" scenario where an NPC changes lanes ahead of the ego vehicle.
+
+#### Step 1: Create the Scenario Implementation
+
+Create `src/scenarios/lane_change.rs`:
+
+```rust
+//! Lane change scenario model
+
+use crate::scenarios::ScenarioModel;
+use crate::dsl::types::ScenarioSpec;
+use crate::ltl::formula::{LTLFormula, Proposition};
+use anyhow::Result;
+
+/// Lane change scenario model
+pub struct LaneChangeModel;
+
+impl ScenarioModel for LaneChangeModel {
+    fn validate(&self, spec: &ScenarioSpec) -> Result<()> {
+        // Require exactly 2 actors (ego + 1 npc)
+        if spec.actors.len() != 2 {
+            anyhow::bail!("Lane change requires exactly 2 actors, found {}", spec.actors.len());
+        }
+
+        let npc = &spec.npcs()[0];
+
+        // Require lane_change_time parameter
+        if !npc.behavior.contains_key("lane_change_time") {
+            anyhow::bail!("NPC missing 'lane_change_time' in behavior map");
+        }
+
+        Ok(())
+    }
+
+    fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
+        let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
+        let npc = &spec.npcs()[0];
+
+        let ego_id = ego.id.as_str();
+        let npc_id = npc.id.as_str();
+
+        // Initial conditions: ego and NPC start in different lanes
+        let init = LTLFormula::Atom(Proposition::InLane {
+            actor: ego_id.to_string(),
+            lane: ego.lane,
+        })
+        .and(LTLFormula::Atom(Proposition::InLane {
+            actor: npc_id.to_string(),
+            lane: npc.lane,
+        }));
+
+        // Behavior: NPC eventually changes to ego's lane
+        let behavior = LTLFormula::Atom(Proposition::InLane {
+            actor: npc_id.to_string(),
+            lane: ego.lane,
+        })
+        .eventually();
+
+        Ok(init.and(behavior))
+    }
+}
+```
+
+#### Step 2: Register the Scenario Type
+
+Add the variant to `ScenarioType` enum in `src/dsl/types.rs`:
+
+```rust
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScenarioType {
+    CutInLeft,
+    CutInRight,
+    LaneChange,  // NEW
+}
+```
+
+Update the `Display` implementation:
+
+```rust
+impl std::fmt::Display for ScenarioType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScenarioType::CutInLeft => write!(f, "cut_in_left"),
+            ScenarioType::CutInRight => write!(f, "cut_in_right"),
+            ScenarioType::LaneChange => write!(f, "lane_change"),  // NEW
+        }
+    }
+}
+```
+
+Add the dispatch logic in `get_model()`:
+
+```rust
+pub fn get_model(&self) -> Box<dyn crate::scenarios::ScenarioModel> {
+    match self {
+        ScenarioType::CutInLeft => Box::new(crate::scenarios::cut_in_left::CutInLeftModel),
+        ScenarioType::CutInRight => Box::new(crate::scenarios::cut_in_right::CutInRightModel),
+        ScenarioType::LaneChange => Box::new(crate::scenarios::lane_change::LaneChangeModel),  // NEW
+    }
+}
+```
+
+#### Step 3: Export the Module
+
+Add to `src/scenarios/mod.rs`:
+
+```rust
+pub mod cut_in_left;
+pub mod cut_in_right;
+pub mod lane_change;  // NEW
+```
+
+That's it! Your new scenario type is now available.
+
+### Create Example YAML
+
+Create `examples/lane_change.yaml`:
+
+```yaml
+scenario_type: lane_change
+
+time_step: 0.5
+duration: 10.0
+
+actors:
+  - id: ego
+    role: ego
+    lane: 0
+    position: 50.0
+    speed: 15.0
+    acceleration: [-8.0, 3.0]
+
+  - id: npc
+    role: npc
+    lane: 1
+    position: [60.0, 80.0]
+    speed: [12.0, 14.0]
+    acceleration: [-8.0, 3.0]
+    behavior:
+      lane_change_time: [3.0, 7.0]  # Lane change between 3-7 seconds
+
+min_ttc: 3.0
+min_distance: 5.0
+lane_width: 3.5
+num_scenarios: 5
+```
+
+### Test Your New Scenario
+
+```bash
+# Generate scenarios
+cargo run --release -- -i examples/lane_change.yaml -o scenarios/ -n 5
+
+# Run tests
+cargo test lane_change
+```
+
+### Advanced Features
+
+#### Custom Safety Constraints
+
+Override `generate_safety()` to customize safety behavior:
+
+```rust
+impl ScenarioModel for LaneChangeModel {
+    // ... other methods ...
+
+    fn generate_safety(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
+        // Custom safety logic
+        // For example: only enforce distance, ignore TTC
+        Ok(custom_distance_constraint(spec))
+    }
+}
+```
+
+#### Custom Z3 Constraints
+
+Override `add_z3_constraints()` to add scenario-specific Z3 assertions:
+
+```rust
+fn add_z3_constraints(
+    &self,
+    spec: &ScenarioSpec,
+    encoder: &crate::solver::Z3Encoder,
+    solver: &z3::Solver,
+    horizon: usize,
+) -> Result<()> {
+    // Add custom Z3 constraints
+    // For example: constrain the lane change timing
+    Ok(())
+}
+```
+
+### Examples
+
+See existing implementations for reference:
+- **Cut-in left**: `src/scenarios/cut_in_left.rs` - NPC cuts in from left lane
+- **Cut-in right**: `src/scenarios/cut_in_right.rs` - NPC cuts in from right lane
+
+### Multi-Actor Support
+
+The system supports **1 ego + N NPCs**. Access actors in your implementation:
+
+```rust
+let ego = spec.ego()?;  // Get the single ego actor
+let npcs = spec.npcs(); // Get all NPCs (returns Vec<&ActorSpec>)
+
+// Access specific actor by ID
+let actor = spec.get_actor("npc1")?;
+```
+
+Pairwise safety constraints are automatically generated for all actor combinations unless you override `generate_safety()`.
+
 ## Development
 
 ### Run Tests
@@ -270,12 +511,46 @@ cargo doc --open
 
 ## Architecture
 
-The generator pipeline:
+The generator uses a **modular, trait-based plugin system** for scenario types:
+
+### Pipeline
 
 1. **DSL Parser** (`src/dsl/`) - Parse YAML into structured specification
-2. **LTL Generator** (`src/ltl/`) - Convert specification to temporal logic constraints
-3. **Z3 Encoder** (`src/solver/`) - Encode LTL + physics + safety into Z3 constraints
-4. **Scenario Extractor** (`src/scenario/`) - Extract solution as JSON trajectories
+2. **Scenario Model** (`src/scenarios/`) - Trait-based scenario implementations
+3. **LTL Generator** (`src/ltl/`) - Convert specification to temporal logic constraints
+4. **Z3 Encoder** (`src/solver/`) - Encode LTL + physics + safety into Z3 constraints
+5. **Scenario Extractor** (`src/scenario/`) - Extract solution as JSON trajectories
+
+### Key Design Features
+
+- **Generic actor system**: Supports 1 ego + N NPCs with dynamic constraints
+- **Trait-based plugins**: Each scenario type implements `ScenarioModel` trait
+- **Type-safe dispatch**: Enum-based scenario types (no string registry)
+- **Automatic safety**: Pairwise TTC and distance constraints by default
+- **Multi-scenario diversity**: Blocking clauses force diverse solutions
+- **Constraint modes**: Enforce, violate, or ignore each safety constraint independently
+
+### ScenarioModel Trait
+
+All scenario types implement the `ScenarioModel` trait:
+
+```rust
+pub trait ScenarioModel: Send + Sync {
+    // Validate scenario-specific requirements
+    fn validate(&self, spec: &ScenarioSpec) -> Result<()>;
+
+    // Generate behavioral LTL (required)
+    fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula>;
+
+    // Generate safety constraints (optional, has default)
+    fn generate_safety(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
+        Ok(generate_default_safety(spec))
+    }
+
+    // Add Z3 constraints (optional, has default)
+    fn add_z3_constraints(...) -> Result<()> { Ok(()) }
+}
+```
 
 ## Documentation
 
