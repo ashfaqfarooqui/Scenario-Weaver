@@ -40,17 +40,21 @@ fn test_parse_example_yaml() {
     assert_eq!(spec.num_time_steps(), 20);
 
     // Verify ego (now supports ranges)
-    assert_eq!(spec.ego.lane, 1);
-    assert_eq!(spec.ego.position.min(), 45.0);
-    assert_eq!(spec.ego.position.max(), 55.0);
-    assert_eq!(spec.ego.speed.min(), 14.0);
-    assert_eq!(spec.ego.speed.max(), 16.0);
+    let ego = spec.ego().expect("Should have ego actor");
+    assert_eq!(ego.lane, 1);
+    assert_eq!(ego.position.min(), 45.0);
+    assert_eq!(ego.position.max(), 55.0);
+    assert_eq!(ego.speed.min(), 14.0);
+    assert_eq!(ego.speed.max(), 16.0);
 
     // Verify npc
-    assert_eq!(spec.npc.lane, 0);
-    assert_eq!(spec.npc.position.min(), 60.0);
-    assert_eq!(spec.npc.position.max(), 80.0);
-    assert!(!spec.npc.position.is_fixed());
+    let npcs = spec.npcs();
+    assert_eq!(npcs.len(), 1);
+    let npc = npcs[0];
+    assert_eq!(npc.lane, 0);
+    assert_eq!(npc.position.min(), 60.0);
+    assert_eq!(npc.position.max(), 80.0);
+    assert!(!npc.position.is_fixed());
 }
 
 #[test]

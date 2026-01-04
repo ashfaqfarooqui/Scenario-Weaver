@@ -69,7 +69,7 @@ impl<'ctx> Z3Encoder<'ctx> {
 
     /// Create all Z3 variables for the scenario
     ///
-    /// For each actor ("ego", "npc") and each time step t ∈ [0, horizon],
+    /// For each actor and each time step t ∈ [0, horizon],
     /// creates variables:
     /// - px_t: longitudinal position
     /// - py_t: lateral position
@@ -79,9 +79,9 @@ impl<'ctx> Z3Encoder<'ctx> {
     /// - ay_t: lateral acceleration
     /// - lane_t: lane number
     pub fn create_variables(&mut self) {
-        let actor_ids = vec!["ego".to_string(), "npc".to_string()];
+        for actor in &self.spec.actors {
+            let actor_id = &actor.id;
 
-        for actor_id in actor_ids {
             let mut px_vars = Vec::new();
             let mut py_vars = Vec::new();
             let mut vx_vars = Vec::new();
@@ -113,35 +113,46 @@ impl<'ctx> Z3Encoder<'ctx> {
 
     /// Encode initial conditions from the DSL specification
     pub fn encode_initial_conditions(&mut self) {
-        // Ego initial conditions (may have ranges)
-        let ego_id = "ego";
-        self.encode_actor_initial_state(
-            ego_id,
-            self.spec.ego.lane,
-            self.spec.ego.position.min(),
-            self.spec.ego.position.max(),
-            self.spec.ego.speed.min(),
-            self.spec.ego.speed.max(),
-            self.spec.ego.acceleration.min(),
-            self.spec.ego.acceleration.max(),
-        );
+        use crate::dsl::types::ActorRole;
 
-        // NPC initial conditions (may have ranges)
-        let npc_id = "npc";
-        self.encode_actor_initial_state(
-            npc_id,
-            self.spec.npc.lane,
-            self.spec.npc.position.min(),
-            self.spec.npc.position.max(),
-            self.spec.npc.speed.min(),
-            self.spec.npc.speed.max(),
-            self.spec.npc.acceleration.min(),
-            self.spec.npc.acceleration.max(),
-        );
+        // Collect all actor data upfront to avoid borrow checker issues
+        let actor_data: Vec<_> = self.spec.actors.iter().map(|actor| {
+            (
+                actor.id.clone(),
+                actor.lane,
+                actor.position.min(),
+                actor.position.max(),
+                actor.speed.min(),
+                actor.speed.max(),
+                actor.acceleration.min(),
+                actor.acceleration.max(),
+                actor.role,
+            )
+        }).collect();
 
-        // Initial lateral position matches lane center
-        self.encode_lane_position_coupling_at_time(ego_id, 0);
-        self.encode_lane_position_coupling_at_time(npc_id, 0);
+        for (actor_id, lane, pos_min, pos_max, speed_min, speed_max, acc_min, acc_max, role) in actor_data {
+            // Call existing encoding method
+            self.encode_actor_initial_state(
+                &actor_id,
+                lane,
+                pos_min,
+                pos_max,
+                speed_min,
+                speed_max,
+                acc_min,
+                acc_max,
+            );
+
+            // Initial lateral position matches lane center
+            self.encode_lane_position_coupling_at_time(&actor_id, 0);
+
+            // Ego never changes lanes (vy = 0)
+            if role == ActorRole::Ego {
+                let zero = Real::from_real(self.ctx, 0, 1);
+                let vy_0 = &self.velocities_y[&actor_id][0];
+                self.solver.assert(&vy_0._eq(&zero));
+            }
+        }
     }
 
     /// Encode initial state for an actor
@@ -231,13 +242,18 @@ impl<'ctx> Z3Encoder<'ctx> {
 
     /// Encode kinematic constraints with acceleration support
     pub fn encode_kinematics(&mut self) {
+        use crate::dsl::types::ActorRole;
+
         let dt = self.spec.time_step;
         let dt_real = Real::from_real(self.ctx, (dt * 10.0) as i32, 10);
         let zero = Real::from_real(self.ctx, 0, 1);
 
-        for actor_id in &["ego".to_string(), "npc".to_string()] {
-            // Get acceleration bounds for this actor
-            let (ax_min, ax_max) = self.get_acceleration_bounds(actor_id);
+        for actor in &self.spec.actors {
+            let actor_id = &actor.id;
+
+            // Get acceleration bounds directly from actor spec
+            let ax_min = actor.acceleration.min();
+            let ax_max = actor.acceleration.max();
             let ax_min_real = Real::from_real(self.ctx, (ax_min * 10.0) as i32, 10);
             let ax_max_real = Real::from_real(self.ctx, (ax_max * 10.0) as i32, 10);
 
@@ -274,7 +290,7 @@ impl<'ctx> Z3Encoder<'ctx> {
                 self.solver.assert(&py_t1._eq(&expected_py));
 
                 // Ego never changes lanes (vy = 0)
-                if actor_id == "ego" {
+                if actor.role == ActorRole::Ego {
                     self.solver.assert(&vy_t._eq(&zero));
                 }
             }
@@ -285,18 +301,11 @@ impl<'ctx> Z3Encoder<'ctx> {
         }
 
         // Lane-position coupling for all time steps
-        for t in 0..=self.horizon {
-            self.encode_lane_position_coupling_at_time("ego", t);
-            self.encode_lane_position_coupling_at_time("npc", t);
-        }
-    }
-
-    /// Helper to get acceleration bounds for an actor
-    fn get_acceleration_bounds(&self, actor_id: &str) -> (f64, f64) {
-        if actor_id == "ego" {
-            (self.spec.ego.acceleration.min(), self.spec.ego.acceleration.max())
-        } else {
-            (self.spec.npc.acceleration.min(), self.spec.npc.acceleration.max())
+        let actor_ids: Vec<_> = self.spec.actors.iter().map(|a| a.id.clone()).collect();
+        for actor_id in actor_ids {
+            for t in 0..=self.horizon {
+                self.encode_lane_position_coupling_at_time(&actor_id, t);
+            }
         }
     }
 
@@ -308,6 +317,17 @@ impl<'ctx> Z3Encoder<'ctx> {
     /// Get the Z3 model (for testing)
     pub fn get_model(&self) -> Option<z3::Model<'ctx>> {
         self.solver.get_model()
+    }
+
+    /// Encode scenario-specific Z3 constraints
+    ///
+    /// This calls the trait method to allow scenarios to add custom Z3 assertions
+    /// beyond the standard LTL and safety encodings.
+    pub fn encode_scenario_specific_constraints(
+        &mut self,
+        model: &dyn crate::scenarios::ScenarioModel,
+    ) -> anyhow::Result<()> {
+        model.add_z3_constraints(&self.spec, self, &self.solver, self.horizon)
     }
 
     /// Encode LTL formula into Z3 constraints using bounded model checking
@@ -553,32 +573,39 @@ impl<'ctx> Z3Encoder<'ctx> {
         z3::ast::Bool::and(self.ctx, &[&case1, &case2])
     }
 
-    /// Encode all safety constraints (Phase 8)
+    /// Encode all safety constraints
     ///
     /// When constraints are "enforced", we add direct Z3 assertions at each timestep.
     /// When "violated" or "ignored", we rely on LTL encoding only.
+    ///
+    /// Generates pairwise safety constraints for all actor combinations.
     pub fn encode_safety(&mut self) {
         let min_ttc = self.spec.min_ttc;
         let min_distance = self.spec.min_distance;
 
-        let ego = "ego";
-        let npc = "npc";
+        // Generate pairwise safety constraints for all actor combinations
+        for (i, actor1) in self.spec.actors.iter().enumerate() {
+            for actor2 in self.spec.actors.iter().skip(i + 1) {
+                let id1 = &actor1.id;
+                let id2 = &actor2.id;
 
-        // Only add direct safety assertions if constraints are enforced
-        // For violate/ignore modes, the LTL formula handles it
+                // Only add direct safety assertions if constraints are enforced
+                // For violate/ignore modes, the LTL formula handles it
 
-        if self.spec.constraint_modes.min_ttc() == ConstraintMode::Enforce {
-            for t in 0..=self.horizon {
-                let ttc_constraint = self.encode_ttc_constraint(ego, npc, min_ttc, t);
-                self.solver.assert(&ttc_constraint);
-            }
-        }
+                if self.spec.constraint_modes.min_ttc() == ConstraintMode::Enforce {
+                    for t in 0..=self.horizon {
+                        let ttc_constraint = self.encode_ttc_constraint(id1, id2, min_ttc, t);
+                        self.solver.assert(&ttc_constraint);
+                    }
+                }
 
-        if self.spec.constraint_modes.min_distance() == ConstraintMode::Enforce {
-            for t in 0..=self.horizon {
-                let distance_constraint =
-                    self.encode_min_distance_constraint(ego, npc, min_distance, t);
-                self.solver.assert(&distance_constraint);
+                if self.spec.constraint_modes.min_distance() == ConstraintMode::Enforce {
+                    for t in 0..=self.horizon {
+                        let distance_constraint =
+                            self.encode_min_distance_constraint(id1, id2, min_distance, t);
+                        self.solver.assert(&distance_constraint);
+                    }
+                }
             }
         }
     }
@@ -621,8 +648,6 @@ impl<'ctx> Z3Encoder<'ctx> {
 
     /// Encode global max acceleration constraints (if specified)
     pub fn encode_acceleration_constraints(&mut self) {
-        let zero = Real::from_real(self.ctx, 0, 1);
-
         // Only apply if max_acceleration/max_deceleration specified AND mode is Enforce
         if let Some(max_accel) = self.spec.max_acceleration {
             let mode = self.spec.constraint_modes.max_acceleration();
@@ -630,9 +655,9 @@ impl<'ctx> Z3Encoder<'ctx> {
             if mode == ConstraintMode::Enforce {
                 let max_real = Real::from_real(self.ctx, (max_accel * 10.0) as i32, 10);
 
-                for actor_id in &["ego".to_string(), "npc".to_string()] {
+                for actor in &self.spec.actors {
                     for t in 0..=self.horizon {
-                        let ax = &self.accelerations_x[actor_id][t];
+                        let ax = &self.accelerations_x[&actor.id][t];
                         self.solver.assert(&ax.le(&max_real));
                     }
                 }
@@ -647,9 +672,9 @@ impl<'ctx> Z3Encoder<'ctx> {
             if mode == ConstraintMode::Enforce {
                 let min_real = Real::from_real(self.ctx, (max_decel * 10.0) as i32, 10);
 
-                for actor_id in &["ego".to_string(), "npc".to_string()] {
+                for actor in &self.spec.actors {
                     for t in 0..=self.horizon {
-                        let ax = &self.accelerations_x[actor_id][t];
+                        let ax = &self.accelerations_x[&actor.id][t];
                         self.solver.assert(&ax.ge(&min_real));
                     }
                 }
@@ -657,24 +682,29 @@ impl<'ctx> Z3Encoder<'ctx> {
         }
     }
 
-    /// Extract scenario from Z3 model (Phase 9)
+    /// Extract scenario from Z3 model
     ///
     /// Converts the Z3 solution (satisfying assignment) into a Scenario
     /// JSON structure with actor trajectories.
     pub fn extract_scenario(&self, model: &z3::Model<'ctx>) -> crate::scenario::model::Scenario {
+        use crate::dsl::types::ActorRole;
+
         let mut scenario = crate::scenario::model::Scenario::new(
             self.spec.scenario_type.to_string(),
             self.spec.time_step,
             self.spec.duration,
         );
 
-        // Extract ego trajectory
-        let ego_traj = self.extract_actor_trajectory(model, "ego", "ego");
-        scenario.add_actor(ego_traj);
+        // Extract trajectory for each actor
+        for actor in &self.spec.actors {
+            let role_str = match actor.role {
+                ActorRole::Ego => "ego",
+                ActorRole::Npc => "npc",
+            };
 
-        // Extract NPC trajectory
-        let npc_traj = self.extract_actor_trajectory(model, "npc", "npc");
-        scenario.add_actor(npc_traj);
+            let trajectory = self.extract_actor_trajectory(model, &actor.id, role_str);
+            scenario.add_actor(trajectory);
+        }
 
         // Compute validation metrics
         self.compute_validation_metrics(&mut scenario);
@@ -802,57 +832,70 @@ impl<'ctx> Z3Encoder<'ctx> {
 
     /// Compute validation metrics from the scenario trajectories
     fn compute_validation_metrics(&self, scenario: &mut crate::scenario::model::Scenario) {
-        let ego_traj = scenario.get_actor("ego").expect("Ego trajectory missing");
-        let npc_traj = scenario.get_actor("npc").expect("NPC trajectory missing");
-
         let mut min_ttc = f64::INFINITY;
         let mut min_distance = f64::INFINITY;
         let mut violations = Vec::new();
 
-        for t in 0..=self.horizon {
-            let ego_state = &ego_traj.states[t];
-            let npc_state = &npc_traj.states[t];
+        // Compute pairwise metrics for all actor combinations
+        for (i, id1) in self.spec.actors.iter().map(|a| a.id.clone()).enumerate() {
+            for id2 in self.spec.actors.iter().skip(i + 1).map(|a| a.id.clone()) {
+                let traj1 = scenario
+                    .get_actor(&id1)
+                    .expect(&format!("Actor {} missing", id1));
+                let traj2 = scenario
+                    .get_actor(&id2)
+                    .expect(&format!("Actor {} missing", id2));
 
-            // Compute longitudinal distance
-            let distance = (ego_state.position.x - npc_state.position.x).abs();
+                for t in 0..=self.horizon {
+                    let state1 = &traj1.states[t];
+                    let state2 = &traj2.states[t];
 
-            // Only consider distance when in same lane
-            if ego_state.lane == npc_state.lane {
-                if distance < min_distance {
-                    min_distance = distance;
-                }
+                    // Compute longitudinal distance
+                    let distance = (state1.position.x - state2.position.x).abs();
 
-                // Check minimum distance violation
-                if distance < self.spec.min_distance {
-                    violations.push(format!(
-                        "Distance violation at t={:.1}s: {:.2}m < {:.2}m",
-                        t as f64 * self.spec.time_step,
-                        distance,
-                        self.spec.min_distance
-                    ));
-                }
-            }
+                    // Only consider distance when in same lane
+                    if state1.lane == state2.lane {
+                        if distance < min_distance {
+                            min_distance = distance;
+                        }
 
-            // Compute TTC (only when in same lane and approaching)
-            if ego_state.lane == npc_state.lane {
-                let rel_vel = (ego_state.velocity.vx - npc_state.velocity.vx).abs();
-
-                if rel_vel > 0.01 {
-                    // Someone is catching up
-                    let ttc = distance / rel_vel;
-
-                    if ttc < min_ttc {
-                        min_ttc = ttc;
+                        // Check minimum distance violation
+                        if distance < self.spec.min_distance {
+                            violations.push(format!(
+                                "Distance violation at t={:.1}s: {}-{}: {:.2}m < {:.2}m",
+                                t as f64 * self.spec.time_step,
+                                id1,
+                                id2,
+                                distance,
+                                self.spec.min_distance
+                            ));
+                        }
                     }
 
-                    // Check TTC violation
-                    if ttc < self.spec.min_ttc {
-                        violations.push(format!(
-                            "TTC violation at t={:.1}s: {:.2}s < {:.2}s",
-                            t as f64 * self.spec.time_step,
-                            ttc,
-                            self.spec.min_ttc
-                        ));
+                    // Compute TTC (only when in same lane and approaching)
+                    if state1.lane == state2.lane {
+                        let rel_vel = (state1.velocity.vx - state2.velocity.vx).abs();
+
+                        if rel_vel > 0.01 {
+                            // Someone is catching up
+                            let ttc = distance / rel_vel;
+
+                            if ttc < min_ttc {
+                                min_ttc = ttc;
+                            }
+
+                            // Check TTC violation
+                            if ttc < self.spec.min_ttc {
+                                violations.push(format!(
+                                    "TTC violation at t={:.1}s: {}-{}: {:.2}s < {:.2}s",
+                                    t as f64 * self.spec.time_step,
+                                    id1,
+                                    id2,
+                                    ttc,
+                                    self.spec.min_ttc
+                                ));
+                            }
+                        }
                     }
                 }
             }
@@ -925,27 +968,38 @@ impl<'ctx> Z3Encoder<'ctx> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorSpec, NpcSpec, ScenarioType, ValueOrRange};
+    use crate::dsl::types::{ActorSpec, ActorRole, ScenarioType, ValueOrRange};
+    use std::collections::HashMap;
     use z3::Config;
 
     fn create_test_spec() -> ScenarioSpec {
+        let mut npc_behavior = HashMap::new();
+        npc_behavior.insert("cut_in_time".to_string(), serde_json::json!([2.5, 7.5]));
+
         ScenarioSpec {
             scenario_type: ScenarioType::CutInLeft,
             time_step: 0.5,
             duration: 10.0,
-            ego: ActorSpec {
-                lane: 1,
-                position: ValueOrRange::Value(50.0),
-                speed: ValueOrRange::Value(15.0),
-                acceleration: ValueOrRange::Range([-8.0, 3.0]),
-            },
-            npc: NpcSpec {
-                lane: 0,
-                position: ValueOrRange::Range([60.0, 80.0]),
-                speed: ValueOrRange::Range([12.0, 14.0]),
-                cut_in_time: ValueOrRange::Range([2.5, 7.5]),
-                acceleration: ValueOrRange::Range([-8.0, 3.0]),
-            },
+            actors: vec![
+                ActorSpec {
+                    id: "ego".to_string(),
+                    role: ActorRole::Ego,
+                    lane: 1,
+                    position: ValueOrRange::Value(50.0),
+                    speed: ValueOrRange::Value(15.0),
+                    acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    behavior: HashMap::new(),
+                },
+                ActorSpec {
+                    id: "npc".to_string(),
+                    role: ActorRole::Npc,
+                    lane: 0,
+                    position: ValueOrRange::Range([60.0, 80.0]),
+                    speed: ValueOrRange::Range([12.0, 14.0]),
+                    acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    behavior: npc_behavior,
+                },
+            ],
             min_ttc: 3.0,
             min_distance: 5.0,
             lane_width: 3.5,

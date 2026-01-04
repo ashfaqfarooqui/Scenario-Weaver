@@ -44,16 +44,20 @@ pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
 
     let mut story_builder = storyboard_builder.add_story_simple("main_story");
 
-    // Create an act for trajectory following
-    let mut act = story_builder.create_act("trajectory_following");
-
-    // For each actor, create a maneuver with trajectory action
+    // For each actor, create a separate Act with trajectory action
+    // This avoids the library limitation where all maneuvers in an Act
+    // are placed in the same ManeuverGroup, which causes esmini conflicts
     for actor in &scenario.actors {
         // Build trajectory from actor states
         let trajectory = build_trajectory(actor)?;
 
+        // Create a separate act for this actor
+        let act_name = format!("{}_trajectory_act", actor.id);
+        let mut act = story_builder.create_act(&act_name);
+
         // Create maneuver for this actor
-        let mut maneuver = act.create_maneuver(&format!("{}_maneuver", actor.id), &actor.id);
+        let maneuver_name = format!("{}_maneuver", actor.id);
+        let mut maneuver = act.create_maneuver(&maneuver_name, &actor.id);
 
         // Create follow trajectory action
         let trajectory_action = maneuver
@@ -73,10 +77,10 @@ pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
 
         // Attach maneuver to act
         maneuver.attach_to_detached(&mut act);
-    }
 
-    // Attach act to story
-    act.attach_to(&mut story_builder);
+        // Attach act to story
+        act.attach_to(&mut story_builder);
+    }
 
     // Finish the story to add it to the storyboard
     story_builder.finish();
