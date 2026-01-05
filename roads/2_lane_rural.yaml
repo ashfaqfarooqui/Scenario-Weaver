@@ -1,0 +1,6 @@
+# 2-lane rural road (1 each direction)
+# Lane 0: Forward direction (+x axis)
+# Lane 1: Backward direction (-x axis)
+num_lanes: 2
+lane_width: 3.0
+lane_directions: [1, -1]

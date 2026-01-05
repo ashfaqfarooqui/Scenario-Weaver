@@ -187,17 +187,30 @@ impl<'ctx> Z3Encoder<'ctx> {
         }
 
         // Velocity at t=0
+        // Account for lane direction: speed is magnitude, vx sign depends on direction
+        let lane_direction = self.spec.get_lane_direction(lane);
         let vx_var = &self.velocities_x[actor_id][0];
+
         if (speed_min - speed_max).abs() < 1e-6 {
             // Fixed value
-            let speed_val = Real::from_real(self.ctx, (speed_min * 10.0) as i32, 10);
+            let speed = if lane_direction == 1 { speed_min } else { -speed_min };
+            let speed_val = Real::from_real(self.ctx, (speed * 10.0) as i32, 10);
             self.solver.assert(&vx_var._eq(&speed_val));
         } else {
             // Range
-            let min_val = Real::from_real(self.ctx, (speed_min * 10.0) as i32, 10);
-            let max_val = Real::from_real(self.ctx, (speed_max * 10.0) as i32, 10);
-            self.solver.assert(&vx_var.ge(&min_val));
-            self.solver.assert(&vx_var.le(&max_val));
+            if lane_direction == 1 {
+                // Forward: vx in [speed_min, speed_max]
+                let min_val = Real::from_real(self.ctx, (speed_min * 10.0) as i32, 10);
+                let max_val = Real::from_real(self.ctx, (speed_max * 10.0) as i32, 10);
+                self.solver.assert(&vx_var.ge(&min_val));
+                self.solver.assert(&vx_var.le(&max_val));
+            } else {
+                // Backward: vx in [-speed_max, -speed_min]
+                let min_val = Real::from_real(self.ctx, (-speed_max * 10.0) as i32, 10);
+                let max_val = Real::from_real(self.ctx, (-speed_min * 10.0) as i32, 10);
+                self.solver.assert(&vx_var.ge(&min_val));
+                self.solver.assert(&vx_var.le(&max_val));
+            }
         }
 
         // Initial lateral velocity is zero (not changing lanes initially)

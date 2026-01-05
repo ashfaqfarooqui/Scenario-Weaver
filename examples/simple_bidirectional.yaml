@@ -1,0 +1,38 @@
+scenario_type: cut_in_left
+
+# Time configuration
+time_step: 0.5
+duration: 10.0
+
+# Road specification
+road:
+  num_lanes: 4
+  lane_width: 3.5
+  lane_directions: [1, 1, -1, -1]
+
+# Simple 2-actor scenario
+actors:
+  - id: ego
+    role: ego
+    lane: 1                    # Forward lane
+    position: 50.0
+    speed: 15.0                # 15 m/s forward
+    acceleration: [-8.0, 3.0]
+
+  - id: npc
+    role: npc
+    lane: 0                    # Also forward lane (same direction as ego)
+    position: [60.0, 80.0]
+    speed: [12.0, 14.0]
+    acceleration: [-8.0, 3.0]
+    behavior:
+      cut_in_time: [2.5, 7.5]
+
+# Safety constraints
+min_ttc: 3.0
+min_distance: 5.0
+num_scenarios: 1
+
+constraint_modes:
+  min_ttc: enforce
+  min_distance: enforce

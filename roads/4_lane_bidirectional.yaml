@@ -1,0 +1,6 @@
+# Standard 4-lane road with bidirectional traffic
+# Lanes 0-1: Forward direction (+x axis)
+# Lanes 2-3: Backward direction (-x axis)
+num_lanes: 4
+lane_width: 3.5
+lane_directions: [1, 1, -1, -1]

@@ -1,0 +1,6 @@
+# 3-lane highway (2 forward, 1 backward)
+# Lanes 0-1: Forward direction (+x axis)
+# Lane 2: Backward direction (-x axis)
+num_lanes: 3
+lane_width: 3.75
+lane_directions: [1, 1, -1]

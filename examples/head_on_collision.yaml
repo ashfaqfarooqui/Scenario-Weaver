@@ -1,0 +1,40 @@
+scenario_type: cut_in_left
+
+# Time configuration
+time_step: 0.5
+duration: 10.0
+
+# Road specification with bidirectional traffic
+road:
+  num_lanes: 4
+  lane_width: 3.5
+  lane_directions: [1, 1, -1, -1]  # Lanes 0,1 forward; 2,3 backward
+
+# Actors
+actors:
+  - id: ego
+    role: ego
+    lane: 0                     # Forward lane (rightmost)
+    position: 50.0              # Starting at x=50m
+    speed: 20.0                 # 20 m/s forward
+    acceleration: [-8.0, 3.0]
+
+  - id: npc
+    role: npc
+    lane: 2                     # Backward lane (comes toward ego)
+    position: 150.0             # Starts at x=150m (ahead of ego)
+    speed: 20.0                 # 20 m/s backward (toward ego)
+    acceleration: [-2.0, 0.0]
+    behavior:
+      cut_in_time: [2.5, 7.5]
+
+# Safety constraints - VIOLATE to force collision
+min_ttc: 3.0
+min_distance: 5.0
+num_scenarios: 1
+
+constraint_modes:
+  min_ttc: violate
+  min_distance: violate
+
+# Expected: Head-on collision around t=2-3s

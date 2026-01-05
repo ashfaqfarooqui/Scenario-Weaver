@@ -1,0 +1,40 @@
+scenario_type: cut_in_left
+
+# Time configuration
+time_step: 0.5
+duration: 10.0
+
+# Road specification
+road:
+  num_lanes: 4
+  lane_width: 3.5
+  lane_directions: [1, 1, -1, -1]
+
+# Actors
+actors:
+  - id: ego
+    role: ego
+    lane: 0
+    position: 50.0
+    speed: 20.0
+    acceleration: [-8.0, 3.0]
+
+  - id: npc
+    role: npc
+    lane: 2
+    position: 150.0
+    speed: 18.0                 # Slightly slower, creates near miss
+    acceleration: [-2.0, 0.0]
+    behavior:
+      cut_in_time: [2.5, 7.5]
+
+# Safety constraints - ENFORCE to maintain safety
+min_ttc: 3.0
+min_distance: 5.0
+num_scenarios: 1
+
+constraint_modes:
+  min_ttc: enforce
+  min_distance: enforce
+
+# Expected: NPC may merge to lane 3 to avoid collision
