@@ -124,6 +124,69 @@ impl ScenarioType {
     }
 }
 
+/// Road specification with lane directions for bidirectional traffic
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RoadSpec {
+    /// Number of lanes (total, both directions)
+    pub num_lanes: usize,
+
+    /// Width of each lane in meters
+    pub lane_width: f64,
+
+    /// Direction of each lane: +1 for forward (+x), -1 for backward (-x)
+    /// Length must equal num_lanes
+    /// Example: [1, 1, -1, -1] for 4 lanes (2 forward, 2 backward)
+    #[serde(default = "default_lane_directions")]
+    pub lane_directions: Vec<i32>,
+}
+
+impl RoadSpec {
+    /// Get the direction of a specific lane
+    pub fn get_lane_direction(&self, lane: usize) -> i32 {
+        if lane < self.lane_directions.len() {
+            self.lane_directions[lane]
+        } else {
+            // Default: all lanes go forward (backward compatible)
+            1
+        }
+    }
+
+    /// Validate road specification
+    pub fn validate(&self) -> Result<(), String> {
+        if self.lane_directions.len() != self.num_lanes {
+            return Err(format!(
+                "lane_directions length ({}) must equal num_lanes ({})",
+                self.lane_directions.len(),
+                self.num_lanes
+            ));
+        }
+
+        for (i, &dir) in self.lane_directions.iter().enumerate() {
+            if dir != 1 && dir != -1 {
+                return Err(format!(
+                    "lane_directions[{}] = {} must be +1 or -1",
+                    i, dir
+                ));
+            }
+        }
+
+        if self.num_lanes == 0 {
+            return Err("num_lanes must be at least 1".to_string());
+        }
+
+        if self.lane_width <= 0.0 {
+            return Err("lane_width must be positive".to_string());
+        }
+
+        Ok(())
+    }
+}
+
+/// Default lane directions: all forward (backward compatible)
+fn default_lane_directions() -> Vec<i32> {
+    vec![1; 4] // Default to 4 forward lanes
+}
+
 /// Generic actor specification (supports both ego and NPCs)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ActorSpec {
@@ -147,6 +210,11 @@ pub struct ScenarioSpec {
     pub actors: Vec<ActorSpec>,
     pub min_ttc: f64,         // minimum time-to-collision (seconds)
     pub min_distance: f64,    // minimum longitudinal distance (meters)
+    /// Road specification (optional, for bidirectional traffic)
+    #[serde(default)]
+    pub road: Option<RoadSpec>,
+    /// Lane width (deprecated, use road.lane_width instead)
+    #[serde(default = "default_lane_width")]
     pub lane_width: f64,      // meters
     pub num_scenarios: usize, // 1 for single, N for multiple
     /// Constraint enforcement modes (optional, defaults to enforce_all)
@@ -158,6 +226,11 @@ pub struct ScenarioSpec {
     /// Optional global maximum deceleration constraint (m/s², should be negative)
     #[serde(default)]
     pub max_deceleration: Option<f64>,
+}
+
+/// Default lane width for backward compatibility
+fn default_lane_width() -> f64 {
+    3.5
 }
 
 /// Value that can be either fixed or a range for Z3 to solve
@@ -213,6 +286,28 @@ impl ScenarioSpec {
         self.actors.iter().find(|a| a.id == id)
     }
 
+    /// Get lane width (backward compatible)
+    pub fn get_lane_width(&self) -> f64 {
+        self.road.as_ref()
+            .map(|r| r.lane_width)
+            .unwrap_or(self.lane_width)
+    }
+
+    /// Get lane direction (backward compatible)
+    /// Returns +1 for forward lanes, -1 for backward lanes
+    pub fn get_lane_direction(&self, lane: usize) -> i32 {
+        self.road.as_ref()
+            .map(|r| r.get_lane_direction(lane))
+            .unwrap_or(1) // Default: all forward
+    }
+
+    /// Get number of lanes (backward compatible)
+    pub fn get_num_lanes(&self) -> usize {
+        self.road.as_ref()
+            .map(|r| r.num_lanes)
+            .unwrap_or(2) // Default: 2 lanes
+    }
+
     /// Validate the specification
     pub fn validate(&self) -> Result<(), String> {
         // Time parameters
@@ -233,8 +328,15 @@ impl ScenarioSpec {
         if self.min_distance <= 0.0 {
             return Err("min_distance must be positive".to_string());
         }
-        if self.lane_width <= 0.0 {
-            return Err("lane_width must be positive".to_string());
+
+        // Validate road specification if present
+        if let Some(road) = &self.road {
+            road.validate()?;
+        } else {
+            // Backward compatibility: validate lane_width
+            if self.lane_width <= 0.0 {
+                return Err("lane_width must be positive".to_string());
+            }
         }
 
         // Generation parameters
@@ -263,6 +365,7 @@ impl ScenarioSpec {
         }
 
         // NEW: Validate all actor parameters
+        let num_lanes = self.get_num_lanes();
         for actor in &self.actors {
             if actor.speed.min() <= 0.0 {
                 return Err(format!("{} speed must be positive", actor.id));
@@ -279,6 +382,13 @@ impl ScenarioSpec {
                 if min >= max {
                     return Err(format!("{} speed range invalid: min >= max", actor.id));
                 }
+            }
+            // Validate lane number
+            if actor.lane >= num_lanes {
+                return Err(format!(
+                    "Actor {} lane {} exceeds num_lanes {}",
+                    actor.id, actor.lane, num_lanes
+                ));
             }
         }
 
@@ -383,11 +493,120 @@ mod tests {
             ],
             min_ttc: 3.0,
             min_distance: 5.0,
+            road: None,
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: ConstraintModes::default(),
             max_acceleration: None,
             max_deceleration: None,
         }
+    }
+
+    #[test]
+    fn test_road_spec_validation() {
+        let valid_road = RoadSpec {
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1, -1, -1],
+        };
+        assert!(valid_road.validate().is_ok());
+
+        let invalid_road = RoadSpec {
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1, -1], // Wrong length
+        };
+        assert!(invalid_road.validate().is_err());
+    }
+
+    #[test]
+    fn test_road_spec_invalid_direction() {
+        let road = RoadSpec {
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![1, 2, -1, -1], // 2 is invalid
+        };
+        assert!(road.validate().is_err());
+    }
+
+    #[test]
+    fn test_get_lane_direction() {
+        let road = RoadSpec {
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1, -1, -1],
+        };
+
+        assert_eq!(road.get_lane_direction(0), 1);
+        assert_eq!(road.get_lane_direction(2), -1);
+        assert_eq!(road.get_lane_direction(10), 1); // Out of bounds, default
+    }
+
+    #[test]
+    fn test_scenario_spec_backward_compat() {
+        let yaml = r#"
+scenario_type: cut_in_left
+time_step: 0.5
+duration: 10.0
+actors:
+  - id: ego
+    role: ego
+    lane: 0
+    position: 50.0
+    speed: 15.0
+    acceleration: [-8.0, 3.0]
+  - id: npc
+    role: npc
+    lane: 1
+    position: 60.0
+    speed: 13.0
+    acceleration: [-8.0, 3.0]
+    behavior:
+      cut_in_time: 5.0
+min_ttc: 3.0
+min_distance: 5.0
+lane_width: 3.5
+num_scenarios: 1
+"#;
+
+        let spec: ScenarioSpec = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(spec.get_lane_width(), 3.5);
+        assert_eq!(spec.get_num_lanes(), 2); // Default
+        assert_eq!(spec.get_lane_direction(0), 1); // All forward
+    }
+
+    #[test]
+    fn test_parse_road_with_directions() {
+        let yaml = r#"
+scenario_type: cut_in_left
+time_step: 0.5
+duration: 10.0
+road:
+  num_lanes: 4
+  lane_width: 3.5
+  lane_directions: [1, 1, -1, -1]
+actors:
+  - id: ego
+    role: ego
+    lane: 0
+    position: 50.0
+    speed: 20.0
+    acceleration: [-8.0, 3.0]
+  - id: npc
+    role: npc
+    lane: 2
+    position: 150.0
+    speed: 20.0
+    acceleration: [-8.0, 3.0]
+min_ttc: 3.0
+min_distance: 5.0
+num_scenarios: 1
+"#;
+
+        let spec: ScenarioSpec = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(spec.get_num_lanes(), 4);
+        assert_eq!(spec.get_lane_width(), 3.5);
+        assert_eq!(spec.get_lane_direction(0), 1);
+        assert_eq!(spec.get_lane_direction(2), -1);
     }
 }

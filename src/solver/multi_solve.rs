@@ -183,6 +183,7 @@ mod tests {
             ],
             min_ttc: 3.0,
             min_distance: 5.0,
+            road: None,
             lane_width: 3.5,
             num_scenarios: 5,
             constraint_modes: crate::dsl::types::ConstraintModes::default(),
