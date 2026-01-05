@@ -271,8 +271,8 @@ impl<'ctx> Z3Encoder<'ctx> {
                 let expected_vx = vx_t + &(ax_t * &dt_real);
                 self.solver.assert(&vx_t1._eq(&expected_vx));
 
-                // Non-negative velocity (no reversing)
-                self.solver.assert(&vx_t.ge(&zero));
+                // Note: Velocity direction constraints are applied separately
+                // in encode_lane_velocity_constraints() based on lane direction
 
                 // Position update: px[t+1] = px[t] + vx[t] * dt
                 let px_t = &self.positions_x[actor_id][t];
@@ -295,9 +295,8 @@ impl<'ctx> Z3Encoder<'ctx> {
                 }
             }
 
-            // Ensure final velocity is non-negative
-            let vx_final = &self.velocities_x[actor_id][self.horizon];
-            self.solver.assert(&vx_final.ge(&zero));
+            // Note: Final velocity direction constraints are applied
+            // in encode_lane_velocity_constraints() based on lane direction
         }
 
         // Lane-position coupling for all time steps
@@ -305,6 +304,63 @@ impl<'ctx> Z3Encoder<'ctx> {
         for actor_id in actor_ids {
             for t in 0..=self.horizon {
                 self.encode_lane_position_coupling_at_time(&actor_id, t);
+            }
+        }
+    }
+
+    /// Encode velocity direction constraints based on lane directions
+    ///
+    /// For each actor and time step, constrains velocity to match lane direction:
+    /// - Forward lanes (direction = +1): vx >= 0
+    /// - Backward lanes (direction = -1): vx <= 0
+    pub fn encode_lane_velocity_constraints(&mut self) {
+        use crate::dsl::types::ActorRole;
+
+        let zero = Real::from_real(self.ctx, 0, 1);
+
+        for actor in &self.spec.actors.clone() {
+            let actor_id = &actor.id;
+
+            if actor.role == ActorRole::Ego {
+                // Ego never changes lanes, so apply direction constraint for initial lane
+                let lane_direction = self.spec.get_lane_direction(actor.lane);
+
+                for t in 0..=self.horizon {
+                    let vx_t = &self.velocities_x[actor_id][t];
+
+                    if lane_direction == 1 {
+                        // Forward: vx >= 0
+                        self.solver.assert(&vx_t.ge(&zero));
+                    } else {
+                        // Backward: vx <= 0
+                        self.solver.assert(&vx_t.le(&zero));
+                    }
+                }
+            } else {
+                // NPC can change lanes, so constraints depend on which lane at each timestep
+                // Use implication: (lane == i) => (direction_constraint)
+                let num_lanes = self.spec.get_num_lanes();
+
+                for t in 0..=self.horizon {
+                    let lane_var = &self.lanes[actor_id][t];
+                    let vx_t = &self.velocities_x[actor_id][t];
+
+                    // Build constraints for each possible lane
+                    for lane_num in 0..num_lanes {
+                        let lane_val = Int::from_i64(self.ctx, lane_num as i64);
+                        let in_this_lane = lane_var._eq(&lane_val);
+                        let direction = self.spec.get_lane_direction(lane_num);
+
+                        let direction_constraint = if direction == 1 {
+                            vx_t.ge(&zero)
+                        } else {
+                            vx_t.le(&zero)
+                        };
+
+                        // If in this lane, then direction constraint must hold
+                        self.solver.assert(&in_this_lane.implies(&direction_constraint));
+                    }
+                }
             }
         }
     }
@@ -1102,6 +1158,7 @@ mod tests {
         encoder.create_variables();
         encoder.encode_initial_conditions();
         encoder.encode_kinematics();
+        encoder.encode_lane_velocity_constraints();
 
         assert_eq!(encoder.check(), SatResult::Sat);
 
@@ -1132,6 +1189,7 @@ mod tests {
         encoder.create_variables();
         encoder.encode_initial_conditions();
         encoder.encode_kinematics();
+        encoder.encode_lane_velocity_constraints();
 
         // Test simple atomic proposition: InLane(ego, 1)
         let formula = LTLFormula::Atom(Proposition::InLane {
@@ -1155,6 +1213,7 @@ mod tests {
         encoder.create_variables();
         encoder.encode_initial_conditions();
         encoder.encode_kinematics();
+        encoder.encode_lane_velocity_constraints();
 
         // Test Eventually: F(InLane(npc, 1))
         // NPC should eventually be in lane 1
@@ -1194,6 +1253,7 @@ mod tests {
         encoder.create_variables();
         encoder.encode_initial_conditions();
         encoder.encode_kinematics();
+        encoder.encode_lane_velocity_constraints();
 
         // Test Always: G(InLane(ego, 1))
         // Ego should always be in lane 1
@@ -1227,6 +1287,7 @@ mod tests {
         encoder.create_variables();
         encoder.encode_initial_conditions();
         encoder.encode_kinematics();
+        encoder.encode_lane_velocity_constraints();
 
         // Test Until: InLane(npc, 0) U InLane(npc, 1)
         // NPC stays in lane 0 until it moves to lane 1
@@ -1278,6 +1339,7 @@ mod tests {
         encoder.create_variables();
         encoder.encode_initial_conditions();
         encoder.encode_kinematics();
+        encoder.encode_lane_velocity_constraints();
         encoder.encode_safety();
 
         // Safety constraints should be satisfiable
@@ -1296,6 +1358,7 @@ mod tests {
         encoder.create_variables();
         encoder.encode_initial_conditions();
         encoder.encode_kinematics();
+        encoder.encode_lane_velocity_constraints();
 
         // Generate and encode full cut-in LTL formula
         let ltl_formula = LTLGenerator::generate(&spec);
@@ -1349,6 +1412,7 @@ mod tests {
         encoder.create_variables();
         encoder.encode_initial_conditions();
         encoder.encode_kinematics();
+        encoder.encode_lane_velocity_constraints();
 
         // Generate and encode full cut-in LTL formula
         let ltl_formula = LTLGenerator::generate(&spec);

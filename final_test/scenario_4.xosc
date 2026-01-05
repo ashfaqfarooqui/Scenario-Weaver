@@ -1,0 +1,441 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSCENARIO><FileHeader
+    author="CARLA Scenario Generator"
+    date="2026-01-03T13:31:12"
+    description="Scenario: ed35553c-d08d-4486-93bb-4141748f9177 (ID: ed35553c-d08d-4486-93bb-4141748f9177)
+Type: cut_in_left
+Duration: 10s, Time step: 0.5s
+
+Actors: 2
+
+ego (ego):
+  Start: pos=(45.0, 5.2) vel=(14.0, 0.0) lane=1
+  End: pos=(134.6, 5.2) vel=(3.5, 0.0) lane=1
+
+npc (npc):
+  Start: pos=(60.3, 1.7) vel=(14.0, 0.0) lane=0
+  End: pos=(126.9, 8.7) vel=(0.0, 0.0) lane=2
+
+Validation:
+  Min TTC: 8.25s
+  Min distance: 8.25m
+  Constraints satisfied: true"
+    revMajor="1"
+    revMinor="0"
+  /><Entities><ScenarioObject name="ego"><Vehicle
+        name="PassengerCar"
+        vehicleCategory="car"
+      ><BoundingBox><Center x="1.4" y="0" z="0.9" /><Dimensions
+            width="1.8"
+            length="4.5"
+            height="1.4"
+          /></BoundingBox><Performance
+          maxSpeed="200"
+          maxAcceleration="200"
+          maxDeceleration="10"
+        /><Axles><FrontAxle
+            maxSteering="0.5236"
+            wheelDiameter="0.65"
+            trackWidth="1.6"
+            positionX="1.4"
+            positionZ="0.3"
+          /><RearAxle
+            maxSteering="0"
+            wheelDiameter="0.65"
+            trackWidth="1.6"
+            positionX="-1.4"
+            positionZ="0.3"
+          /></Axles></Vehicle><ObjectController><Controller
+          name="DefaultController"
+          controllerType="movement"
+        /></ObjectController></ScenarioObject><ScenarioObject
+      name="npc"
+    ><Vehicle name="PassengerCar" vehicleCategory="car"><BoundingBox><Center
+            x="1.4"
+            y="0"
+            z="0.9"
+          /><Dimensions
+            width="1.8"
+            length="4.5"
+            height="1.4"
+          /></BoundingBox><Performance
+          maxSpeed="200"
+          maxAcceleration="200"
+          maxDeceleration="10"
+        /><Axles><FrontAxle
+            maxSteering="0.5236"
+            wheelDiameter="0.65"
+            trackWidth="1.6"
+            positionX="1.4"
+            positionZ="0.3"
+          /><RearAxle
+            maxSteering="0"
+            wheelDiameter="0.65"
+            trackWidth="1.6"
+            positionX="-1.4"
+            positionZ="0.3"
+          /></Axles></Vehicle><ObjectController><Controller
+          name="DefaultController"
+          controllerType="movement"
+        /></ObjectController></ScenarioObject></Entities><Storyboard><Init
+    ><Actions><Private entityRef="ego"><PrivateAction><LongitudinalAction
+            ><SpeedAction><SpeedActionDynamics
+                  dynamicsDimension="time"
+                  dynamicsShape="step"
+                  value="1"
+                /><SpeedActionTarget><AbsoluteTargetSpeed
+                    value="14"
+                  /></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction><PrivateAction
+          ><TeleportAction><Position><WorldPosition
+                  x="45"
+                  y="5.2"
+                  z="0"
+                  h="0"
+                /></Position></TeleportAction></PrivateAction></Private><Private
+          entityRef="npc"
+        ><PrivateAction><LongitudinalAction><SpeedAction><SpeedActionDynamics
+                  dynamicsDimension="time"
+                  dynamicsShape="step"
+                  value="1"
+                /><SpeedActionTarget><AbsoluteTargetSpeed
+                    value="14"
+                  /></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction><PrivateAction
+          ><TeleportAction><Position><WorldPosition
+                  x="60.3075"
+                  y="1.7"
+                  z="0"
+                  h="0"
+                /></Position></TeleportAction></PrivateAction></Private></Actions></Init><Story
+      name="main_story"
+    ><Act name="trajectory_following"><ManeuverGroup
+          name="trajectory_following_Group"
+          maximumExecutionCount="1"
+        ><Actors selectTriggeringEntities="false"><EntityRef
+              entityRef="ego"
+            /><EntityRef entityRef="npc" /></Actors><Maneuver
+            name="ego_maneuver"
+          ><Event name="FollowTrajectoryEvent" priority="override"><Action
+                name="FollowTrajectoryAction"
+              ><PrivateAction><RoutingAction><FollowTrajectoryAction><Trajectory
+                        name="ego_trajectory"
+                        closed="false"
+                      ><Shape><Polyline><Vertex time="0"><Position
+                              ><WorldPosition
+                                  x="45"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="0.5"
+                            ><Position><WorldPosition
+                                  x="52"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="1"><Position
+                              ><WorldPosition
+                                  x="59.75"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="1.5"
+                            ><Position><WorldPosition
+                                  x="66.035"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="2"><Position
+                              ><WorldPosition
+                                  x="73.07"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="2.5"
+                            ><Position><WorldPosition
+                                  x="80.855"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="3"><Position
+                              ><WorldPosition
+                                  x="89.39"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="3.5"
+                            ><Position><WorldPosition
+                                  x="98.675"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="4"><Position
+                              ><WorldPosition
+                                  x="108.71"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="4.5"
+                            ><Position><WorldPosition
+                                  x="116.745"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="5"><Position
+                              ><WorldPosition
+                                  x="122.78"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="5.5"
+                            ><Position><WorldPosition
+                                  x="126.815"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="6"><Position
+                              ><WorldPosition
+                                  x="128.85"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="6.5"
+                            ><Position><WorldPosition
+                                  x="128.885"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="7"><Position
+                              ><WorldPosition
+                                  x="128.885"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="7.5"
+                            ><Position><WorldPosition
+                                  x="128.885"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="8"><Position
+                              ><WorldPosition
+                                  x="129.635"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="8.5"
+                            ><Position><WorldPosition
+                                  x="131.135"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="9"><Position
+                              ><WorldPosition
+                                  x="133.385"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="9.5"
+                            ><Position><WorldPosition
+                                  x="133.635"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="10"
+                            ><Position><WorldPosition
+                                  x="134.635"
+                                  y="5.2"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex></Polyline></Shape></Trajectory><TimeReference
+                      ><Timing
+                          domainAbsoluteRelative="absolute"
+                          scale="1"
+                          offset="0"
+                        /></TimeReference><TrajectoryFollowingMode
+                        followingMode="follow"
+                      /></FollowTrajectoryAction></RoutingAction></PrivateAction></Action><StartTrigger
+              ><ConditionGroup><Condition
+                    name="TimeCondition"
+                    conditionEdge="rising"
+                    delay="0"
+                  ><ByValueCondition><SimulationTimeCondition
+                        value="0"
+                        rule="greaterThan"
+                      /></ByValueCondition></Condition></ConditionGroup></StartTrigger></Event></Maneuver><Maneuver
+            name="npc_maneuver"
+          ><Event name="FollowTrajectoryEvent" priority="override"><Action
+                name="FollowTrajectoryAction"
+              ><PrivateAction><RoutingAction><FollowTrajectoryAction><Trajectory
+                        name="npc_trajectory"
+                        closed="false"
+                      ><Shape><Polyline><Vertex time="0"><Position
+                              ><WorldPosition
+                                  x="60.3075"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="0.5"
+                            ><Position><WorldPosition
+                                  x="67.3075"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="1"><Position
+                              ><WorldPosition
+                                  x="75.0575"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="1.5"
+                            ><Position><WorldPosition
+                                  x="83.5575"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="2"><Position
+                              ><WorldPosition
+                                  x="91.5875"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="2.5"
+                            ><Position><WorldPosition
+                                  x="97.6175"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="3"><Position
+                              ><WorldPosition
+                                  x="101.6475"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="3.5"
+                            ><Position><WorldPosition
+                                  x="103.6775"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="4"><Position
+                              ><WorldPosition
+                                  x="103.7075"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="4.5"
+                            ><Position><WorldPosition
+                                  x="104.4875"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="5"><Position
+                              ><WorldPosition
+                                  x="106.0175"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="5.5"
+                            ><Position><WorldPosition
+                                  x="108.2975"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="6"><Position
+                              ><WorldPosition
+                                  x="111.3275"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="6.5"
+                            ><Position><WorldPosition
+                                  x="115.1075"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="7"><Position
+                              ><WorldPosition
+                                  x="119.6375"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="7.5"
+                            ><Position><WorldPosition
+                                  x="123.135"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="8"><Position
+                              ><WorldPosition
+                                  x="124.6325"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex
+                              time="8.5"
+                            ><Position><WorldPosition
+                                  x="124.6325"
+                                  y="1.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex><Vertex time="9"><Position
+                              ><WorldPosition
+                                  x="124.6325"
+                                  y="1.7"
+                                  z="0"
+                                  h="1.35970299357215"
+                                /></Position></Vertex><Vertex
+                              time="9.5"
+                            ><Position><WorldPosition
+                                  x="125.3825"
+                                  y="5.2"
+                                  z="0"
+                                  h="1.1659045405098132"
+                                /></Position></Vertex><Vertex
+                              time="10"
+                            ><Position><WorldPosition
+                                  x="126.8825"
+                                  y="8.7"
+                                  z="0"
+                                  h="0"
+                                /></Position></Vertex></Polyline></Shape></Trajectory><TimeReference
+                      ><Timing
+                          domainAbsoluteRelative="absolute"
+                          scale="1"
+                          offset="0"
+                        /></TimeReference><TrajectoryFollowingMode
+                        followingMode="follow"
+                      /></FollowTrajectoryAction></RoutingAction></PrivateAction></Action><StartTrigger
+              ><ConditionGroup><Condition
+                    name="TimeCondition"
+                    conditionEdge="rising"
+                    delay="0"
+                  ><ByValueCondition><SimulationTimeCondition
+                        value="0"
+                        rule="greaterThan"
+                      /></ByValueCondition></Condition></ConditionGroup></StartTrigger></Event></Maneuver></ManeuverGroup></Act></Story><StopTrigger
+    ><ConditionGroup><Condition
+          name="TimeCondition"
+          conditionEdge="rising"
+          delay="0"
+        ><ByValueCondition><SimulationTimeCondition
+              value="10"
+              rule="greaterThan"
+            /></ByValueCondition></Condition></ConditionGroup></StopTrigger></Storyboard></OpenSCENARIO>

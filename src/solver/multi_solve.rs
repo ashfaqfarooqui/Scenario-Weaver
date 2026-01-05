@@ -44,6 +44,7 @@ pub fn generate_scenarios(
         encoder.create_variables();
         encoder.encode_initial_conditions();
         encoder.encode_kinematics();
+        encoder.encode_lane_velocity_constraints();
         encoder.encode_ltl(ltl_formula);
         encoder.encode_safety();
 
@@ -254,6 +255,7 @@ mod tests {
         // Generate first scenario
         let ltl_formula = LTLGenerator::generate(&spec);
         encoder.encode_kinematics();
+        encoder.encode_lane_velocity_constraints();
         encoder.encode_ltl(&ltl_formula);
         encoder.encode_safety();
 

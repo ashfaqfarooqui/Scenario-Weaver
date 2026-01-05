@@ -74,6 +74,7 @@ mod tests {
         encoder.create_variables();
         encoder.encode_initial_conditions();
         encoder.encode_kinematics();
+        encoder.encode_lane_velocity_constraints();
 
         let ltl_formula = LTLGenerator::generate(&spec);
         encoder.encode_ltl(&ltl_formula);
