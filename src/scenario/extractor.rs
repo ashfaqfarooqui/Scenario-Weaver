@@ -59,6 +59,7 @@ mod tests {
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: crate::dsl::types::ConstraintModes::default(),
+            optimization_target: crate::dsl::types::OptimizationTarget::None,
             max_acceleration: None,
             max_deceleration: None,
         }

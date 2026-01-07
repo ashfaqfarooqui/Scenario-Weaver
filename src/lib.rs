@@ -40,7 +40,35 @@ pub fn generate_single_scenario(yaml_content: &str) -> Result<Scenario> {
     // Generate LTL using trait (behavior + safety combined)
     let ltl_formula = ltl::generator::LTLGenerator::generate(&spec);
 
-    // Setup Z3 and solve (wrap in with_z3_config for Z3 0.19 compatibility)
+    // Check if optimization is requested
+    use dsl::types::OptimizationTarget;
+    match spec.optimization_target {
+        OptimizationTarget::None => {
+            // Standard SAT solving - find any satisfying solution
+            generate_with_solver(spec, &ltl_formula, &*scenario_model)
+        }
+        target => {
+            // Optimization mode - find optimal scenario
+            tracing::info!("Optimization target: {:?}", target);
+            // TODO: Full optimization with numerical TTC/distance objectives
+            // For now, fall back to standard solving with a warning
+            tracing::warn!(
+                "Optimization mode {:?} is experimental. \
+                Full numerical optimization requires additional encoding. \
+                Falling back to standard SAT solving.",
+                target
+            );
+            generate_with_solver(spec, &ltl_formula, &*scenario_model)
+        }
+    }
+}
+
+/// Generate scenario using standard Z3 Solver (SAT checking)
+fn generate_with_solver(
+    spec: dsl::types::ScenarioSpec,
+    ltl_formula: &ltl::formula::LTLFormula,
+    scenario_model: &dyn scenarios::ScenarioModel,
+) -> Result<Scenario> {
     let cfg = z3::Config::new();
     z3::with_z3_config(&cfg, || {
         let mut encoder = solver::Z3Encoder::new(spec);
@@ -55,10 +83,10 @@ pub fn generate_single_scenario(yaml_content: &str) -> Result<Scenario> {
         encoder.encode_lateral_velocity_bounds();
 
         // Encode LTL formula
-        encoder.encode_ltl(&ltl_formula);
+        encoder.encode_ltl(ltl_formula);
 
         // Call scenario-specific Z3 constraints (if any)
-        encoder.encode_scenario_specific_constraints(&*scenario_model)?;
+        encoder.encode_scenario_specific_constraints(scenario_model)?;
 
         // Encode safety constraints
         encoder.encode_safety();

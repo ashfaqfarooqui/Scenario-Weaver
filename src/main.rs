@@ -5,6 +5,19 @@ use clap::Parser;
 use std::path::PathBuf;
 use tracing::Level;
 
+/// Optimization target options
+#[derive(Clone, Debug, clap::ValueEnum)]
+enum OptimizeTarget {
+    /// Minimize time-to-collision (find worst-case TTC)
+    MinTtc,
+    /// Minimize distance (find closest approach)
+    MinDistance,
+    /// Minimize both (weighted severity)
+    MinSeverity,
+    /// Maximize TTC (find safest scenario)
+    MaxTtc,
+}
+
 #[derive(Parser)]
 #[command(name = "carla-scenario-gen")]
 #[command(about = "Generate CARLA driving scenarios using LTL + Z3", long_about = None)]
@@ -29,6 +42,10 @@ struct Cli {
     /// Override constraint modes to violate all safety constraints
     #[arg(long)]
     adversarial: bool,
+
+    /// Optimization target: find optimal scenarios instead of any satisfying solution
+    #[arg(long, value_enum)]
+    optimize: Option<OptimizeTarget>,
 }
 
 fn main() -> Result<()> {
@@ -62,12 +79,25 @@ fn main() -> Result<()> {
         spec.constraint_modes = ConstraintModes::Shorthand("violate_all".to_string());
     }
 
+    // Apply CLI override for optimization target
+    if let Some(optimize) = &cli.optimize {
+        use carla_scenario_generator::dsl::types::OptimizationTarget;
+        let target = match optimize {
+            OptimizeTarget::MinTtc => OptimizationTarget::MinimizeTtc,
+            OptimizeTarget::MinDistance => OptimizationTarget::MinimizeDistance,
+            OptimizeTarget::MinSeverity => OptimizationTarget::MinimizeSeverity,
+            OptimizeTarget::MaxTtc => OptimizationTarget::MaximizeTtc,
+        };
+        tracing::info!("CLI override: Optimization target set to {:?}", target);
+        spec.optimization_target = target;
+    }
+
     let num_scenarios = cli.num.unwrap_or(spec.num_scenarios);
 
     tracing::info!("Generating {} scenario(s)...", num_scenarios);
 
     // Re-serialize spec to YAML if modified
-    let final_yaml = if cli.adversarial {
+    let final_yaml = if cli.adversarial || cli.optimize.is_some() {
         serde_yml::to_string(&spec)?
     } else {
         yaml_content

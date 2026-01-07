@@ -16,6 +16,23 @@ pub enum ConstraintMode {
     Ignore,
 }
 
+/// Optimization target for finding worst-case or best-case scenarios
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OptimizationTarget {
+    /// No optimization - find any satisfying solution (default, backward compatible)
+    #[default]
+    None,
+    /// Minimize TTC - find worst-case time-to-collision scenario
+    MinimizeTtc,
+    /// Minimize distance - find closest approach scenario
+    MinimizeDistance,
+    /// Minimize both TTC and distance (weighted combination)
+    MinimizeSeverity,
+    /// Maximize TTC - find safest scenario
+    MaximizeTtc,
+}
+
 /// Configuration for how constraints should be enforced
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
@@ -222,6 +239,10 @@ pub struct ScenarioSpec {
     /// Optional global maximum deceleration constraint (m/s², should be negative)
     #[serde(default)]
     pub max_deceleration: Option<f64>,
+    /// Optimization target (optional, defaults to None for backward compatibility)
+    /// When set, uses Z3 Optimize instead of Solver to find optimal scenarios
+    #[serde(default)]
+    pub optimization_target: OptimizationTarget,
 }
 
 /// Default lane width for backward compatibility
@@ -503,6 +524,7 @@ mod tests {
             constraint_modes: ConstraintModes::default(),
             max_acceleration: None,
             max_deceleration: None,
+            optimization_target: OptimizationTarget::None,
         }
     }
 

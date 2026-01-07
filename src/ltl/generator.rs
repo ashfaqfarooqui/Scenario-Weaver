@@ -33,7 +33,9 @@ impl LTLGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorRole, ActorSpec, ConstraintModes, ValueOrRange};
+    use crate::dsl::types::{
+        ActorRole, ActorSpec, ConstraintModes, OptimizationTarget, ValueOrRange,
+    };
     use crate::ltl::formula::LTLFormula;
     use std::collections::HashMap;
 
@@ -72,6 +74,7 @@ mod tests {
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: ConstraintModes::default(),
+            optimization_target: OptimizationTarget::None,
             max_acceleration: None,
             max_deceleration: None,
         }
