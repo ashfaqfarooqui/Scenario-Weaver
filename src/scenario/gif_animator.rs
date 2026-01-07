@@ -69,8 +69,6 @@ struct AnimatorConfig {
     x_scale: f64,
     y_scale: f64,
     x_min: f64,
-    x_max: f64,
-    y_min: f64,
     y_max: f64,
     num_frames: usize,
 }
@@ -118,8 +116,6 @@ impl AnimatorConfig {
             x_scale,
             y_scale,
             x_min,
-            x_max,
-            y_min,
             y_max,
             num_frames,
         }
