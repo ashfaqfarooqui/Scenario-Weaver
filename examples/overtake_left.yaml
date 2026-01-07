@@ -1,0 +1,48 @@
+# OvertakeLeft Scenario Example
+# NPC vehicle overtakes ego from behind using the left lane
+#
+# Phases:
+# 1. NPC starts behind ego in the same lane
+# 2. NPC changes to left lane (passing lane) at overtake_start_time
+# 3. NPC accelerates past ego while in the passing lane
+# 4. NPC returns to original lane at overtake_end_time, now ahead of ego
+
+scenario_type: overtake_left
+
+# Time configuration
+time_step: 0.5      # 0.5 second discretization
+duration: 12.0      # 12 second scenario (longer to allow complete overtake)
+
+# Road specification
+road:
+  num_lanes: 3
+  lane_width: 3.5
+  lane_directions: [1, 1, 1]  # All lanes go forward
+
+# Actor specifications
+actors:
+  # Ego vehicle - cruising at constant speed
+  - id: ego
+    role: ego
+    lane: 1            # Middle lane
+    position: 50.0     # Fixed starting position
+    speed: [14.0, 16.0]  # 14-16 m/s (~50-58 km/h)
+    acceleration: [-2.0, 1.0]  # Mild acceleration range
+
+  # NPC vehicle - starts behind, overtakes
+  - id: npc
+    role: npc
+    lane: 1            # Same lane as ego (starts behind)
+    position: [25.0, 35.0]  # 15-25m behind ego
+    speed: [18.0, 22.0]     # Faster than ego (to catch up)
+    acceleration: [-3.0, 4.0]  # Can accelerate to pass
+    behavior:
+      overtake_start_time: [2.0, 4.0]  # Enter passing lane between 2-4s
+      overtake_end_time: [7.0, 10.0]   # Return to original lane between 7-10s
+
+# Safety constraints
+min_ttc: 2.0        # 2 second minimum time-to-collision
+min_distance: 4.0   # 4 meter minimum distance
+
+# Generation settings
+num_scenarios: 1

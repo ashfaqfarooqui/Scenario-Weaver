@@ -97,6 +97,7 @@ pub enum ActorRole {
 pub enum ScenarioType {
     CutInLeft,
     CutInRight,
+    OvertakeLeft,
 }
 
 impl std::fmt::Display for ScenarioType {
@@ -104,6 +105,7 @@ impl std::fmt::Display for ScenarioType {
         match self {
             ScenarioType::CutInLeft => write!(f, "cut_in_left"),
             ScenarioType::CutInRight => write!(f, "cut_in_right"),
+            ScenarioType::OvertakeLeft => write!(f, "overtake_left"),
         }
     }
 }
@@ -114,6 +116,9 @@ impl ScenarioType {
         match self {
             ScenarioType::CutInLeft => Box::new(crate::scenarios::cut_in_left::CutInLeftModel),
             ScenarioType::CutInRight => Box::new(crate::scenarios::cut_in_right::CutInRightModel),
+            ScenarioType::OvertakeLeft => {
+                Box::new(crate::scenarios::overtake_left::OvertakeLeftModel)
+            }
         }
     }
 }
