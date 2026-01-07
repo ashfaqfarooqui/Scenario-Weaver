@@ -86,14 +86,14 @@ impl ScenarioModel for CutInRightModel {
         let initial_val = Int::from_i64(initial_lane as i64);
         for t in 0..min_step.saturating_sub(1) {
             let lane_t = &encoder.lanes[npc_id][t];
-            solver.assert(&lane_t.eq(&initial_val));
+            solver.assert(lane_t.eq(&initial_val));
         }
 
         // Constraint: NPC must be in target lane after cut_in_time_max
         let target_val = Int::from_i64(target_lane as i64);
         for t in max_step..=horizon {
             let lane_t = &encoder.lanes[npc_id][t];
-            solver.assert(&lane_t.eq(&target_val));
+            solver.assert(lane_t.eq(&target_val));
         }
 
         // Lane persistence: once NPC is in target lane, it must stay there
