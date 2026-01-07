@@ -5,19 +5,15 @@ use serde::{Deserialize, Serialize};
 /// Constraint enforcement mode
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ConstraintMode {
     /// Enforce constraint: G(constraint) - must hold at all times
+    #[default]
     Enforce,
     /// Violate constraint: F(NOT constraint) - must be violated at some point
     Violate,
     /// Ignore constraint: not added to the formula
     Ignore,
-}
-
-impl Default for ConstraintMode {
-    fn default() -> Self {
-        ConstraintMode::Enforce
-    }
 }
 
 /// Configuration for how constraints should be enforced

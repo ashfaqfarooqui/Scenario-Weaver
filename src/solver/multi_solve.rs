@@ -9,7 +9,7 @@ use crate::error::{Result, ScenarioGenError};
 use crate::ltl::formula::LTLFormula;
 use crate::scenario::model::Scenario;
 use crate::solver::Z3Encoder;
-use z3::ast::{Ast, Bool, Real};
+use z3::ast::{Bool, Real};
 use z3::{Config, SatResult};
 
 /// Generate multiple diverse scenarios from the same specification
@@ -35,6 +35,9 @@ pub fn generate_scenarios(
     let mut scenarios = Vec::new();
 
     for i in 0..num_scenarios {
+        // Get scenario model for scenario-specific constraints
+        let scenario_model = spec.scenario_type.get_model();
+
         // Create fresh Z3 context for each scenario
         let cfg = Config::new();
         z3::with_z3_config(&cfg, || {
@@ -46,6 +49,7 @@ pub fn generate_scenarios(
             encoder.encode_kinematics();
             encoder.encode_lane_velocity_constraints();
             encoder.encode_ltl(ltl_formula);
+            encoder.encode_scenario_specific_constraints(&*scenario_model)?;
             encoder.encode_safety();
 
             // Add blocking clauses for all previous scenarios
@@ -121,8 +125,8 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
     let prev_vx0_z3 = Real::from_real((prev_vx0 * 100.0).round() as i32, 100);
 
     // Create equality constraints
-    let px_eq = npc_px0._eq(&prev_px0_z3);
-    let vx_eq = npc_vx0._eq(&prev_vx0_z3);
+    let px_eq = npc_px0.eq(&prev_px0_z3);
+    let vx_eq = npc_vx0.eq(&prev_vx0_z3);
 
     // Both equal: px0 == prev_px0 AND vx0 == prev_vx0
     let both_equal = Bool::and(&[&px_eq, &vx_eq]);

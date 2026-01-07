@@ -96,7 +96,7 @@ fn preprocess_imports(yaml_content: &str, base_dir: &Path) -> Result<String> {
         value
             .as_mapping_mut()
             .unwrap()
-            .remove(&serde_yaml::Value::String("imports".to_string()));
+            .remove(serde_yaml::Value::String("imports".to_string()));
     }
 
     // Convert back to YAML string

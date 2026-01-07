@@ -1,10 +1,10 @@
 //! Cut-in from right scenario model
 //!
 //! In this scenario, an NPC vehicle starts in the right lane (lane 1),
-//! ahead of the ego vehicle in the left lane (lane 0), and eventually
+//! ahead of ego vehicle in left lane (lane 0), and eventually
 //! changes lanes to cut in front of the ego vehicle.
 
-use crate::dsl::types::ScenarioSpec;
+use crate::dsl::types::{ScenarioSpec, ValueOrRange};
 use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;
 use anyhow::Result;
@@ -55,12 +55,46 @@ impl ScenarioModel for CutInRightModel {
         solver: &z3::Solver,
         horizon: usize,
     ) -> Result<()> {
-        use z3::ast::{Ast, Int};
+        use z3::ast::Int;
 
         let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
         let npc = &spec.npcs()[0];
         let target_lane = ego.lane;
         let npc_id = &npc.id;
+        let initial_lane = npc.lane;
+
+        // Parse cut_in_time from behavior
+        let cut_in_time_json = npc
+            .behavior
+            .get("cut_in_time")
+            .ok_or_else(|| anyhow::anyhow!("NPC missing 'cut_in_time' in behavior"))?;
+
+        let cut_in_time: ValueOrRange = serde_json::from_value(cut_in_time_json.clone())
+            .map_err(|e| anyhow::anyhow!("Failed to parse cut_in_time: {}", e))?;
+
+        let time_step = spec.time_step;
+        let (min_time, max_time) = match cut_in_time {
+            ValueOrRange::Value(t) => (t, t),
+            ValueOrRange::Range([min, max]) => (min, max),
+        };
+
+        // Convert time to time step indices
+        let min_step = (min_time / time_step).ceil() as usize;
+        let max_step = (max_time / time_step).floor() as usize;
+
+        // Constraint: NPC must be in initial lane before cut_in_time_min
+        let initial_val = Int::from_i64(initial_lane as i64);
+        for t in 0..min_step.saturating_sub(1) {
+            let lane_t = &encoder.lanes[npc_id][t];
+            solver.assert(&lane_t.eq(&initial_val));
+        }
+
+        // Constraint: NPC must be in target lane after cut_in_time_max
+        let target_val = Int::from_i64(target_lane as i64);
+        for t in max_step..=horizon {
+            let lane_t = &encoder.lanes[npc_id][t];
+            solver.assert(&lane_t.eq(&target_val));
+        }
 
         // Lane persistence: once NPC is in target lane, it must stay there
         // This is critical because the UNTIL operator only requires reaching the target
@@ -68,23 +102,20 @@ impl ScenarioModel for CutInRightModel {
         //
         // We enforce: for all pairs of consecutive time steps, if we're in target at t,
         // we cannot transition back to initial lane at t+1
-        let initial_lane = npc.lane;
         for t in 0..horizon {
             let lane_t = &encoder.lanes[npc_id][t];
             let lane_t1 = &encoder.lanes[npc_id][t + 1];
-            let target_val = Int::from_i64(target_lane as i64);
-            let initial_val = Int::from_i64(initial_lane as i64);
 
             // If lane[t] == target_lane, then lane[t+1] != initial_lane
             // (This is stronger than just requiring lane[t+1] == target)
-            let in_target = lane_t._eq(&target_val);
-            let not_back_to_initial = lane_t1._eq(&initial_val).not();
+            let in_target = lane_t.eq(&target_val);
+            let not_back_to_initial = lane_t1.eq(&initial_val).not();
             let no_return = in_target.implies(&not_back_to_initial);
 
             solver.assert(&no_return);
 
             // Also add the positive constraint: if in target, stay in target
-            let stays_in_target = lane_t1._eq(&target_val);
+            let stays_in_target = lane_t1.eq(&target_val);
             let persistence = in_target.implies(&stays_in_target);
             solver.assert(&persistence);
         }
