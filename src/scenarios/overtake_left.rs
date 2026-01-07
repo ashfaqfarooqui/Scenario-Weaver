@@ -93,7 +93,7 @@ impl ScenarioModel for OvertakeLeftModel {
         solver: &z3::Solver,
         horizon: usize,
     ) -> Result<()> {
-        use z3::ast::Int;
+        use z3::ast::{Bool, Int};
 
         let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
         let npc = &spec.npcs()[0];
@@ -190,6 +190,15 @@ impl ScenarioModel for OvertakeLeftModel {
         let npc_px_0 = &encoder.positions_x[npc_id][0];
         let ego_px_0 = &encoder.positions_x[ego_id][0];
         solver.assert(npc_px_0.lt(ego_px_0));
+
+        // ===== Lane restriction: NPC can only be in original or passing lane =====
+        // This prevents the NPC from using arbitrary lanes during transition windows
+        for t in 0..=horizon {
+            let lane_t = &encoder.lanes[npc_id][t];
+            let in_original = lane_t.eq(&original_val);
+            let in_passing = lane_t.eq(&passing_val);
+            solver.assert(Bool::or(&[&in_original, &in_passing]));
+        }
 
         Ok(())
     }

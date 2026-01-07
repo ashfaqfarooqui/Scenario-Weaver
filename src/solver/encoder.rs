@@ -393,6 +393,58 @@ impl Z3Encoder {
                 self.solver.assert(lane_var.le(&max_lane));
             }
         }
+
+        // Add single-lane-jump constraint: |lane[t+1] - lane[t]| <= 1
+        // Prevents vehicles from jumping multiple lanes at once
+        let one = Int::from_i64(1);
+        let neg_one = Int::from_i64(-1);
+
+        for actor in &self.spec.actors {
+            if actor.role != ActorRole::Ego {
+                // Ego already constrained (vy = 0, lane never changes)
+                let actor_id = &actor.id;
+                for t in 0..self.horizon {
+                    let lane_t = &self.lanes[actor_id][t];
+                    let lane_t1 = &self.lanes[actor_id][t + 1];
+                    let diff = lane_t1 - lane_t;
+                    // -1 <= diff <= 1
+                    self.solver.assert(diff.ge(&neg_one));
+                    self.solver.assert(diff.le(&one));
+                }
+            }
+        }
+    }
+
+    /// Encode lateral velocity bounds for realistic lane changes
+    ///
+    /// Constrains lateral velocity to be within a reasonable range based on
+    /// lane width and time step. This ensures physically realistic lane change
+    /// maneuvers while still allowing lane changes within 1-2 time steps.
+    ///
+    /// The bound is: max_vy = (lane_width / time_step) * 1.1
+    /// This allows single-timestep lane changes with a small buffer.
+    ///
+    /// Example: For 3.5m lanes and 0.5s timestep: max_vy = 7.7 m/s (~28 km/h lateral)
+    pub fn encode_lateral_velocity_bounds(&mut self) {
+        use crate::dsl::types::ActorRole;
+
+        // max_vy allows single-timestep lane changes with 10% buffer
+        // This is much more reasonable than unconstrained (which produced 14+ m/s)
+        let max_vy = (self.spec.lane_width / self.spec.time_step) * 1.1;
+        let max_vy_real = Real::from_rational((max_vy * 10.0) as i64, 10_i64);
+        let neg_max_vy_real = Real::from_rational((-max_vy * 10.0) as i64, 10_i64);
+
+        for actor in &self.spec.actors {
+            if actor.role != ActorRole::Ego {
+                // Ego vy already constrained to 0 (no lane changes)
+                let actor_id = &actor.id;
+                for t in 0..=self.horizon {
+                    let vy_t = &self.velocities_y[actor_id][t];
+                    self.solver.assert(vy_t.ge(&neg_max_vy_real));
+                    self.solver.assert(vy_t.le(&max_vy_real));
+                }
+            }
+        }
     }
 
     /// Check if the constraints are satisfiable (for testing)
@@ -1182,6 +1234,7 @@ mod tests {
             encoder.encode_initial_conditions();
             encoder.encode_kinematics();
             encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
 
             assert_eq!(encoder.check(), SatResult::Sat);
 
@@ -1213,6 +1266,7 @@ mod tests {
             encoder.encode_initial_conditions();
             encoder.encode_kinematics();
             encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
 
             // Test simple atomic proposition: InLane(ego, 1)
             let formula = LTLFormula::Atom(Proposition::InLane {
@@ -1237,6 +1291,7 @@ mod tests {
             encoder.encode_initial_conditions();
             encoder.encode_kinematics();
             encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
 
             // Test Eventually: F(InLane(npc, 1))
             // NPC should eventually be in lane 1
@@ -1277,6 +1332,7 @@ mod tests {
             encoder.encode_initial_conditions();
             encoder.encode_kinematics();
             encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
 
             // Test Always: G(InLane(ego, 1))
             // Ego should always be in lane 1
@@ -1311,6 +1367,7 @@ mod tests {
             encoder.encode_initial_conditions();
             encoder.encode_kinematics();
             encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
 
             // Test Until: InLane(npc, 0) U InLane(npc, 1)
             // NPC stays in lane 0 until it moves to lane 1
@@ -1363,6 +1420,7 @@ mod tests {
             encoder.encode_initial_conditions();
             encoder.encode_kinematics();
             encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
             encoder.encode_safety();
 
             // Safety constraints should be satisfiable
@@ -1382,6 +1440,7 @@ mod tests {
             encoder.encode_initial_conditions();
             encoder.encode_kinematics();
             encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
 
             // Generate and encode full cut-in LTL formula
             let ltl_formula = LTLGenerator::generate(&spec);
@@ -1436,6 +1495,7 @@ mod tests {
             encoder.encode_initial_conditions();
             encoder.encode_kinematics();
             encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
 
             // Generate and encode full cut-in LTL formula
             let ltl_formula = LTLGenerator::generate(&spec);

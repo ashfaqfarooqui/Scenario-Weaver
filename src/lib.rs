@@ -52,6 +52,7 @@ pub fn generate_single_scenario(yaml_content: &str) -> Result<Scenario> {
         encoder.encode_initial_conditions();
         encoder.encode_kinematics();
         encoder.encode_lane_velocity_constraints();
+        encoder.encode_lateral_velocity_bounds();
 
         // Encode LTL formula
         encoder.encode_ltl(&ltl_formula);
