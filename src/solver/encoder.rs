@@ -2,57 +2,63 @@
 
 use std::collections::HashMap;
 use z3::ast::{Int, Real};
-use z3::{SatResult, Solver};
+use z3::SatResult;
 
 use crate::dsl::types::{ConstraintMode, ScenarioSpec};
+use crate::solver::backend::{SolverBackend, Z3Backend};
 
-/// Z3 SMT encoder for scenario constraints
+/// Z3 SMT encoder for scenario constraints (generic over backend)
 ///
-/// Note: In Z3 0.19, the context is managed internally by Solver::new()
-/// and is implicit within the `with_z3_config()` callback scope.
-pub struct Z3Encoder {
-    /// Z3 solver instance
-    pub(crate) solver: Solver,
+/// This encoder can work with either `SolverBackend` (SAT checking)
+/// or `OptimizerBackend` (optimization objectives).
+///
+/// Note: In Z3 0.19, the context is managed internally and is implicit
+/// within the `with_z3_config()` callback scope.
+pub struct GenericEncoder<B: Z3Backend> {
+    /// Z3 backend (Solver or Optimizer)
+    pub(crate) backend: B,
 
     /// Original scenario specification
-    spec: ScenarioSpec,
+    pub(crate) spec: ScenarioSpec,
 
     /// Number of time steps in the scenario
-    horizon: usize,
+    pub(crate) horizon: usize,
 
     // Variable maps: actor_id -> Vec<variable> (one per time step)
     /// Longitudinal positions (m)
     pub(crate) positions_x: HashMap<String, Vec<Real>>,
 
     /// Lateral positions (m)
-    positions_y: HashMap<String, Vec<Real>>,
+    pub(crate) positions_y: HashMap<String, Vec<Real>>,
 
     /// Longitudinal velocities (m/s)
     pub(crate) velocities_x: HashMap<String, Vec<Real>>,
 
     /// Lateral velocities (m/s)
-    velocities_y: HashMap<String, Vec<Real>>,
+    pub(crate) velocities_y: HashMap<String, Vec<Real>>,
 
     /// Lane numbers (integer)
     pub(crate) lanes: HashMap<String, Vec<Int>>,
 
     /// Longitudinal accelerations (m/s²)
-    accelerations_x: HashMap<String, Vec<Real>>,
+    pub(crate) accelerations_x: HashMap<String, Vec<Real>>,
 
     /// Lateral accelerations (m/s²)
-    accelerations_y: HashMap<String, Vec<Real>>,
+    pub(crate) accelerations_y: HashMap<String, Vec<Real>>,
 }
 
-impl Z3Encoder {
-    /// Create a new Z3 encoder for the given specification
+/// Type alias for backward compatibility - uses Solver backend
+pub type Z3Encoder = GenericEncoder<SolverBackend>;
+
+impl<B: Z3Backend> GenericEncoder<B> {
+    /// Create a new encoder with a specific backend
     ///
     /// Note: This must be called within a `z3::with_z3_config()` callback.
-    pub fn new(spec: ScenarioSpec) -> Self {
-        let solver = Solver::new();
+    pub fn with_backend(spec: ScenarioSpec, backend: B) -> Self {
         let horizon = spec.num_time_steps();
 
         Self {
-            solver,
+            backend,
             spec,
             horizon,
             positions_x: HashMap::new(),
@@ -65,6 +71,41 @@ impl Z3Encoder {
         }
     }
 
+    /// Get the scenario specification
+    pub fn spec(&self) -> &ScenarioSpec {
+        &self.spec
+    }
+
+    /// Get the time horizon
+    pub fn horizon(&self) -> usize {
+        self.horizon
+    }
+}
+
+impl Z3Encoder {
+    /// Create a new Z3 encoder for the given specification (backward compatible)
+    ///
+    /// Note: This must be called within a `z3::with_z3_config()` callback.
+    pub fn new(spec: ScenarioSpec) -> Self {
+        Self::with_backend(spec, SolverBackend::new())
+    }
+
+    /// Encode scenario-specific Z3 constraints
+    ///
+    /// This calls the trait method to allow scenarios to add custom Z3 assertions
+    /// beyond the standard LTL and safety encodings.
+    ///
+    /// Note: This method is only available for Z3Encoder (SolverBackend) because
+    /// the ScenarioModel trait is tied to the concrete encoder type.
+    pub fn encode_scenario_specific_constraints(
+        &mut self,
+        model: &dyn crate::scenarios::ScenarioModel,
+    ) -> anyhow::Result<()> {
+        model.add_z3_constraints(&self.spec, self, &self.backend, self.horizon)
+    }
+}
+
+impl<B: Z3Backend> GenericEncoder<B> {
     /// Create all Z3 variables for the scenario
     ///
     /// For each actor and each time step t ∈ [0, horizon],
@@ -148,7 +189,7 @@ impl Z3Encoder {
             if role == ActorRole::Ego {
                 let zero = Real::from_rational(0_i64, 1_i64);
                 let vy_0 = &self.velocities_y[&actor_id][0];
-                self.solver.assert(vy_0.eq(&zero));
+                self.backend.assert(&vy_0.eq(&zero));
             }
         }
     }
@@ -168,20 +209,20 @@ impl Z3Encoder {
         // Lane at t=0
         let lane_var = &self.lanes[actor_id][0];
         let lane_val = Int::from_i64(lane as i64);
-        self.solver.assert(lane_var.eq(&lane_val));
+        self.backend.assert(&lane_var.eq(&lane_val));
 
         // Position at t=0
         let px_var = &self.positions_x[actor_id][0];
         if (pos_min - pos_max).abs() < 1e-6 {
             // Fixed value
             let pos_val = Real::from_rational((pos_min * 10.0) as i64, 10_i64);
-            self.solver.assert(px_var.eq(&pos_val));
+            self.backend.assert(&px_var.eq(&pos_val));
         } else {
             // Range
             let min_val = Real::from_rational((pos_min * 10.0) as i64, 10_i64);
             let max_val = Real::from_rational((pos_max * 10.0) as i64, 10_i64);
-            self.solver.assert(px_var.ge(&min_val));
-            self.solver.assert(px_var.le(&max_val));
+            self.backend.assert(&px_var.ge(&min_val));
+            self.backend.assert(&px_var.le(&max_val));
         }
 
         // Velocity at t=0
@@ -197,46 +238,46 @@ impl Z3Encoder {
                 -speed_min
             };
             let speed_val = Real::from_rational((speed * 10.0) as i64, 10_i64);
-            self.solver.assert(vx_var.eq(&speed_val));
+            self.backend.assert(&vx_var.eq(&speed_val));
         } else {
             // Range
             if lane_direction == 1 {
                 // Forward: vx in [speed_min, speed_max]
                 let min_val = Real::from_rational((speed_min * 10.0) as i64, 10_i64);
                 let max_val = Real::from_rational((speed_max * 10.0) as i64, 10_i64);
-                self.solver.assert(vx_var.ge(&min_val));
-                self.solver.assert(vx_var.le(&max_val));
+                self.backend.assert(&vx_var.ge(&min_val));
+                self.backend.assert(&vx_var.le(&max_val));
             } else {
                 // Backward: vx in [-speed_max, -speed_min]
                 let min_val = Real::from_rational((-speed_max * 10.0) as i64, 10_i64);
                 let max_val = Real::from_rational((-speed_min * 10.0) as i64, 10_i64);
-                self.solver.assert(vx_var.ge(&min_val));
-                self.solver.assert(vx_var.le(&max_val));
+                self.backend.assert(&vx_var.ge(&min_val));
+                self.backend.assert(&vx_var.le(&max_val));
             }
         }
 
         // Initial lateral velocity is zero (not changing lanes initially)
         let vy_var = &self.velocities_y[actor_id][0];
         let zero = Real::from_rational(0_i64, 1_i64);
-        self.solver.assert(vy_var.eq(&zero));
+        self.backend.assert(&vy_var.eq(&zero));
 
         // Initial acceleration at t=0
         let ax_var = &self.accelerations_x[actor_id][0];
         if (accel_min - accel_max).abs() < 1e-6 {
             // Fixed acceleration
             let accel_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
-            self.solver.assert(ax_var.eq(&accel_val));
+            self.backend.assert(&ax_var.eq(&accel_val));
         } else {
             // Acceleration range
             let min_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
             let max_val = Real::from_rational((accel_max * 10.0) as i64, 10_i64);
-            self.solver.assert(ax_var.ge(&min_val));
-            self.solver.assert(ax_var.le(&max_val));
+            self.backend.assert(&ax_var.ge(&min_val));
+            self.backend.assert(&ax_var.le(&max_val));
         }
 
         // Initial lateral acceleration is zero
         let ay_var = &self.accelerations_y[actor_id][0];
-        self.solver.assert(ay_var.eq(&zero));
+        self.backend.assert(&ay_var.eq(&zero));
     }
 
     /// Encode constraint: lateral position matches lane center
@@ -252,7 +293,7 @@ impl Z3Encoder {
         // py = lane * lane_width + lane_width/2
         let lane_real = lane_var.to_real();
         let expected_py = lane_real * &lane_width_real + &half_width;
-        self.solver.assert(py_var.eq(&expected_py));
+        self.backend.assert(&py_var.eq(&expected_py));
     }
 
     /// Encode kinematic constraints with acceleration support
@@ -277,14 +318,14 @@ impl Z3Encoder {
 
                 // Acceleration bounds at each timestep
                 let ax_t = &self.accelerations_x[actor_id][t];
-                self.solver.assert(ax_t.ge(&ax_min_real));
-                self.solver.assert(ax_t.le(&ax_max_real));
+                self.backend.assert(&ax_t.ge(&ax_min_real));
+                self.backend.assert(&ax_t.le(&ax_max_real));
 
                 // Velocity update: vx[t+1] = vx[t] + ax[t] * dt
                 let vx_t = &self.velocities_x[actor_id][t];
                 let vx_t1 = &self.velocities_x[actor_id][t + 1];
                 let expected_vx = vx_t + &(ax_t * &dt_real);
-                self.solver.assert(vx_t1.eq(&expected_vx));
+                self.backend.assert(&vx_t1.eq(&expected_vx));
 
                 // Note: Velocity direction constraints are applied separately
                 // in encode_lane_velocity_constraints() based on lane direction
@@ -293,7 +334,7 @@ impl Z3Encoder {
                 let px_t = &self.positions_x[actor_id][t];
                 let px_t1 = &self.positions_x[actor_id][t + 1];
                 let expected_px = px_t + &(vx_t * &dt_real);
-                self.solver.assert(px_t1.eq(&expected_px));
+                self.backend.assert(&px_t1.eq(&expected_px));
 
                 // ========== LATERAL DYNAMICS ==========
 
@@ -302,11 +343,11 @@ impl Z3Encoder {
                 let py_t1 = &self.positions_y[actor_id][t + 1];
                 let vy_t = &self.velocities_y[actor_id][t];
                 let expected_py = py_t + &(vy_t * &dt_real);
-                self.solver.assert(py_t1.eq(&expected_py));
+                self.backend.assert(&py_t1.eq(&expected_py));
 
                 // Ego never changes lanes (vy = 0)
                 if actor.role == ActorRole::Ego {
-                    self.solver.assert(vy_t.eq(&zero));
+                    self.backend.assert(&vy_t.eq(&zero));
                 }
             }
 
@@ -345,10 +386,10 @@ impl Z3Encoder {
 
                     if lane_direction == 1 {
                         // Forward: vx >= 0
-                        self.solver.assert(vx_t.ge(&zero));
+                        self.backend.assert(&vx_t.ge(&zero));
                     } else if lane_direction == -1 {
                         // Backward: vx <= 0
-                        self.solver.assert(vx_t.le(&zero));
+                        self.backend.assert(&vx_t.le(&zero));
                     }
                 }
             } else {
@@ -373,8 +414,8 @@ impl Z3Encoder {
                         };
 
                         // If in this lane, then direction constraint must hold
-                        self.solver
-                            .assert(in_this_lane.implies(&direction_constraint));
+                        self.backend
+                            .assert(&in_this_lane.implies(&direction_constraint));
                     }
                 }
             }
@@ -389,8 +430,8 @@ impl Z3Encoder {
             let actor_id = &actor.id;
             for t in 0..=self.horizon {
                 let lane_var = &self.lanes[actor_id][t];
-                self.solver.assert(lane_var.ge(&zero_lane));
-                self.solver.assert(lane_var.le(&max_lane));
+                self.backend.assert(&lane_var.ge(&zero_lane));
+                self.backend.assert(&lane_var.le(&max_lane));
             }
         }
 
@@ -408,8 +449,8 @@ impl Z3Encoder {
                     let lane_t1 = &self.lanes[actor_id][t + 1];
                     let diff = lane_t1 - lane_t;
                     // -1 <= diff <= 1
-                    self.solver.assert(diff.ge(&neg_one));
-                    self.solver.assert(diff.le(&one));
+                    self.backend.assert(&diff.ge(&neg_one));
+                    self.backend.assert(&diff.le(&one));
                 }
             }
         }
@@ -440,8 +481,8 @@ impl Z3Encoder {
                 let actor_id = &actor.id;
                 for t in 0..=self.horizon {
                     let vy_t = &self.velocities_y[actor_id][t];
-                    self.solver.assert(vy_t.ge(&neg_max_vy_real));
-                    self.solver.assert(vy_t.le(&max_vy_real));
+                    self.backend.assert(&vy_t.ge(&neg_max_vy_real));
+                    self.backend.assert(&vy_t.le(&max_vy_real));
                 }
             }
         }
@@ -449,23 +490,12 @@ impl Z3Encoder {
 
     /// Check if the constraints are satisfiable (for testing)
     pub fn check(&self) -> SatResult {
-        self.solver.check()
+        self.backend.check()
     }
 
     /// Get the Z3 model (for testing)
     pub fn get_model(&self) -> Option<z3::Model> {
-        self.solver.get_model()
-    }
-
-    /// Encode scenario-specific Z3 constraints
-    ///
-    /// This calls the trait method to allow scenarios to add custom Z3 assertions
-    /// beyond the standard LTL and safety encodings.
-    pub fn encode_scenario_specific_constraints(
-        &mut self,
-        model: &dyn crate::scenarios::ScenarioModel,
-    ) -> anyhow::Result<()> {
-        model.add_z3_constraints(&self.spec, self, &self.solver, self.horizon)
+        self.backend.get_model()
     }
 
     /// Encode LTL formula into Z3 constraints using bounded model checking
@@ -476,7 +506,7 @@ impl Z3Encoder {
     pub fn encode_ltl(&mut self, formula: &crate::ltl::formula::LTLFormula) {
         // Encode the formula starting at time 0, with full horizon
         let constraint = self.encode_ltl_bounded(formula, 0, self.horizon);
-        self.solver.assert(&constraint);
+        self.backend.assert(&constraint);
     }
 
     /// Bounded LTL encoding: expand temporal operators over [time, horizon]
@@ -727,7 +757,7 @@ impl Z3Encoder {
                 if self.spec.constraint_modes.min_ttc() == ConstraintMode::Enforce {
                     for t in 0..=self.horizon {
                         let ttc_constraint = self.encode_ttc_constraint(id1, id2, min_ttc, t);
-                        self.solver.assert(&ttc_constraint);
+                        self.backend.assert(&ttc_constraint);
                     }
                 }
 
@@ -735,7 +765,7 @@ impl Z3Encoder {
                     for t in 0..=self.horizon {
                         let distance_constraint =
                             self.encode_min_distance_constraint(id1, id2, min_distance, t);
-                        self.solver.assert(&distance_constraint);
+                        self.backend.assert(&distance_constraint);
                     }
                 }
             }
@@ -790,7 +820,7 @@ impl Z3Encoder {
                 for actor in &self.spec.actors {
                     for t in 0..=self.horizon {
                         let ax = &self.accelerations_x[&actor.id][t];
-                        self.solver.assert(ax.le(&max_real));
+                        self.backend.assert(&ax.le(&max_real));
                     }
                 }
             }
@@ -807,7 +837,7 @@ impl Z3Encoder {
                 for actor in &self.spec.actors {
                     for t in 0..=self.horizon {
                         let ax = &self.accelerations_x[&actor.id][t];
-                        self.solver.assert(ax.ge(&min_real));
+                        self.backend.assert(&ax.ge(&min_real));
                     }
                 }
             }
@@ -1138,6 +1168,7 @@ mod tests {
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: crate::dsl::types::ConstraintModes::default(),
+            optimization_target: crate::dsl::types::OptimizationTarget::None,
             max_acceleration: None,
             max_deceleration: None,
         }

@@ -8,7 +8,7 @@ use crate::dsl::types::ScenarioSpec;
 use crate::error::{Result, ScenarioGenError};
 use crate::ltl::formula::LTLFormula;
 use crate::scenario::model::Scenario;
-use crate::solver::Z3Encoder;
+use crate::solver::{Z3Backend, Z3Encoder};
 use z3::ast::{Bool, Real};
 use z3::{Config, SatResult};
 
@@ -151,7 +151,7 @@ impl Z3Encoder {
 
     /// Assert a constraint to the solver
     pub fn assert_constraint(&self, constraint: &Bool) {
-        self.solver.assert(constraint);
+        self.backend.assert(constraint);
     }
 }
 
@@ -196,6 +196,7 @@ mod tests {
             lane_width: 3.5,
             num_scenarios: 5,
             constraint_modes: crate::dsl::types::ConstraintModes::default(),
+            optimization_target: crate::dsl::types::OptimizationTarget::None,
             max_acceleration: None,
             max_deceleration: None,
         }
