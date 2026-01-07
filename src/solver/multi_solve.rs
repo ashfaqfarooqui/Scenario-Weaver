@@ -121,8 +121,8 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
     // Create real values from previous scenario
     // We use a tolerance to handle floating point precision
     // Convert to Z3 rational: multiply by 100 to get 2 decimal precision
-    let prev_px0_z3 = Real::from_real((prev_px0 * 100.0).round() as i32, 100);
-    let prev_vx0_z3 = Real::from_real((prev_vx0 * 100.0).round() as i32, 100);
+    let prev_px0_z3 = Real::from_rational((prev_px0 * 100.0).round() as i64, 100_i64);
+    let prev_vx0_z3 = Real::from_rational((prev_vx0 * 100.0).round() as i64, 100_i64);
 
     // Create equality constraints
     let px_eq = npc_px0.eq(&prev_px0_z3);

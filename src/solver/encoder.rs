@@ -146,7 +146,7 @@ impl Z3Encoder {
 
             // Ego never changes lanes (vy = 0)
             if role == ActorRole::Ego {
-                let zero = Real::from_real(0, 1);
+                let zero = Real::from_rational(0_i64, 1_i64);
                 let vy_0 = &self.velocities_y[&actor_id][0];
                 self.solver.assert(vy_0.eq(&zero));
             }
@@ -174,12 +174,12 @@ impl Z3Encoder {
         let px_var = &self.positions_x[actor_id][0];
         if (pos_min - pos_max).abs() < 1e-6 {
             // Fixed value
-            let pos_val = Real::from_real((pos_min * 10.0) as i32, 10);
+            let pos_val = Real::from_rational((pos_min * 10.0) as i64, 10_i64);
             self.solver.assert(px_var.eq(&pos_val));
         } else {
             // Range
-            let min_val = Real::from_real((pos_min * 10.0) as i32, 10);
-            let max_val = Real::from_real((pos_max * 10.0) as i32, 10);
+            let min_val = Real::from_rational((pos_min * 10.0) as i64, 10_i64);
+            let max_val = Real::from_rational((pos_max * 10.0) as i64, 10_i64);
             self.solver.assert(px_var.ge(&min_val));
             self.solver.assert(px_var.le(&max_val));
         }
@@ -196,20 +196,20 @@ impl Z3Encoder {
             } else {
                 -speed_min
             };
-            let speed_val = Real::from_real((speed * 10.0) as i32, 10);
+            let speed_val = Real::from_rational((speed * 10.0) as i64, 10_i64);
             self.solver.assert(vx_var.eq(&speed_val));
         } else {
             // Range
             if lane_direction == 1 {
                 // Forward: vx in [speed_min, speed_max]
-                let min_val = Real::from_real((speed_min * 10.0) as i32, 10);
-                let max_val = Real::from_real((speed_max * 10.0) as i32, 10);
+                let min_val = Real::from_rational((speed_min * 10.0) as i64, 10_i64);
+                let max_val = Real::from_rational((speed_max * 10.0) as i64, 10_i64);
                 self.solver.assert(vx_var.ge(&min_val));
                 self.solver.assert(vx_var.le(&max_val));
             } else {
                 // Backward: vx in [-speed_max, -speed_min]
-                let min_val = Real::from_real((-speed_max * 10.0) as i32, 10);
-                let max_val = Real::from_real((-speed_min * 10.0) as i32, 10);
+                let min_val = Real::from_rational((-speed_max * 10.0) as i64, 10_i64);
+                let max_val = Real::from_rational((-speed_min * 10.0) as i64, 10_i64);
                 self.solver.assert(vx_var.ge(&min_val));
                 self.solver.assert(vx_var.le(&max_val));
             }
@@ -217,19 +217,19 @@ impl Z3Encoder {
 
         // Initial lateral velocity is zero (not changing lanes initially)
         let vy_var = &self.velocities_y[actor_id][0];
-        let zero = Real::from_real(0, 1);
+        let zero = Real::from_rational(0_i64, 1_i64);
         self.solver.assert(vy_var.eq(&zero));
 
         // Initial acceleration at t=0
         let ax_var = &self.accelerations_x[actor_id][0];
         if (accel_min - accel_max).abs() < 1e-6 {
             // Fixed acceleration
-            let accel_val = Real::from_real((accel_min * 10.0) as i32, 10);
+            let accel_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
             self.solver.assert(ax_var.eq(&accel_val));
         } else {
             // Acceleration range
-            let min_val = Real::from_real((accel_min * 10.0) as i32, 10);
-            let max_val = Real::from_real((accel_max * 10.0) as i32, 10);
+            let min_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
+            let max_val = Real::from_rational((accel_max * 10.0) as i64, 10_i64);
             self.solver.assert(ax_var.ge(&min_val));
             self.solver.assert(ax_var.le(&max_val));
         }
@@ -246,8 +246,8 @@ impl Z3Encoder {
         let py_var = &self.positions_y[actor_id][t];
 
         let lane_width = self.spec.lane_width;
-        let lane_width_real = Real::from_real((lane_width * 10.0) as i32, 10);
-        let half_width = Real::from_real((lane_width * 5.0) as i32, 10);
+        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+        let half_width = Real::from_rational((lane_width * 5.0) as i64, 10_i64);
 
         // py = lane * lane_width + lane_width/2
         let lane_real = lane_var.to_real();
@@ -260,8 +260,8 @@ impl Z3Encoder {
         use crate::dsl::types::ActorRole;
 
         let dt = self.spec.time_step;
-        let dt_real = Real::from_real((dt * 10.0) as i32, 10);
-        let zero = Real::from_real(0, 1);
+        let dt_real = Real::from_rational((dt * 10.0) as i64, 10_i64);
+        let zero = Real::from_rational(0_i64, 1_i64);
 
         for actor in &self.spec.actors {
             let actor_id = &actor.id;
@@ -269,8 +269,8 @@ impl Z3Encoder {
             // Get acceleration bounds directly from actor spec
             let ax_min = actor.acceleration.min();
             let ax_max = actor.acceleration.max();
-            let ax_min_real = Real::from_real((ax_min * 10.0) as i32, 10);
-            let ax_max_real = Real::from_real((ax_max * 10.0) as i32, 10);
+            let ax_min_real = Real::from_rational((ax_min * 10.0) as i64, 10_i64);
+            let ax_max_real = Real::from_rational((ax_max * 10.0) as i64, 10_i64);
 
             for t in 0..self.horizon {
                 // ========== LONGITUDINAL DYNAMICS ==========
@@ -331,7 +331,7 @@ impl Z3Encoder {
     pub fn encode_lane_velocity_constraints(&mut self) {
         use crate::dsl::types::ActorRole;
 
-        let zero = Real::from_real(0, 1);
+        let zero = Real::from_rational(0_i64, 1_i64);
 
         for actor in &self.spec.actors.clone() {
             let actor_id = &actor.id;
@@ -563,7 +563,7 @@ impl Z3Encoder {
             } => {
                 let px1 = &self.positions_x[actor1][time];
                 let px2 = &self.positions_x[actor2][time];
-                let dist_val = Real::from_real((*distance * 10.0) as i32, 10);
+                let dist_val = Real::from_rational((*distance * 10.0) as i64, 10_i64);
 
                 // |px1 - px2| > d is equivalent to: (px1 - px2 > d) OR (px2 - px1 > d)
                 let diff_pos = px1 - px2;
@@ -610,8 +610,8 @@ impl Z3Encoder {
         let vx1 = &self.velocities_x[actor1][time];
         let vx2 = &self.velocities_x[actor2][time];
 
-        let min_ttc_val = Real::from_real((min_ttc * 10.0) as i32, 10);
-        let epsilon = Real::from_real(1, 100); // 0.01 m/s to avoid division by zero
+        let min_ttc_val = Real::from_rational((min_ttc * 10.0) as i64, 10_i64);
+        let epsilon = Real::from_rational(1_i64, 100_i64); // 0.01 m/s to avoid division by zero
 
         // Same lane condition
         let same_lane = lane1.eq(lane2);
@@ -706,7 +706,7 @@ impl Z3Encoder {
         let px1 = &self.positions_x[actor1][time];
         let px2 = &self.positions_x[actor2][time];
 
-        let min_dist_val = Real::from_real((min_distance * 10.0) as i32, 10);
+        let min_dist_val = Real::from_rational((min_distance * 10.0) as i64, 10_i64);
 
         // Same lane condition
         let same_lane = lane1.eq(lane2);
@@ -733,7 +733,7 @@ impl Z3Encoder {
             let mode = self.spec.constraint_modes.max_acceleration();
 
             if mode == ConstraintMode::Enforce {
-                let max_real = Real::from_real((max_accel * 10.0) as i32, 10);
+                let max_real = Real::from_rational((max_accel * 10.0) as i64, 10_i64);
 
                 for actor in &self.spec.actors {
                     for t in 0..=self.horizon {
@@ -750,7 +750,7 @@ impl Z3Encoder {
             let mode = self.spec.constraint_modes.max_acceleration();
 
             if mode == ConstraintMode::Enforce {
-                let min_real = Real::from_real((max_decel * 10.0) as i32, 10);
+                let min_real = Real::from_rational((max_decel * 10.0) as i64, 10_i64);
 
                 for actor in &self.spec.actors {
                     for t in 0..=self.horizon {
