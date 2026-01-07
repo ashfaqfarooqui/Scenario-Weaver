@@ -5,7 +5,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum ScenarioGenError {
     #[error("Failed to parse YAML: {0}")]
-    YamlParse(#[from] serde_yaml::Error),
+    YamlParse(#[from] serde_yml::Error),
 
     #[error("Failed to serialize JSON: {0}")]
     JsonSerialize(#[from] serde_json::Error),

@@ -7,7 +7,7 @@ use std::path::Path;
 /// Parse YAML string into ScenarioSpec
 pub fn parse_yaml(yaml_content: &str) -> Result<ScenarioSpec> {
     let spec: ScenarioSpec =
-        serde_yaml::from_str(yaml_content).map_err(ScenarioGenError::YamlParse)?;
+        serde_yml::from_str(yaml_content).map_err(ScenarioGenError::YamlParse)?;
 
     // Validate the parsed specification
     spec.validate().map_err(ScenarioGenError::InvalidSpec)?;
@@ -39,8 +39,8 @@ pub fn parse_yaml_file(path: &Path) -> Result<ScenarioSpec> {
 /// Currently only supports importing road specifications.
 fn preprocess_imports(yaml_content: &str, base_dir: &Path) -> Result<String> {
     // Parse as generic YAML to check for imports
-    let mut value: serde_yaml::Value =
-        serde_yaml::from_str(yaml_content).map_err(ScenarioGenError::YamlParse)?;
+    let mut value: serde_yml::Value =
+        serde_yml::from_str(yaml_content).map_err(ScenarioGenError::YamlParse)?;
 
     // Collect import paths first to avoid borrow checker issues
     let import_paths: Vec<String> =
@@ -64,7 +64,7 @@ fn preprocess_imports(yaml_content: &str, base_dir: &Path) -> Result<String> {
         })?;
 
         // Parse imported YAML
-        let imported: serde_yaml::Value = serde_yaml::from_str(&imported_content).map_err(|e| {
+        let imported: serde_yml::Value = serde_yml::from_str(&imported_content).map_err(|e| {
             ScenarioGenError::InvalidSpec(format!(
                 "Failed to parse import '{}': {}",
                 import_path, e
@@ -78,13 +78,13 @@ fn preprocess_imports(yaml_content: &str, base_dir: &Path) -> Result<String> {
                 value
                     .as_mapping_mut()
                     .unwrap()
-                    .insert(serde_yaml::Value::String("road".to_string()), road.clone());
+                    .insert(serde_yml::Value::String("road".to_string()), road.clone());
             }
         } else if imported.get("num_lanes").is_some() {
             // Import file is a road spec (flat structure)
             if value.get("road").is_none() {
                 value.as_mapping_mut().unwrap().insert(
-                    serde_yaml::Value::String("road".to_string()),
+                    serde_yml::Value::String("road".to_string()),
                     imported.clone(),
                 );
             }
@@ -96,11 +96,11 @@ fn preprocess_imports(yaml_content: &str, base_dir: &Path) -> Result<String> {
         value
             .as_mapping_mut()
             .unwrap()
-            .remove(serde_yaml::Value::String("imports".to_string()));
+            .remove(serde_yml::Value::String("imports".to_string()));
     }
 
     // Convert back to YAML string
-    serde_yaml::to_string(&value).map_err(ScenarioGenError::YamlParse)
+    serde_yml::to_string(&value).map_err(ScenarioGenError::YamlParse)
 }
 
 #[cfg(test)]

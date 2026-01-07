@@ -1,0 +1,17 @@
+# Rust formatting configuration
+edition = "2021"
+
+# Line width
+max_width = 100
+
+# Indentation
+tab_spaces = 4
+hard_tabs = false
+
+# Imports
+reorder_imports = true
+reorder_modules = true
+
+# General formatting
+newline_style = "Unix"
+use_small_heuristics = "Default"

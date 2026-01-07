@@ -68,7 +68,7 @@ fn main() -> Result<()> {
 
     // Re-serialize spec to YAML if modified
     let final_yaml = if cli.adversarial {
-        serde_yaml::to_string(&spec)?
+        serde_yml::to_string(&spec)?
     } else {
         yaml_content
     };

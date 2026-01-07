@@ -18,7 +18,7 @@ z3 = "0.19"
 
 # Serialization - YAML input, JSON output
 serde = { version = "1.0", features = ["derive"] }
-serde_yaml = "0.9"
+serde_yml = "0.0.12"
 serde_json = "1.0"
 
 # Utilities
@@ -49,3 +49,33 @@ ab_glyph = "0.2"   # Font loading (compatible with imageproc)
 [dev-dependencies]
 pretty_assertions = "1.4" # Better test output
 tempfile = "3.8"          # Temporary files for testing
+
+[lints.rust]
+unsafe_code = "forbid"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+# Enable useful lint groups
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# Warn on problematic patterns (not deny, to avoid blocking existing code)
+unwrap_used = "warn"
+expect_used = "warn"
+
+# Allow reasonable exceptions from pedantic
+module_name_repetitions = "allow"
+too_many_lines = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+struct_excessive_bools = "allow"
+similar_names = "allow"
+if_not_else = "allow"
+doc_markdown = "allow"
+uninlined_format_args = "allow"
+redundant_closure_for_method_calls = "allow"
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"

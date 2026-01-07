@@ -1,0 +1,16 @@
+# Clippy configuration with sane defaults
+
+# Complexity thresholds
+cognitive-complexity-threshold = 25
+too-many-arguments-threshold = 7
+too-many-lines-threshold = 100
+type-complexity-threshold = 250
+
+# Naming
+single-char-binding-names-threshold = 4
+
+# Documentation
+missing-docs-in-crate-items = false
+
+# Allow common patterns
+allow-unwrap-in-tests = true

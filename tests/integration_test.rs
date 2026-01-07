@@ -36,14 +36,14 @@ fn test_parse_example_yaml() {
 
     // Verify basic properties
     assert_eq!(spec.scenario_type, dsl::ScenarioType::CutInLeft);
-    assert_eq!(spec.time_step, 0.5);
+    assert_eq!(spec.time_step, 0.1);
     assert_eq!(spec.duration, 10.0);
-    assert_eq!(spec.num_time_steps(), 20);
+    assert_eq!(spec.num_time_steps(), 100);
 
     // Verify ego (now supports ranges)
     let ego = spec.ego().expect("Should have ego actor");
     assert_eq!(ego.lane, 1);
-    assert_eq!(ego.position.min(), 45.0);
+    assert_eq!(ego.position.min(), 0.0);
     assert_eq!(ego.position.max(), 55.0);
     assert_eq!(ego.speed.min(), 14.0);
     assert_eq!(ego.speed.max(), 16.0);
@@ -70,21 +70,21 @@ fn test_generate_single_scenario_integration() {
 
     // Verify basic structure
     assert_eq!(scenario.scenario_type, "cut_in_left");
-    assert_eq!(scenario.time_step, 0.5);
+    assert_eq!(scenario.time_step, 0.1);
     assert_eq!(scenario.duration, 10.0);
     assert_eq!(scenario.actors.len(), 2);
 
     // Verify ego actor
     let ego = scenario.get_actor("ego").expect("Should have ego actor");
     assert_eq!(ego.role, "ego");
-    assert_eq!(ego.states.len(), 21); // 0..=20 time steps
+    assert_eq!(ego.states.len(), 101); // 0..=100 time steps (10s / 0.1s)
 
     // Verify ego initial conditions (should be within ranges)
     let ego_initial = &ego.states[0];
     assert_eq!(ego_initial.lane, 1);
     assert!(
-        ego_initial.position.x >= 45.0 && ego_initial.position.x <= 55.0,
-        "Ego position {} should be in range [45.0, 55.0]",
+        ego_initial.position.x >= 0.0 && ego_initial.position.x <= 55.0,
+        "Ego position {} should be in range [0.0, 55.0]",
         ego_initial.position.x
     );
     assert!(
@@ -96,13 +96,13 @@ fn test_generate_single_scenario_integration() {
     // Verify NPC actor
     let npc = scenario.get_actor("npc").expect("Should have npc actor");
     assert_eq!(npc.role, "npc");
-    assert_eq!(npc.states.len(), 21);
+    assert_eq!(npc.states.len(), 101);
 
     // Verify NPC initial conditions
     let npc_initial = &npc.states[0];
     assert_eq!(npc_initial.lane, 0);
     assert!(npc_initial.position.x >= 60.0 && npc_initial.position.x <= 80.0);
-    assert!(npc_initial.velocity.vx >= 12.0 && npc_initial.velocity.vx <= 14.0);
+    assert!(npc_initial.velocity.vx >= 16.0 && npc_initial.velocity.vx <= 20.0);
 
     // Verify NPC is initially ahead of ego
     assert!(npc_initial.position.x > ego_initial.position.x);
@@ -390,29 +390,27 @@ road:
 actors:
   - id: ego
     role: ego
-    initial_conditions:
-      lane: 1
-      position: 50.0
-      speed: 15.0
+    lane: 1
+    position: 50.0
+    speed: 15.0
+    acceleration: [-8.0, 3.0]
   - id: npc
     role: npc
-    initial_conditions:
-      lane: 0
-      position: 70.0
-      speed: 15.0
-    maneuver:
-      type: lane_change
-      target_lane: 1
-      start_time: [2.0, 3.0]
-      duration: 1.5
+    lane: 0
+    position: 70.0
+    speed: 15.0
+    acceleration: [-8.0, 3.0]
+    behavior:
+      cut_in_time: [2.0, 3.0]
 
-constraints:
-  min_ttc: 3.0
-  min_distance: 5.0
+min_ttc: 3.0
+min_distance: 5.0
 
 constraint_modes:
   min_ttc: violate
   min_distance: enforce
+
+num_scenarios: 1
 "#;
 
     // Generate adversarial scenario

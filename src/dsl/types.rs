@@ -573,7 +573,7 @@ lane_width: 3.5
 num_scenarios: 1
 "#;
 
-        let spec: ScenarioSpec = serde_yaml::from_str(yaml).unwrap();
+        let spec: ScenarioSpec = serde_yml::from_str(yaml).unwrap();
         assert_eq!(spec.get_lane_width(), 3.5);
         assert_eq!(spec.get_num_lanes(), 2); // Default
         assert_eq!(spec.get_lane_direction(0), 1); // All forward
@@ -607,7 +607,7 @@ min_distance: 5.0
 num_scenarios: 1
 "#;
 
-        let spec: ScenarioSpec = serde_yaml::from_str(yaml).unwrap();
+        let spec: ScenarioSpec = serde_yml::from_str(yaml).unwrap();
         assert_eq!(spec.get_num_lanes(), 4);
         assert_eq!(spec.get_lane_width(), 3.5);
         assert_eq!(spec.get_lane_direction(0), 1);
