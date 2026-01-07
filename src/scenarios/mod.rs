@@ -41,7 +41,7 @@ pub trait ScenarioModel: Send + Sync {
         &self,
         _spec: &ScenarioSpec,
         _encoder: &crate::solver::Z3Encoder,
-        _solver: &z3::Solver,
+        _backend: &dyn crate::solver::Z3Backend,
         _horizon: usize,
     ) -> Result<()> {
         Ok(())

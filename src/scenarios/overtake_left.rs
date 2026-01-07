@@ -90,7 +90,7 @@ impl ScenarioModel for OvertakeLeftModel {
         &self,
         spec: &ScenarioSpec,
         encoder: &crate::solver::Z3Encoder,
-        solver: &z3::Solver,
+        backend: &dyn crate::solver::Z3Backend,
         horizon: usize,
     ) -> Result<()> {
         use z3::ast::{Bool, Int};
@@ -132,21 +132,21 @@ impl ScenarioModel for OvertakeLeftModel {
         // NPC must be in original lane (same as ego)
         for t in 0..start_min_step.saturating_sub(1) {
             let lane_t = &encoder.lanes[npc_id][t];
-            solver.assert(lane_t.eq(&original_val));
+            backend.assert(&lane_t.eq(&original_val));
         }
 
         // ===== PHASE 2: Between start_max and end_min =====
         // NPC must be in passing lane (guaranteed passing window)
         for t in start_max_step..=end_min_step.min(horizon) {
             let lane_t = &encoder.lanes[npc_id][t];
-            solver.assert(lane_t.eq(&passing_val));
+            backend.assert(&lane_t.eq(&passing_val));
         }
 
         // ===== PHASE 3: After overtake_end_time.max =====
         // NPC must be back in original lane
         for t in end_max_step..=horizon {
             let lane_t = &encoder.lanes[npc_id][t];
-            solver.assert(lane_t.eq(&original_val));
+            backend.assert(&lane_t.eq(&original_val));
         }
 
         // ===== CRITICAL: Position constraint - NPC must be ahead before returning =====
@@ -161,7 +161,7 @@ impl ScenarioModel for OvertakeLeftModel {
             let npc_ahead = npc_px.gt(ego_px);
 
             // in_original => npc_ahead
-            solver.assert(in_original.implies(&npc_ahead));
+            backend.assert(&in_original.implies(&npc_ahead));
         }
 
         // ===== Lane transition constraints =====
@@ -175,21 +175,21 @@ impl ScenarioModel for OvertakeLeftModel {
             if t < end_min_step.saturating_sub(1) {
                 let in_passing = lane_t.eq(&passing_val);
                 let stays_passing = lane_t1.eq(&passing_val);
-                solver.assert(in_passing.implies(&stays_passing));
+                backend.assert(&in_passing.implies(&stays_passing));
             }
 
             // Once back in original lane after start window, stay in original lane
             if t >= start_max_step {
                 let in_original = lane_t.eq(&original_val);
                 let stays_original = lane_t1.eq(&original_val);
-                solver.assert(in_original.implies(&stays_original));
+                backend.assert(&in_original.implies(&stays_original));
             }
         }
 
         // ===== Initial position constraint: NPC behind ego =====
         let npc_px_0 = &encoder.positions_x[npc_id][0];
         let ego_px_0 = &encoder.positions_x[ego_id][0];
-        solver.assert(npc_px_0.lt(ego_px_0));
+        backend.assert(&npc_px_0.lt(ego_px_0));
 
         // ===== Lane restriction: NPC can only be in original or passing lane =====
         // This prevents the NPC from using arbitrary lanes during transition windows
@@ -197,7 +197,7 @@ impl ScenarioModel for OvertakeLeftModel {
             let lane_t = &encoder.lanes[npc_id][t];
             let in_original = lane_t.eq(&original_val);
             let in_passing = lane_t.eq(&passing_val);
-            solver.assert(Bool::or(&[&in_original, &in_passing]));
+            backend.assert(&Bool::or(&[&in_original, &in_passing]));
         }
 
         Ok(())
@@ -267,7 +267,9 @@ impl OvertakeLeftModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorRole, ActorSpec, ConstraintModes, ScenarioType, ValueOrRange};
+    use crate::dsl::types::{
+        ActorRole, ActorSpec, ConstraintModes, OptimizationTarget, ScenarioType, ValueOrRange,
+    };
     use std::collections::HashMap;
 
     fn create_test_spec() -> ScenarioSpec {
@@ -312,6 +314,7 @@ mod tests {
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: ConstraintModes::default(),
+            optimization_target: OptimizationTarget::None,
             max_acceleration: None,
             max_deceleration: None,
         }

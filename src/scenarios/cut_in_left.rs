@@ -52,7 +52,7 @@ impl ScenarioModel for CutInLeftModel {
         &self,
         spec: &ScenarioSpec,
         encoder: &crate::solver::Z3Encoder,
-        solver: &z3::Solver,
+        backend: &dyn crate::solver::Z3Backend,
         horizon: usize,
     ) -> Result<()> {
         use z3::ast::Int;
@@ -86,14 +86,14 @@ impl ScenarioModel for CutInLeftModel {
         let initial_val = Int::from_i64(initial_lane as i64);
         for t in 0..min_step.saturating_sub(1) {
             let lane_t = &encoder.lanes[npc_id][t];
-            solver.assert(lane_t.eq(&initial_val));
+            backend.assert(&lane_t.eq(&initial_val));
         }
 
         // Constraint: NPC must be in target lane after cut_in_time_max
         let target_val = Int::from_i64(target_lane as i64);
         for t in max_step..=horizon {
             let lane_t = &encoder.lanes[npc_id][t];
-            solver.assert(lane_t.eq(&target_val));
+            backend.assert(&lane_t.eq(&target_val));
         }
 
         // Lane persistence: once NPC is in target lane, it must stay there
@@ -112,12 +112,12 @@ impl ScenarioModel for CutInLeftModel {
             let not_back_to_initial = lane_t1.eq(&initial_val).not();
             let no_return = in_target.implies(&not_back_to_initial);
 
-            solver.assert(&no_return);
+            backend.assert(&no_return);
 
             // Also add the positive constraint: if in target, stay in target
             let stays_in_target = lane_t1.eq(&target_val);
             let persistence = in_target.implies(&stays_in_target);
-            solver.assert(&persistence);
+            backend.assert(&persistence);
         }
 
         Ok(())
@@ -169,7 +169,9 @@ impl CutInLeftModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorRole, ActorSpec, ConstraintModes, ValueOrRange};
+    use crate::dsl::types::{
+        ActorRole, ActorSpec, ConstraintModes, OptimizationTarget, ValueOrRange,
+    };
     use std::collections::HashMap;
 
     fn create_test_spec() -> ScenarioSpec {
@@ -207,6 +209,7 @@ mod tests {
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: ConstraintModes::default(),
+            optimization_target: OptimizationTarget::None,
             max_acceleration: None,
             max_deceleration: None,
         }
