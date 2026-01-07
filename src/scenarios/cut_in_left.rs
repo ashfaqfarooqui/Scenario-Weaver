@@ -4,9 +4,9 @@
 //! ahead of the ego vehicle in the right lane (lane 1), and eventually
 //! changes lanes to cut in front of the ego vehicle.
 
-use crate::scenarios::ScenarioModel;
 use crate::dsl::types::ScenarioSpec;
 use crate::ltl::formula::{LTLFormula, Proposition};
+use crate::scenarios::ScenarioModel;
 use anyhow::Result;
 
 /// Cut-in from left scenario model
@@ -47,6 +47,50 @@ impl ScenarioModel for CutInLeftModel {
 
         Ok(init.and(behavior))
     }
+
+    fn add_z3_constraints(
+        &self,
+        spec: &ScenarioSpec,
+        encoder: &crate::solver::Z3Encoder,
+        solver: &z3::Solver,
+        horizon: usize,
+    ) -> Result<()> {
+        use z3::ast::{Ast, Int};
+
+        let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
+        let npc = &spec.npcs()[0];
+        let target_lane = ego.lane;
+        let npc_id = &npc.id;
+
+        // Lane persistence: once NPC is in target lane, it must stay there
+        // This is critical because the UNTIL operator only requires reaching the target
+        // lane once, but doesn't enforce staying there.
+        //
+        // We enforce: for all pairs of consecutive time steps, if we're in target at t,
+        // we cannot transition back to initial lane at t+1
+        let initial_lane = npc.lane;
+        for t in 0..horizon {
+            let lane_t = &encoder.lanes[npc_id][t];
+            let lane_t1 = &encoder.lanes[npc_id][t + 1];
+            let target_val = Int::from_i64(encoder.ctx, target_lane as i64);
+            let initial_val = Int::from_i64(encoder.ctx, initial_lane as i64);
+
+            // If lane[t] == target_lane, then lane[t+1] != initial_lane
+            // (This is stronger than just requiring lane[t+1] == target)
+            let in_target = lane_t._eq(&target_val);
+            let not_back_to_initial = lane_t1._eq(&initial_val).not();
+            let no_return = in_target.implies(&not_back_to_initial);
+
+            solver.assert(&no_return);
+
+            // Also add the positive constraint: if in target, stay in target
+            let stays_in_target = lane_t1._eq(&target_val);
+            let persistence = in_target.implies(&stays_in_target);
+            solver.assert(&persistence);
+        }
+
+        Ok(())
+    }
 }
 
 impl CutInLeftModel {
@@ -75,31 +119,26 @@ impl CutInLeftModel {
         let target_lane = ego.lane;
         let initial_lane = npc.lane;
 
-        // Eventually NPC moves to ego's lane: F(InLane(npc, target_lane))
-        let eventually_in_lane = LTLFormula::Atom(Proposition::InLane {
-            actor: npc_id.to_string(),
-            lane: target_lane,
-        })
-        .eventually();
-
-        // NPC stays in left lane UNTIL it changes: InLane(npc, 0) U InLane(npc, 1)
-        let stay_until_change = LTLFormula::Atom(Proposition::InLane {
+        // NPC stays in initial lane UNTIL it switches to target lane
+        // This ensures a clean transition without oscillation during the switch
+        // Note: Lane persistence after cut-in is enforced by a direct Z3 constraint
+        // in add_z3_constraints(), not in LTL, because F(G(...)) in bounded LTL
+        // allows the solver to delay until the last time step.
+        LTLFormula::Atom(Proposition::InLane {
             actor: npc_id.to_string(),
             lane: initial_lane,
         })
         .until(LTLFormula::Atom(Proposition::InLane {
             actor: npc_id.to_string(),
             lane: target_lane,
-        }));
-
-        eventually_in_lane.and(stay_until_change)
+        }))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorRole, ActorSpec, ValueOrRange, ConstraintModes};
+    use crate::dsl::types::{ActorRole, ActorSpec, ConstraintModes, ValueOrRange};
     use std::collections::HashMap;
 
     fn create_test_spec() -> ScenarioSpec {

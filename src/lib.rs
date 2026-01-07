@@ -133,3 +133,20 @@ pub fn generate_multiple_scenarios(
 pub fn export_scenario_to_xosc(scenario: &Scenario) -> Result<String> {
     scenario::export_to_xosc(scenario)
 }
+
+/// Export a scenario to SVG format for visualization
+///
+/// Generates an SVG file showing vehicle trajectories, lane layout, and safety metrics.
+///
+/// # Example
+/// ```no_run
+/// use carla_scenario_generator::{generate_single_scenario, export_scenario_to_svg};
+///
+/// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
+/// let scenario = generate_single_scenario(&yaml).unwrap();
+/// let svg = export_scenario_to_svg(&scenario).unwrap();
+/// std::fs::write("scenario.svg", svg).unwrap();
+/// ```
+pub fn export_scenario_to_svg(scenario: &Scenario) -> Result<String> {
+    scenario::export_to_svg(scenario)
+}

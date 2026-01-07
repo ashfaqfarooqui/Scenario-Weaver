@@ -119,6 +119,12 @@ fn write_single_scenario(
     std::fs::write(&xosc_path, xosc_xml)?;
     tracing::info!("Wrote XOSC to: {:?}", xosc_path);
 
+    // Write SVG
+    let svg_path = base_path.with_extension("svg");
+    let svg = carla_scenario_generator::scenario::export_to_svg(scenario)?;
+    std::fs::write(&svg_path, svg)?;
+    tracing::info!("Wrote SVG to: {:?}", svg_path);
+
     Ok(())
 }
 
@@ -143,10 +149,16 @@ fn write_multiple_scenarios(
         let xosc_xml = carla_scenario_generator::scenario::export_to_xosc(scenario)?;
         std::fs::write(&xosc_path, xosc_xml)?;
         tracing::debug!("Wrote XOSC {} to: {:?}", i, xosc_path);
+
+        // Write SVG
+        let svg_path = output_dir.join(format!("{}.svg", base));
+        let svg = carla_scenario_generator::scenario::export_to_svg(scenario)?;
+        std::fs::write(&svg_path, svg)?;
+        tracing::debug!("Wrote SVG {} to: {:?}", i, svg_path);
     }
 
     tracing::info!(
-        "Wrote {} scenario pairs (JSON+XOSC) to directory: {:?}",
+        "Wrote {} scenario triplets (JSON+XOSC+SVG) to directory: {:?}",
         scenarios.len(),
         output_dir
     );

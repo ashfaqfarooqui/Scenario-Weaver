@@ -12,7 +12,7 @@ use crate::dsl::types::{ConstraintMode, ScenarioSpec};
 /// as long as the context.
 pub struct Z3Encoder<'ctx> {
     /// Z3 context (must outlive all AST nodes)
-    ctx: &'ctx Context,
+    pub(crate) ctx: &'ctx Context,
 
     /// Z3 solver instance
     pub(crate) solver: Solver<'ctx>,
@@ -37,7 +37,7 @@ pub struct Z3Encoder<'ctx> {
     velocities_y: HashMap<String, Vec<Real<'ctx>>>,
 
     /// Lane numbers (integer)
-    lanes: HashMap<String, Vec<Int<'ctx>>>,
+    pub(crate) lanes: HashMap<String, Vec<Int<'ctx>>>,
 
     /// Longitudinal accelerations (m/s²)
     accelerations_x: HashMap<String, Vec<Real<'ctx>>>,
