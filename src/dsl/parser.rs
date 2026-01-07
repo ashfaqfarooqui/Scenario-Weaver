@@ -39,68 +39,64 @@ pub fn parse_yaml_file(path: &Path) -> Result<ScenarioSpec> {
 /// Currently only supports importing road specifications.
 fn preprocess_imports(yaml_content: &str, base_dir: &Path) -> Result<String> {
     // Parse as generic YAML to check for imports
-    let mut value: serde_yaml::Value = serde_yaml::from_str(yaml_content)
-        .map_err(ScenarioGenError::YamlParse)?;
+    let mut value: serde_yaml::Value =
+        serde_yaml::from_str(yaml_content).map_err(ScenarioGenError::YamlParse)?;
 
     // Collect import paths first to avoid borrow checker issues
-    let import_paths: Vec<String> = if let Some(imports) = value.get("imports").and_then(|v| v.as_sequence()) {
-        imports.iter()
-            .filter_map(|entry| entry.as_str())
-            .map(|s| s.to_string())
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let import_paths: Vec<String> =
+        if let Some(imports) = value.get("imports").and_then(|v| v.as_sequence()) {
+            imports
+                .iter()
+                .filter_map(|entry| entry.as_str())
+                .map(|s| s.to_string())
+                .collect()
+        } else {
+            Vec::new()
+        };
 
     // Process collected imports
     for import_path in import_paths {
         let full_path = base_dir.join(&import_path);
 
         // Read imported file
-        let imported_content = std::fs::read_to_string(&full_path)
-            .map_err(|e| {
-                ScenarioGenError::InvalidSpec(format!(
-                    "Failed to read import '{}': {}",
-                    import_path, e
-                ))
-            })?;
+        let imported_content = std::fs::read_to_string(&full_path).map_err(|e| {
+            ScenarioGenError::InvalidSpec(format!("Failed to read import '{}': {}", import_path, e))
+        })?;
 
         // Parse imported YAML
-        let imported: serde_yaml::Value = serde_yaml::from_str(&imported_content)
-            .map_err(|e| {
-                ScenarioGenError::InvalidSpec(format!(
-                    "Failed to parse import '{}': {}",
-                    import_path, e
-                ))
-            })?;
+        let imported: serde_yaml::Value = serde_yaml::from_str(&imported_content).map_err(|e| {
+            ScenarioGenError::InvalidSpec(format!(
+                "Failed to parse import '{}': {}",
+                import_path, e
+            ))
+        })?;
 
         // Merge imported content into main value
         // Currently only supports importing road specs
         if let Some(road) = imported.get("road") {
             if value.get("road").is_none() {
-                value.as_mapping_mut()
+                value
+                    .as_mapping_mut()
                     .unwrap()
-                    .insert(
-                        serde_yaml::Value::String("road".to_string()),
-                        road.clone()
-                    );
+                    .insert(serde_yaml::Value::String("road".to_string()), road.clone());
             }
         } else if imported.get("num_lanes").is_some() {
             // Import file is a road spec (flat structure)
             if value.get("road").is_none() {
-                value.as_mapping_mut()
-                    .unwrap()
-                    .insert(
-                        serde_yaml::Value::String("road".to_string()),
-                        imported.clone()
-                    );
+                value.as_mapping_mut().unwrap().insert(
+                    serde_yaml::Value::String("road".to_string()),
+                    imported.clone(),
+                );
             }
         }
     }
 
     // Remove imports field from final output if it exists
     if value.get("imports").is_some() {
-        value.as_mapping_mut().unwrap().remove(&serde_yaml::Value::String("imports".to_string()));
+        value
+            .as_mapping_mut()
+            .unwrap()
+            .remove(&serde_yaml::Value::String("imports".to_string()));
     }
 
     // Convert back to YAML string

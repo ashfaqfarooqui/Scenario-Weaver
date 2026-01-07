@@ -15,7 +15,7 @@ pub struct Z3Encoder<'ctx> {
     pub(crate) ctx: &'ctx Context,
 
     /// Z3 solver instance
-    pub(crate) solver: Solver<'ctx>,
+    pub(crate) solver: Solver,
 
     /// Original scenario specification
     spec: ScenarioSpec,
@@ -25,31 +25,31 @@ pub struct Z3Encoder<'ctx> {
 
     // Variable maps: actor_id -> Vec<variable> (one per time step)
     /// Longitudinal positions (m)
-    pub(crate) positions_x: HashMap<String, Vec<Real<'ctx>>>,
+    pub(crate) positions_x: HashMap<String, Vec<Real>>,
 
     /// Lateral positions (m)
-    positions_y: HashMap<String, Vec<Real<'ctx>>>,
+    positions_y: HashMap<String, Vec<Real>>,
 
     /// Longitudinal velocities (m/s)
-    pub(crate) velocities_x: HashMap<String, Vec<Real<'ctx>>>,
+    pub(crate) velocities_x: HashMap<String, Vec<Real>>,
 
     /// Lateral velocities (m/s)
-    velocities_y: HashMap<String, Vec<Real<'ctx>>>,
+    velocities_y: HashMap<String, Vec<Real>>,
 
     /// Lane numbers (integer)
-    pub(crate) lanes: HashMap<String, Vec<Int<'ctx>>>,
+    pub(crate) lanes: HashMap<String, Vec<Int>>,
 
     /// Longitudinal accelerations (m/s²)
-    accelerations_x: HashMap<String, Vec<Real<'ctx>>>,
+    accelerations_x: HashMap<String, Vec<Real>>,
 
     /// Lateral accelerations (m/s²)
-    accelerations_y: HashMap<String, Vec<Real<'ctx>>>,
+    accelerations_y: HashMap<String, Vec<Real>>,
 }
 
 impl<'ctx> Z3Encoder<'ctx> {
     /// Create a new Z3 encoder for the given specification
     pub fn new(ctx: &'ctx Context, spec: ScenarioSpec) -> Self {
-        let solver = Solver::new(ctx);
+        let solver = Solver::new();
         let horizon = spec.num_time_steps();
 
         Self {
@@ -92,13 +92,13 @@ impl<'ctx> Z3Encoder<'ctx> {
 
             // Create variables for each time step
             for t in 0..=self.horizon {
-                px_vars.push(Real::new_const(self.ctx, format!("{}_px_{}", actor_id, t)));
-                py_vars.push(Real::new_const(self.ctx, format!("{}_py_{}", actor_id, t)));
-                vx_vars.push(Real::new_const(self.ctx, format!("{}_vx_{}", actor_id, t)));
-                vy_vars.push(Real::new_const(self.ctx, format!("{}_vy_{}", actor_id, t)));
-                lane_vars.push(Int::new_const(self.ctx, format!("{}_lane_{}", actor_id, t)));
-                ax_vars.push(Real::new_const(self.ctx, format!("{}_ax_{}", actor_id, t)));
-                ay_vars.push(Real::new_const(self.ctx, format!("{}_ay_{}", actor_id, t)));
+                px_vars.push(Real::new_const(format!("{}_px_{}", actor_id, t)));
+                py_vars.push(Real::new_const(format!("{}_py_{}", actor_id, t)));
+                vx_vars.push(Real::new_const(format!("{}_vx_{}", actor_id, t)));
+                vy_vars.push(Real::new_const(format!("{}_vy_{}", actor_id, t)));
+                lane_vars.push(Int::new_const(format!("{}_lane_{}", actor_id, t)));
+                ax_vars.push(Real::new_const(format!("{}_ax_{}", actor_id, t)));
+                ay_vars.push(Real::new_const(format!("{}_ay_{}", actor_id, t)));
             }
 
             self.positions_x.insert(actor_id.clone(), px_vars);
@@ -116,31 +116,31 @@ impl<'ctx> Z3Encoder<'ctx> {
         use crate::dsl::types::ActorRole;
 
         // Collect all actor data upfront to avoid borrow checker issues
-        let actor_data: Vec<_> = self.spec.actors.iter().map(|actor| {
-            (
-                actor.id.clone(),
-                actor.lane,
-                actor.position.min(),
-                actor.position.max(),
-                actor.speed.min(),
-                actor.speed.max(),
-                actor.acceleration.min(),
-                actor.acceleration.max(),
-                actor.role,
-            )
-        }).collect();
+        let actor_data: Vec<_> = self
+            .spec
+            .actors
+            .iter()
+            .map(|actor| {
+                (
+                    actor.id.clone(),
+                    actor.lane,
+                    actor.position.min(),
+                    actor.position.max(),
+                    actor.speed.min(),
+                    actor.speed.max(),
+                    actor.acceleration.min(),
+                    actor.acceleration.max(),
+                    actor.role,
+                )
+            })
+            .collect();
 
-        for (actor_id, lane, pos_min, pos_max, speed_min, speed_max, acc_min, acc_max, role) in actor_data {
+        for (actor_id, lane, pos_min, pos_max, speed_min, speed_max, acc_min, acc_max, role) in
+            actor_data
+        {
             // Call existing encoding method
             self.encode_actor_initial_state(
-                &actor_id,
-                lane,
-                pos_min,
-                pos_max,
-                speed_min,
-                speed_max,
-                acc_min,
-                acc_max,
+                &actor_id, lane, pos_min, pos_max, speed_min, speed_max, acc_min, acc_max,
             );
 
             // Initial lateral position matches lane center
@@ -148,7 +148,7 @@ impl<'ctx> Z3Encoder<'ctx> {
 
             // Ego never changes lanes (vy = 0)
             if role == ActorRole::Ego {
-                let zero = Real::from_real(self.ctx, 0, 1);
+                let zero = Real::from_real(0, 1);
                 let vy_0 = &self.velocities_y[&actor_id][0];
                 self.solver.assert(&vy_0._eq(&zero));
             }
@@ -169,19 +169,19 @@ impl<'ctx> Z3Encoder<'ctx> {
     ) {
         // Lane at t=0
         let lane_var = &self.lanes[actor_id][0];
-        let lane_val = Int::from_i64(self.ctx, lane as i64);
+        let lane_val = Int::from_i64(lane as i64);
         self.solver.assert(&lane_var._eq(&lane_val));
 
         // Position at t=0
         let px_var = &self.positions_x[actor_id][0];
         if (pos_min - pos_max).abs() < 1e-6 {
             // Fixed value
-            let pos_val = Real::from_real(self.ctx, (pos_min * 10.0) as i32, 10);
+            let pos_val = Real::from_real((pos_min * 10.0) as i32, 10);
             self.solver.assert(&px_var._eq(&pos_val));
         } else {
             // Range
-            let min_val = Real::from_real(self.ctx, (pos_min * 10.0) as i32, 10);
-            let max_val = Real::from_real(self.ctx, (pos_max * 10.0) as i32, 10);
+            let min_val = Real::from_real((pos_min * 10.0) as i32, 10);
+            let max_val = Real::from_real((pos_max * 10.0) as i32, 10);
             self.solver.assert(&px_var.ge(&min_val));
             self.solver.assert(&px_var.le(&max_val));
         }
@@ -193,21 +193,25 @@ impl<'ctx> Z3Encoder<'ctx> {
 
         if (speed_min - speed_max).abs() < 1e-6 {
             // Fixed value
-            let speed = if lane_direction == 1 { speed_min } else { -speed_min };
-            let speed_val = Real::from_real(self.ctx, (speed * 10.0) as i32, 10);
+            let speed = if lane_direction == 1 {
+                speed_min
+            } else {
+                -speed_min
+            };
+            let speed_val = Real::from_real((speed * 10.0) as i32, 10);
             self.solver.assert(&vx_var._eq(&speed_val));
         } else {
             // Range
             if lane_direction == 1 {
                 // Forward: vx in [speed_min, speed_max]
-                let min_val = Real::from_real(self.ctx, (speed_min * 10.0) as i32, 10);
-                let max_val = Real::from_real(self.ctx, (speed_max * 10.0) as i32, 10);
+                let min_val = Real::from_real((speed_min * 10.0) as i32, 10);
+                let max_val = Real::from_real((speed_max * 10.0) as i32, 10);
                 self.solver.assert(&vx_var.ge(&min_val));
                 self.solver.assert(&vx_var.le(&max_val));
             } else {
                 // Backward: vx in [-speed_max, -speed_min]
-                let min_val = Real::from_real(self.ctx, (-speed_max * 10.0) as i32, 10);
-                let max_val = Real::from_real(self.ctx, (-speed_min * 10.0) as i32, 10);
+                let min_val = Real::from_real((-speed_max * 10.0) as i32, 10);
+                let max_val = Real::from_real((-speed_min * 10.0) as i32, 10);
                 self.solver.assert(&vx_var.ge(&min_val));
                 self.solver.assert(&vx_var.le(&max_val));
             }
@@ -215,19 +219,19 @@ impl<'ctx> Z3Encoder<'ctx> {
 
         // Initial lateral velocity is zero (not changing lanes initially)
         let vy_var = &self.velocities_y[actor_id][0];
-        let zero = Real::from_real(self.ctx, 0, 1);
+        let zero = Real::from_real(0, 1);
         self.solver.assert(&vy_var._eq(&zero));
 
         // Initial acceleration at t=0
         let ax_var = &self.accelerations_x[actor_id][0];
         if (accel_min - accel_max).abs() < 1e-6 {
             // Fixed acceleration
-            let accel_val = Real::from_real(self.ctx, (accel_min * 10.0) as i32, 10);
+            let accel_val = Real::from_real((accel_min * 10.0) as i32, 10);
             self.solver.assert(&ax_var._eq(&accel_val));
         } else {
             // Acceleration range
-            let min_val = Real::from_real(self.ctx, (accel_min * 10.0) as i32, 10);
-            let max_val = Real::from_real(self.ctx, (accel_max * 10.0) as i32, 10);
+            let min_val = Real::from_real((accel_min * 10.0) as i32, 10);
+            let max_val = Real::from_real((accel_max * 10.0) as i32, 10);
             self.solver.assert(&ax_var.ge(&min_val));
             self.solver.assert(&ax_var.le(&max_val));
         }
@@ -244,8 +248,8 @@ impl<'ctx> Z3Encoder<'ctx> {
         let py_var = &self.positions_y[actor_id][t];
 
         let lane_width = self.spec.lane_width;
-        let lane_width_real = Real::from_real(self.ctx, (lane_width * 10.0) as i32, 10);
-        let half_width = Real::from_real(self.ctx, (lane_width * 5.0) as i32, 10);
+        let lane_width_real = Real::from_real((lane_width * 10.0) as i32, 10);
+        let half_width = Real::from_real((lane_width * 5.0) as i32, 10);
 
         // py = lane * lane_width + lane_width/2
         let lane_real = lane_var.to_real();
@@ -258,8 +262,8 @@ impl<'ctx> Z3Encoder<'ctx> {
         use crate::dsl::types::ActorRole;
 
         let dt = self.spec.time_step;
-        let dt_real = Real::from_real(self.ctx, (dt * 10.0) as i32, 10);
-        let zero = Real::from_real(self.ctx, 0, 1);
+        let dt_real = Real::from_real((dt * 10.0) as i32, 10);
+        let zero = Real::from_real(0, 1);
 
         for actor in &self.spec.actors {
             let actor_id = &actor.id;
@@ -267,8 +271,8 @@ impl<'ctx> Z3Encoder<'ctx> {
             // Get acceleration bounds directly from actor spec
             let ax_min = actor.acceleration.min();
             let ax_max = actor.acceleration.max();
-            let ax_min_real = Real::from_real(self.ctx, (ax_min * 10.0) as i32, 10);
-            let ax_max_real = Real::from_real(self.ctx, (ax_max * 10.0) as i32, 10);
+            let ax_min_real = Real::from_real((ax_min * 10.0) as i32, 10);
+            let ax_max_real = Real::from_real((ax_max * 10.0) as i32, 10);
 
             for t in 0..self.horizon {
                 // ========== LONGITUDINAL DYNAMICS ==========
@@ -329,7 +333,7 @@ impl<'ctx> Z3Encoder<'ctx> {
     pub fn encode_lane_velocity_constraints(&mut self) {
         use crate::dsl::types::ActorRole;
 
-        let zero = Real::from_real(self.ctx, 0, 1);
+        let zero = Real::from_real(0, 1);
 
         for actor in &self.spec.actors.clone() {
             let actor_id = &actor.id;
@@ -360,7 +364,7 @@ impl<'ctx> Z3Encoder<'ctx> {
 
                     // Build constraints for each possible lane
                     for lane_num in 0..num_lanes {
-                        let lane_val = Int::from_i64(self.ctx, lane_num as i64);
+                        let lane_val = Int::from_i64(lane_num as i64);
                         let in_this_lane = lane_var._eq(&lane_val);
                         let direction = self.spec.get_lane_direction(lane_num);
 
@@ -371,7 +375,8 @@ impl<'ctx> Z3Encoder<'ctx> {
                         };
 
                         // If in this lane, then direction constraint must hold
-                        self.solver.assert(&in_this_lane.implies(&direction_constraint));
+                        self.solver
+                            .assert(&in_this_lane.implies(&direction_constraint));
                     }
                 }
             }
@@ -384,7 +389,7 @@ impl<'ctx> Z3Encoder<'ctx> {
     }
 
     /// Get the Z3 model (for testing)
-    pub fn get_model(&self) -> Option<z3::Model<'ctx>> {
+    pub fn get_model(&self) -> Option<z3::Model> {
         self.solver.get_model()
     }
 
@@ -422,7 +427,7 @@ impl<'ctx> Z3Encoder<'ctx> {
         formula: &crate::ltl::formula::LTLFormula,
         time: usize,
         horizon: usize,
-    ) -> z3::ast::Bool<'ctx> {
+    ) -> z3::ast::Bool {
         use crate::ltl::formula::LTLFormula;
 
         match formula {
@@ -435,13 +440,13 @@ impl<'ctx> Z3Encoder<'ctx> {
             LTLFormula::And(phi, psi) => {
                 let left = self.encode_ltl_bounded(phi, time, horizon);
                 let right = self.encode_ltl_bounded(psi, time, horizon);
-                z3::ast::Bool::and(self.ctx, &[&left, &right])
+                z3::ast::Bool::and(&[&left, &right])
             }
 
             LTLFormula::Or(phi, psi) => {
                 let left = self.encode_ltl_bounded(phi, time, horizon);
                 let right = self.encode_ltl_bounded(psi, time, horizon);
-                z3::ast::Bool::or(self.ctx, &[&left, &right])
+                z3::ast::Bool::or(&[&left, &right])
             }
 
             LTLFormula::Implies(phi, psi) => {
@@ -458,7 +463,7 @@ impl<'ctx> Z3Encoder<'ctx> {
                     self.encode_ltl_bounded(phi, time + 1, horizon)
                 } else {
                     // If at horizon, treat as false (no next state)
-                    z3::ast::Bool::from_bool(self.ctx, false)
+                    z3::ast::Bool::from_bool(false)
                 }
             }
 
@@ -469,7 +474,7 @@ impl<'ctx> Z3Encoder<'ctx> {
                     disjuncts.push(self.encode_ltl_bounded(phi, t, horizon));
                 }
                 let refs: Vec<&z3::ast::Bool> = disjuncts.iter().collect();
-                z3::ast::Bool::or(self.ctx, &refs)
+                z3::ast::Bool::or(&refs)
             }
 
             // Always: G(φ) = φ[time] ∧ φ[time+1] ∧ ... ∧ φ[horizon]
@@ -479,7 +484,7 @@ impl<'ctx> Z3Encoder<'ctx> {
                     conjuncts.push(self.encode_ltl_bounded(phi, t, horizon));
                 }
                 let refs: Vec<&z3::ast::Bool> = conjuncts.iter().collect();
-                z3::ast::Bool::and(self.ctx, &refs)
+                z3::ast::Bool::and(&refs)
             }
 
             // Until: φ U ψ = ψ[time] ∨ (φ[time] ∧ (φ U ψ)[time+1])
@@ -501,16 +506,16 @@ impl<'ctx> Z3Encoder<'ctx> {
                             phi_conjuncts.push(self.encode_ltl_bounded(phi, s, horizon));
                         }
                         let phi_refs: Vec<&z3::ast::Bool> = phi_conjuncts.iter().collect();
-                        let phi_holds = z3::ast::Bool::and(self.ctx, &phi_refs);
+                        let phi_holds = z3::ast::Bool::and(&phi_refs);
 
                         // (φ[time] ∧ ... ∧ φ[t-1]) ∧ ψ[t]
-                        let both = z3::ast::Bool::and(self.ctx, &[&phi_holds, &psi_at_t]);
+                        let both = z3::ast::Bool::and(&[&phi_holds, &psi_at_t]);
                         disjuncts.push(both);
                     }
                 }
 
                 let refs: Vec<&z3::ast::Bool> = disjuncts.iter().collect();
-                z3::ast::Bool::or(self.ctx, &refs)
+                z3::ast::Bool::or(&refs)
             }
         }
     }
@@ -520,14 +525,14 @@ impl<'ctx> Z3Encoder<'ctx> {
         &self,
         prop: &crate::ltl::formula::Proposition,
         time: usize,
-    ) -> z3::ast::Bool<'ctx> {
+    ) -> z3::ast::Bool {
         use crate::ltl::formula::Proposition;
 
         match prop {
             // InLane(actor, lane): lane_var[t] == lane
             Proposition::InLane { actor, lane } => {
                 let lane_var = &self.lanes[actor][time];
-                let lane_val = Int::from_i64(self.ctx, *lane as i64);
+                let lane_val = Int::from_i64(*lane as i64);
                 lane_var._eq(&lane_val)
             }
 
@@ -546,7 +551,7 @@ impl<'ctx> Z3Encoder<'ctx> {
             } => {
                 let px1 = &self.positions_x[actor1][time];
                 let px2 = &self.positions_x[actor2][time];
-                let dist_val = Real::from_real(self.ctx, (*distance * 10.0) as i32, 10);
+                let dist_val = Real::from_real((*distance * 10.0) as i32, 10);
 
                 // |px1 - px2| > d is equivalent to: (px1 - px2 > d) OR (px2 - px1 > d)
                 let diff_pos = px1 - px2;
@@ -555,7 +560,7 @@ impl<'ctx> Z3Encoder<'ctx> {
                 let pos_case = diff_pos.gt(&dist_val);
                 let neg_case = diff_neg.gt(&dist_val);
 
-                z3::ast::Bool::or(self.ctx, &[&pos_case, &neg_case])
+                z3::ast::Bool::or(&[&pos_case, &neg_case])
             }
 
             // TTCGT(actor1, actor2, ttc): TTC > ttc (if collision possible)
@@ -583,7 +588,7 @@ impl<'ctx> Z3Encoder<'ctx> {
         actor2: &str,
         min_ttc: f64,
         time: usize,
-    ) -> z3::ast::Bool<'ctx> {
+    ) -> z3::ast::Bool {
         let lane1 = &self.lanes[actor1][time];
         let lane2 = &self.lanes[actor2][time];
 
@@ -593,8 +598,8 @@ impl<'ctx> Z3Encoder<'ctx> {
         let vx1 = &self.velocities_x[actor1][time];
         let vx2 = &self.velocities_x[actor2][time];
 
-        let min_ttc_val = Real::from_real(self.ctx, (min_ttc * 10.0) as i32, 10);
-        let epsilon = Real::from_real(self.ctx, 1, 100); // 0.01 m/s to avoid division by zero
+        let min_ttc_val = Real::from_real((min_ttc * 10.0) as i32, 10);
+        let epsilon = Real::from_real(1, 100); // 0.01 m/s to avoid division by zero
 
         // Same lane condition
         let same_lane = lane1._eq(lane2);
@@ -609,10 +614,8 @@ impl<'ctx> Z3Encoder<'ctx> {
         let actor2_faster = vx2.gt(vx1);
         let rel_vel_1 = vx2 - vx1;
         let distance_1 = px1 - px2;
-        let collision_possible_1 = z3::ast::Bool::and(
-            self.ctx,
-            &[&actor1_ahead, &actor2_faster, &rel_vel_1.gt(&epsilon)],
-        );
+        let collision_possible_1 =
+            z3::ast::Bool::and(&[&actor1_ahead, &actor2_faster, &rel_vel_1.gt(&epsilon)]);
         // TTC > min_ttc means: distance / rel_vel > min_ttc
         // Equivalent to: distance > min_ttc * rel_vel
         let ttc_safe_1 = distance_1.gt(&(&min_ttc_val * &rel_vel_1));
@@ -623,10 +626,8 @@ impl<'ctx> Z3Encoder<'ctx> {
         let actor1_faster = vx1.gt(vx2);
         let rel_vel_2 = vx1 - vx2;
         let distance_2 = px2 - px1;
-        let collision_possible_2 = z3::ast::Bool::and(
-            self.ctx,
-            &[&actor2_ahead, &actor1_faster, &rel_vel_2.gt(&epsilon)],
-        );
+        let collision_possible_2 =
+            z3::ast::Bool::and(&[&actor2_ahead, &actor1_faster, &rel_vel_2.gt(&epsilon)]);
         let ttc_safe_2 = distance_2.gt(&(&min_ttc_val * &rel_vel_2));
 
         // Overall constraint:
@@ -634,12 +635,10 @@ impl<'ctx> Z3Encoder<'ctx> {
         // If same_lane AND collision_possible_2, then ttc_safe_2
         // Otherwise, true (no collision risk)
 
-        let case1 =
-            z3::ast::Bool::and(self.ctx, &[&same_lane, &collision_possible_1]).implies(&ttc_safe_1);
-        let case2 =
-            z3::ast::Bool::and(self.ctx, &[&same_lane, &collision_possible_2]).implies(&ttc_safe_2);
+        let case1 = z3::ast::Bool::and(&[&same_lane, &collision_possible_1]).implies(&ttc_safe_1);
+        let case2 = z3::ast::Bool::and(&[&same_lane, &collision_possible_2]).implies(&ttc_safe_2);
 
-        z3::ast::Bool::and(self.ctx, &[&case1, &case2])
+        z3::ast::Bool::and(&[&case1, &case2])
     }
 
     /// Encode all safety constraints
@@ -688,14 +687,14 @@ impl<'ctx> Z3Encoder<'ctx> {
         actor2: &str,
         min_distance: f64,
         time: usize,
-    ) -> z3::ast::Bool<'ctx> {
+    ) -> z3::ast::Bool {
         let lane1 = &self.lanes[actor1][time];
         let lane2 = &self.lanes[actor2][time];
 
         let px1 = &self.positions_x[actor1][time];
         let px2 = &self.positions_x[actor2][time];
 
-        let min_dist_val = Real::from_real(self.ctx, (min_distance * 10.0) as i32, 10);
+        let min_dist_val = Real::from_real((min_distance * 10.0) as i32, 10);
 
         // Same lane condition
         let same_lane = lane1._eq(lane2);
@@ -709,7 +708,7 @@ impl<'ctx> Z3Encoder<'ctx> {
         let dist_case_1 = diff_1.gt(&min_dist_val);
         let dist_case_2 = diff_2.gt(&min_dist_val);
 
-        let distance_ok = z3::ast::Bool::or(self.ctx, &[&dist_case_1, &dist_case_2]);
+        let distance_ok = z3::ast::Bool::or(&[&dist_case_1, &dist_case_2]);
 
         // If same lane, then distance must be OK
         same_lane.implies(&distance_ok)
@@ -722,7 +721,7 @@ impl<'ctx> Z3Encoder<'ctx> {
             let mode = self.spec.constraint_modes.max_acceleration();
 
             if mode == ConstraintMode::Enforce {
-                let max_real = Real::from_real(self.ctx, (max_accel * 10.0) as i32, 10);
+                let max_real = Real::from_real((max_accel * 10.0) as i32, 10);
 
                 for actor in &self.spec.actors {
                     for t in 0..=self.horizon {
@@ -739,7 +738,7 @@ impl<'ctx> Z3Encoder<'ctx> {
             let mode = self.spec.constraint_modes.max_acceleration();
 
             if mode == ConstraintMode::Enforce {
-                let min_real = Real::from_real(self.ctx, (max_decel * 10.0) as i32, 10);
+                let min_real = Real::from_real((max_decel * 10.0) as i32, 10);
 
                 for actor in &self.spec.actors {
                     for t in 0..=self.horizon {
@@ -755,7 +754,7 @@ impl<'ctx> Z3Encoder<'ctx> {
     ///
     /// Converts the Z3 solution (satisfying assignment) into a Scenario
     /// JSON structure with actor trajectories.
-    pub fn extract_scenario(&self, model: &z3::Model<'ctx>) -> crate::scenario::model::Scenario {
+    pub fn extract_scenario(&self, model: &z3::Model) -> crate::scenario::model::Scenario {
         use crate::dsl::types::ActorRole;
 
         let mut scenario = crate::scenario::model::Scenario::new(
@@ -784,7 +783,7 @@ impl<'ctx> Z3Encoder<'ctx> {
     /// Extract trajectory for a single actor
     fn extract_actor_trajectory(
         &self,
-        model: &z3::Model<'ctx>,
+        model: &z3::Model,
         actor_id: &str,
         role: &str,
     ) -> crate::scenario::model::ActorTrajectory {
@@ -825,7 +824,7 @@ impl<'ctx> Z3Encoder<'ctx> {
     }
 
     /// Extract a real value from Z3 model
-    fn extract_real(&self, model: &z3::Model<'ctx>, var: &Real<'ctx>) -> f64 {
+    fn extract_real(&self, model: &z3::Model, var: &Real) -> f64 {
         let ast = model
             .eval(var, true)
             .expect("Failed to evaluate real variable");
@@ -879,7 +878,7 @@ impl<'ctx> Z3Encoder<'ctx> {
     }
 
     /// Extract an integer value from Z3 model
-    fn extract_int(&self, model: &z3::Model<'ctx>, var: &Int<'ctx>) -> usize {
+    fn extract_int(&self, model: &z3::Model, var: &Int) -> usize {
         let ast = model
             .eval(var, true)
             .expect("Failed to evaluate int variable");
@@ -1037,7 +1036,7 @@ impl<'ctx> Z3Encoder<'ctx> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorSpec, ActorRole, ScenarioType, ValueOrRange};
+    use crate::dsl::types::{ActorRole, ActorSpec, ScenarioType, ValueOrRange};
     use std::collections::HashMap;
     use z3::Config;
 

@@ -11,7 +11,7 @@ use crate::scenario::model::Scenario;
 /// This module exists to provide a clean public API and future extensions.
 pub fn extract_scenario_from_model<'ctx>(
     encoder: &crate::solver::encoder::Z3Encoder<'ctx>,
-    model: &z3::Model<'ctx>,
+    model: &z3::Model,
 ) -> Scenario {
     encoder.extract_scenario(model)
 }
@@ -19,7 +19,7 @@ pub fn extract_scenario_from_model<'ctx>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorSpec, ActorRole, ScenarioSpec, ScenarioType, ValueOrRange};
+    use crate::dsl::types::{ActorRole, ActorSpec, ScenarioSpec, ScenarioType, ValueOrRange};
     use crate::ltl::generator::LTLGenerator;
     use crate::solver::encoder::Z3Encoder;
     use std::collections::HashMap;

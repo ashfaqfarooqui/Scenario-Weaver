@@ -28,6 +28,9 @@ pub enum ScenarioGenError {
     #[error("OpenSCENARIO export failed: {0}")]
     XoscExport(String),
 
+    #[error("GIF export failed: {0}")]
+    GifExport(String),
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 

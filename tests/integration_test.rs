@@ -10,11 +10,11 @@ fn test_z3_basic() {
     // Verify Z3 is working
     let cfg = Config::new();
     let ctx = Context::new(&cfg);
-    let solver = Solver::new(&ctx);
+    let solver = Solver::new();
 
     // Simple constraint: x > 0
-    let x = ast::Int::new_const(&ctx, "x");
-    let zero = ast::Int::from_i64(&ctx, 0);
+    let x = ast::Int::new_const("x");
+    let zero = ast::Int::from_i64(0);
     solver.assert(&x.gt(&zero));
 
     assert_eq!(solver.check(), SatResult::Sat);
@@ -329,4 +329,126 @@ fn test_xosc_export_multiple() {
     }
 
     println!("Multiple XOSC export test passed");
+}
+
+#[test]
+fn test_gif_export_integration() {
+    println!("\n=== Testing GIF Export ===");
+
+    // Read example YAML
+    let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
+        .expect("Should read example YAML file");
+
+    // Generate scenario
+    let scenario = carla_scenario_generator::generate_single_scenario(&yaml_content)
+        .expect("Should generate scenario successfully");
+
+    println!("Generated scenario: {}", scenario.scenario_id);
+    println!("  Type: {}", scenario.scenario_type);
+    println!("  Duration: {}s", scenario.duration);
+    println!("  Time steps: {}", scenario.actors[0].states.len());
+
+    // Export to GIF
+    let gif_bytes = carla_scenario_generator::export_scenario_to_gif(&scenario)
+        .expect("Should export scenario to GIF");
+
+    println!("Generated GIF with {} bytes", gif_bytes.len());
+
+    // Verify GIF format
+    assert_eq!(&gif_bytes[0..3], b"GIF", "Should have GIF magic bytes");
+    assert_eq!(
+        &gif_bytes[3..6],
+        b"89a",
+        "Should have GIF89a version identifier"
+    );
+    assert!(gif_bytes.len() > 1024, "GIF should be at least 1KB");
+
+    // Optional: Write to temp file for manual inspection
+    let temp_path = std::env::temp_dir().join("test_scenario.gif");
+    std::fs::write(&temp_path, &gif_bytes).expect("Should write temp GIF file");
+    println!("Test GIF written to: {:?}", temp_path);
+
+    println!("GIF export test passed");
+}
+
+#[test]
+fn test_gif_export_with_violations() {
+    println!("\n=== Testing GIF Export with Violations ===");
+
+    // Create adversarial YAML content (violate safety constraints)
+    let yaml_content = r#"
+scenario_type: cut_in_left
+time_step: 0.5
+duration: 5.0
+
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, 1]
+
+actors:
+  - id: ego
+    role: ego
+    initial_conditions:
+      lane: 1
+      position: 50.0
+      speed: 15.0
+  - id: npc
+    role: npc
+    initial_conditions:
+      lane: 0
+      position: 70.0
+      speed: 15.0
+    maneuver:
+      type: lane_change
+      target_lane: 1
+      start_time: [2.0, 3.0]
+      duration: 1.5
+
+constraints:
+  min_ttc: 3.0
+  min_distance: 5.0
+
+constraint_modes:
+  min_ttc: violate
+  min_distance: enforce
+"#;
+
+    // Generate adversarial scenario
+    let scenario = carla_scenario_generator::generate_single_scenario(yaml_content)
+        .expect("Should generate adversarial scenario");
+
+    println!("Generated adversarial scenario: {}", scenario.scenario_id);
+    println!(
+        "  All constraints satisfied: {}",
+        scenario.validation.all_constraints_satisfied
+    );
+    println!(
+        "  Violations: {}",
+        scenario.validation.safety_violations.len()
+    );
+
+    if !scenario.validation.safety_violations.is_empty() {
+        println!("  Safety violations:");
+        for violation in &scenario.validation.safety_violations {
+            println!("    - {}", violation);
+        }
+    }
+
+    // Export to GIF (should handle violations gracefully)
+    let gif_bytes = carla_scenario_generator::export_scenario_to_gif(&scenario)
+        .expect("Should export adversarial scenario to GIF");
+
+    println!("Generated adversarial GIF with {} bytes", gif_bytes.len());
+
+    // Verify GIF format
+    assert_eq!(&gif_bytes[0..3], b"GIF");
+    assert!(gif_bytes.len() > 1024);
+
+    // Optional: Write to temp file
+    let temp_path = std::env::temp_dir().join("test_adversarial_scenario.gif");
+    std::fs::write(&temp_path, &gif_bytes).expect("Should write temp GIF file");
+    println!("Adversarial GIF written to: {:?}", temp_path);
+
+    println!("Adversarial GIF export test passed");
 }

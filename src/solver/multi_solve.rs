@@ -50,7 +50,7 @@ pub fn generate_scenarios(
 
         // Add blocking clauses for all previous scenarios
         for prev_scenario in &scenarios {
-            let blocking_clause = create_blocking_clause(&ctx, &encoder, prev_scenario);
+            let blocking_clause = create_blocking_clause(&encoder, prev_scenario);
             encoder.assert_constraint(&blocking_clause);
         }
 
@@ -92,11 +92,7 @@ pub fn generate_scenarios(
 ///
 /// The blocking clause is: !(px0 == prev_px0 AND vx0 == prev_vx0)
 /// Which is equivalent to: (px0 != prev_px0 OR vx0 != prev_vx0)
-fn create_blocking_clause<'ctx>(
-    ctx: &'ctx Context,
-    encoder: &Z3Encoder<'ctx>,
-    prev_scenario: &Scenario,
-) -> Bool<'ctx> {
+fn create_blocking_clause<'ctx>(encoder: &Z3Encoder<'ctx>, prev_scenario: &Scenario) -> Bool {
     // Get NPC trajectory from previous scenario
     let npc_traj = prev_scenario
         .get_actor("npc")
@@ -114,15 +110,15 @@ fn create_blocking_clause<'ctx>(
     // Create real values from previous scenario
     // We use a tolerance to handle floating point precision
     // Convert to Z3 rational: multiply by 100 to get 2 decimal precision
-    let prev_px0_z3 = Real::from_real(ctx, (prev_px0 * 100.0).round() as i32, 100);
-    let prev_vx0_z3 = Real::from_real(ctx, (prev_vx0 * 100.0).round() as i32, 100);
+    let prev_px0_z3 = Real::from_real((prev_px0 * 100.0).round() as i32, 100);
+    let prev_vx0_z3 = Real::from_real((prev_vx0 * 100.0).round() as i32, 100);
 
     // Create equality constraints
     let px_eq = npc_px0._eq(&prev_px0_z3);
     let vx_eq = npc_vx0._eq(&prev_vx0_z3);
 
     // Both equal: px0 == prev_px0 AND vx0 == prev_vx0
-    let both_equal = Bool::and(ctx, &[&px_eq, &vx_eq]);
+    let both_equal = Bool::and(&[&px_eq, &vx_eq]);
 
     // Blocking clause: NOT(both equal)
     // This forces at least one of them to be different
@@ -132,17 +128,17 @@ fn create_blocking_clause<'ctx>(
 /// Add accessor methods to Z3Encoder for multi_solve module
 impl<'ctx> Z3Encoder<'ctx> {
     /// Get position_x variable for an actor at a specific time
-    pub fn get_position_x(&self, actor_id: &str, time: usize) -> &Real<'ctx> {
+    pub fn get_position_x(&self, actor_id: &str, time: usize) -> &Real {
         &self.positions_x[actor_id][time]
     }
 
     /// Get velocity_x variable for an actor at a specific time
-    pub fn get_velocity_x(&self, actor_id: &str, time: usize) -> &Real<'ctx> {
+    pub fn get_velocity_x(&self, actor_id: &str, time: usize) -> &Real {
         &self.velocities_x[actor_id][time]
     }
 
     /// Assert a constraint to the solver
-    pub fn assert_constraint(&self, constraint: &Bool<'ctx>) {
+    pub fn assert_constraint(&self, constraint: &Bool) {
         self.solver.assert(constraint);
     }
 }
@@ -150,7 +146,7 @@ impl<'ctx> Z3Encoder<'ctx> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorSpec, ActorRole, ScenarioType, ValueOrRange};
+    use crate::dsl::types::{ActorRole, ActorSpec, ScenarioType, ValueOrRange};
     use crate::ltl::generator::LTLGenerator;
     use std::collections::HashMap;
 

@@ -14,7 +14,7 @@ path = "src/lib.rs"
 [dependencies]
 # Z3 SMT Solver - core constraint solving
 # Using system Z3 library instead of static linking
-z3 = "0.13"
+z3 = "0.19"
 
 # Serialization - YAML input, JSON output
 serde = { version = "1.0", features = ["derive"] }
@@ -22,10 +22,10 @@ serde_yaml = "0.9"
 serde_json = "1.0"
 
 # Utilities
-chrono = { version = "0.4", features = ["serde"] }  # Timestamps
-uuid = { version = "1.6", features = ["v4", "serde"] }  # Scenario IDs
-anyhow = "1.0"  # Error handling convenience
-thiserror = "1.0"  # Custom error types
+chrono = { version = "0.4", features = ["serde"] }     # Timestamps
+uuid = { version = "1.6", features = ["v4", "serde"] } # Scenario IDs
+anyhow = "1.0"                                         # Error handling convenience
+thiserror = "2.0"                                      # Custom error types
 
 # CLI (will be used in Phase 12)
 clap = { version = "4.4", features = ["derive"] }
@@ -33,11 +33,19 @@ clap = { version = "4.4", features = ["derive"] }
 # Logging (will be used in Phase 12)
 tracing = "0.1"
 tracing-subscriber = "0.3"
-openscenario-rs = { git = "https://github.com/ashfaqfarooqui/openscenario-rs", version = "0.2.0", features = ["builder"] }
+openscenario-rs = { git = "https://github.com/ashfaqfarooqui/openscenario-rs", version = "0.2.0", features = [
+    "builder",
+] }
 
 # SVG visualization
-svg = "0.17"
+svg = "0.18"
+
+# GIF animation
+image = "0.25"     # Image manipulation
+gif = "0.14"       # GIF encoding
+imageproc = "0.26" # Text rendering
+ab_glyph = "0.2"   # Font loading (compatible with imageproc)
 
 [dev-dependencies]
-pretty_assertions = "1.4"  # Better test output
-tempfile = "3.8"  # Temporary files for testing
+pretty_assertions = "1.4" # Better test output
+tempfile = "3.8"          # Temporary files for testing

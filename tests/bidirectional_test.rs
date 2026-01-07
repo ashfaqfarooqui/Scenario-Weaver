@@ -1,6 +1,6 @@
 //! Integration tests for bidirectional traffic scenarios
 
-use carla_scenario_generator::{generate_single_scenario, generate_multiple_scenarios};
+use carla_scenario_generator::{generate_multiple_scenarios, generate_single_scenario};
 
 #[test]
 fn test_simple_bidirectional_scenario() {
@@ -38,7 +38,11 @@ num_scenarios: 1
 "#;
 
     let result = generate_single_scenario(yaml);
-    assert!(result.is_ok(), "Failed to generate scenario: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to generate scenario: {:?}",
+        result.err()
+    );
 
     let scenario = result.unwrap();
 
@@ -120,7 +124,11 @@ num_scenarios: 1
 "#;
 
     let result = generate_single_scenario(yaml);
-    assert!(result.is_ok(), "Failed to generate scenario: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to generate scenario: {:?}",
+        result.err()
+    );
 
     let scenario = result.unwrap();
 
@@ -130,7 +138,8 @@ num_scenarios: 1
         assert!(
             state.velocity.vx >= 0.0,
             "Ego velocity at t={} should be non-negative (forward lane), got {}",
-            i, state.velocity.vx
+            i,
+            state.velocity.vx
         );
     }
 
@@ -140,7 +149,8 @@ num_scenarios: 1
         assert!(
             state.velocity.vx <= 0.0,
             "NPC velocity at t={} should be non-positive (backward lane), got {}",
-            i, state.velocity.vx
+            i,
+            state.velocity.vx
         );
     }
 }
@@ -185,7 +195,11 @@ num_scenarios: 1
 "#;
 
     let result = generate_single_scenario(yaml);
-    assert!(result.is_ok(), "Failed to generate scenario: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to generate scenario: {:?}",
+        result.err()
+    );
 
     let scenario = result.unwrap();
 
@@ -242,7 +256,11 @@ num_scenarios: 3
 "#;
 
     let result = generate_multiple_scenarios(yaml, 3);
-    assert!(result.is_ok(), "Failed to generate scenarios: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to generate scenarios: {:?}",
+        result.err()
+    );
 
     let scenarios = result.unwrap();
     assert_eq!(scenarios.len(), 3, "Should generate 3 scenarios");
@@ -255,17 +273,20 @@ num_scenarios: 3
         // Both in forward lanes
         assert!(
             ego.states.iter().all(|s| s.velocity.vx >= 0.0),
-            "Scenario {} ego should have positive velocity", idx
+            "Scenario {} ego should have positive velocity",
+            idx
         );
         assert!(
             npc.states.iter().all(|s| s.velocity.vx >= 0.0),
-            "Scenario {} npc should have positive velocity", idx
+            "Scenario {} npc should have positive velocity",
+            idx
         );
 
         // Verify safety
         assert!(
             scenario.validation.all_constraints_satisfied,
-            "Scenario {} should satisfy safety constraints", idx
+            "Scenario {} should satisfy safety constraints",
+            idx
         );
     }
 

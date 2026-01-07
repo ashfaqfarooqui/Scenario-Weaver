@@ -28,14 +28,14 @@ cargo build --release
 ### Generate a Single Scenario
 
 ```bash
-cargo run --release -- -i examples/cut_in_left.yaml -o output.json
+cargo run --release -- -i examples/cut_in_left.yaml -o output/
 ```
 
 This will:
 1. Parse the YAML specification
 2. Generate LTL constraints
 3. Solve with Z3
-4. Output a scenario JSON file
+4. Output scenario files to the directory (JSON + XOSC + SVG + GIF)
 
 ### Generate Multiple Scenarios
 
@@ -49,7 +49,7 @@ This creates `scenarios/scenario_0.json`, `scenarios/scenario_1.json`, etc.
 ### Enable Verbose Logging
 
 ```bash
-cargo run --release -- -i examples/cut_in_left.yaml -o output.json -v
+cargo run --release -- -i examples/cut_in_left.yaml -o output/ -v
 ```
 
 ## Adversarial Scenario Generation (NEW!)
@@ -155,24 +155,24 @@ num_scenarios: 1          # generate 1 scenario (or use -n flag)
 - **Ranges**: `position: [45.0, 55.0]` - Z3 chooses any value in range
 - **Behavior parameters**: Scenario-specific values in the `behavior` map (e.g., `cut_in_time`)
 
-## Output Format
+## Output Formats
 
-The generator automatically produces scenarios in **two formats**: JSON and OpenSCENARIO (.xosc).
+The generator automatically produces scenarios in **four formats**: JSON, OpenSCENARIO (.xosc), SVG, and GIF.
 
-### Dual Output
+### Quad Output
 
 **Single scenario mode:**
 ```bash
-cargo run --release -- -i examples/cut_in_left.yaml -o output
-# Creates: output.json + output.xosc
+cargo run --release -- -i examples/cut_in_left.yaml -o output/
+# Creates: output/scenario.json + scenario.xosc + scenario.svg + scenario.gif
 ```
 
 **Multiple scenario mode:**
 ```bash
 cargo run --release -- -i examples/cut_in_left.yaml -o scenarios/ -n 5
-# Creates: scenarios/scenario_0.json + scenario_0.xosc
-#          scenarios/scenario_1.json + scenario_1.xosc
-#          ... (5 pairs total)
+# Creates: scenarios/scenario_0.json + scenario_0.xosc + scenario_0.svg + scenario_0.gif
+#          scenarios/scenario_1.json + scenario_1.xosc + scenario_1.svg + scenario_1.gif
+#          ... (5 quadruplets total)
 ```
 
 ### JSON Format
@@ -235,14 +235,71 @@ let xosc_xml = export_scenario_to_xosc(&scenario)?;
 std::fs::write("scenario.xosc", xosc_xml)?;
 ```
 
+### SVG Visualization Format (.svg)
+
+Static vector graphic showing the complete scenario trajectory:
+- **Road layout** with lane markings
+- **Complete trajectories** for all actors from start to end
+- **Vehicle positions** at initial and final states
+- **Safety metrics** displayed in header (Min TTC, Min Distance, Status)
+- **Violation markers** if safety constraints were violated
+- **Scalable vector graphics** - perfect quality at any zoom level
+
+Features:
+- Opens in any web browser or image viewer
+- Ideal for documentation and reports
+- Shows the "big picture" of the scenario
+
+**Programmatic export:**
+```rust
+use carla_scenario_generator::{generate_single_scenario, export_scenario_to_svg};
+
+let yaml = std::fs::read_to_string("scenario.yaml")?;
+let scenario = generate_single_scenario(&yaml)?;
+
+// Export to SVG
+let svg = export_scenario_to_svg(&scenario)?;
+std::fs::write("scenario.svg", svg)?;
+```
+
+### GIF Animation Format (.gif)
+
+Animated visualization showing vehicles moving through the scenario in real-time:
+- **10 FPS animation** showing trajectory evolution over time
+- **Fading trajectory trails** showing motion history
+- **Real-time metrics overlay** (current time, TTC, distance, status)
+- **Violation highlighting** with red circles when safety constraints are violated
+- **Road surface** with lane markings
+- **Vehicle rectangles** with heading arrows
+- **Infinite loop** playback
+
+Features:
+- Works everywhere (browsers, Slack, GitHub, email, etc.)
+- ~900KB file size for typical 10-second scenarios
+- No player required - animates automatically
+- Shows temporal dynamics and motion patterns
+- Ideal for sharing and presentations
+
+**Programmatic export:**
+```rust
+use carla_scenario_generator::{generate_single_scenario, export_scenario_to_gif};
+
+let yaml = std::fs::read_to_string("scenario.yaml")?;
+let scenario = generate_single_scenario(&yaml)?;
+
+// Export to GIF
+let gif_bytes = export_scenario_to_gif(&scenario)?;
+std::fs::write("scenario.gif", gif_bytes)?;
+```
+
 ## CLI Options
 
 ```bash
-carla-scenario-gen [OPTIONS] --input <FILE> --output <PATH>
+carla-scenario-gen [OPTIONS] --input <FILE> --output <DIR>
 
 Options:
   -i, --input <FILE>     Input YAML specification file
-  -o, --output <PATH>    Output JSON file (or directory for multiple scenarios)
+  -o, --output <DIR>     Output directory for generated scenarios
   -n, --num <NUM>        Number of scenarios to generate (overrides YAML)
   -v, --verbose          Enable verbose logging
       --adversarial      Override constraint modes to violate all safety constraints

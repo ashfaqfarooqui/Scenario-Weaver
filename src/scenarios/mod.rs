@@ -121,10 +121,7 @@ fn generate_default_safety(spec: &ScenarioSpec) -> LTLFormula {
         })
         .negate())
     } else {
-        constraints
-            .into_iter()
-            .reduce(|acc, c| acc.and(c))
-            .unwrap()
+        constraints.into_iter().reduce(|acc, c| acc.and(c)).unwrap()
     }
 }
 

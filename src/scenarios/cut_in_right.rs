@@ -4,9 +4,9 @@
 //! ahead of the ego vehicle in the left lane (lane 0), and eventually
 //! changes lanes to cut in front of the ego vehicle.
 
-use crate::scenarios::ScenarioModel;
 use crate::dsl::types::ScenarioSpec;
 use crate::ltl::formula::{LTLFormula, Proposition};
+use crate::scenarios::ScenarioModel;
 use anyhow::Result;
 
 /// Cut-in from right scenario model
@@ -72,8 +72,8 @@ impl ScenarioModel for CutInRightModel {
         for t in 0..horizon {
             let lane_t = &encoder.lanes[npc_id][t];
             let lane_t1 = &encoder.lanes[npc_id][t + 1];
-            let target_val = Int::from_i64(encoder.ctx, target_lane as i64);
-            let initial_val = Int::from_i64(encoder.ctx, initial_lane as i64);
+            let target_val = Int::from_i64(target_lane as i64);
+            let initial_val = Int::from_i64(initial_lane as i64);
 
             // If lane[t] == target_lane, then lane[t+1] != initial_lane
             // (This is stronger than just requiring lane[t+1] == target)
@@ -138,7 +138,7 @@ impl CutInRightModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorRole, ActorSpec, ValueOrRange, ConstraintModes};
+    use crate::dsl::types::{ActorRole, ActorSpec, ConstraintModes, ValueOrRange};
     use std::collections::HashMap;
 
     fn create_test_spec() -> ScenarioSpec {
@@ -154,7 +154,7 @@ mod tests {
                 ActorSpec {
                     id: "ego".to_string(),
                     role: ActorRole::Ego,
-                    lane: 0,  // Ego in LEFT lane for cut-in-right
+                    lane: 0, // Ego in LEFT lane for cut-in-right
                     position: ValueOrRange::Value(50.0),
                     speed: ValueOrRange::Value(15.0),
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
@@ -163,7 +163,7 @@ mod tests {
                 ActorSpec {
                     id: "npc".to_string(),
                     role: ActorRole::Npc,
-                    lane: 1,  // NPC in RIGHT lane for cut-in-right
+                    lane: 1, // NPC in RIGHT lane for cut-in-right
                     position: ValueOrRange::Range([60.0, 80.0]),
                     speed: ValueOrRange::Range([12.0, 14.0]),
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),

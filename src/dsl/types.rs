@@ -75,7 +75,9 @@ impl ConstraintModes {
     /// Get the mode for max_acceleration constraint
     pub fn max_acceleration(&self) -> ConstraintMode {
         match self {
-            ConstraintModes::Detailed { max_acceleration, .. } => *max_acceleration,
+            ConstraintModes::Detailed {
+                max_acceleration, ..
+            } => *max_acceleration,
             ConstraintModes::Shorthand(s) => match s.as_str() {
                 "violate_all" => ConstraintMode::Violate,
                 "ignore_all" => ConstraintMode::Ignore,
@@ -114,12 +116,8 @@ impl ScenarioType {
     /// Get the scenario model for this scenario type
     pub fn get_model(&self) -> Box<dyn crate::scenarios::ScenarioModel> {
         match self {
-            ScenarioType::CutInLeft => {
-                Box::new(crate::scenarios::cut_in_left::CutInLeftModel)
-            }
-            ScenarioType::CutInRight => {
-                Box::new(crate::scenarios::cut_in_right::CutInRightModel)
-            }
+            ScenarioType::CutInLeft => Box::new(crate::scenarios::cut_in_left::CutInLeftModel),
+            ScenarioType::CutInRight => Box::new(crate::scenarios::cut_in_right::CutInRightModel),
         }
     }
 }
@@ -163,10 +161,7 @@ impl RoadSpec {
 
         for (i, &dir) in self.lane_directions.iter().enumerate() {
             if dir != 1 && dir != -1 {
-                return Err(format!(
-                    "lane_directions[{}] = {} must be +1 or -1",
-                    i, dir
-                ));
+                return Err(format!("lane_directions[{}] = {} must be +1 or -1", i, dir));
             }
         }
 
@@ -208,14 +203,14 @@ pub struct ScenarioSpec {
     pub time_step: f64, // seconds per discretization step
     pub duration: f64,  // total scenario duration (seconds)
     pub actors: Vec<ActorSpec>,
-    pub min_ttc: f64,         // minimum time-to-collision (seconds)
-    pub min_distance: f64,    // minimum longitudinal distance (meters)
+    pub min_ttc: f64,      // minimum time-to-collision (seconds)
+    pub min_distance: f64, // minimum longitudinal distance (meters)
     /// Road specification (optional, for bidirectional traffic)
     #[serde(default)]
     pub road: Option<RoadSpec>,
     /// Lane width (deprecated, use road.lane_width instead)
     #[serde(default = "default_lane_width")]
-    pub lane_width: f64,      // meters
+    pub lane_width: f64, // meters
     pub num_scenarios: usize, // 1 for single, N for multiple
     /// Constraint enforcement modes (optional, defaults to enforce_all)
     #[serde(default)]
@@ -288,7 +283,8 @@ impl ScenarioSpec {
 
     /// Get lane width (backward compatible)
     pub fn get_lane_width(&self) -> f64 {
-        self.road.as_ref()
+        self.road
+            .as_ref()
             .map(|r| r.lane_width)
             .unwrap_or(self.lane_width)
     }
@@ -296,16 +292,15 @@ impl ScenarioSpec {
     /// Get lane direction (backward compatible)
     /// Returns +1 for forward lanes, -1 for backward lanes
     pub fn get_lane_direction(&self, lane: usize) -> i32 {
-        self.road.as_ref()
+        self.road
+            .as_ref()
             .map(|r| r.get_lane_direction(lane))
             .unwrap_or(1) // Default: all forward
     }
 
     /// Get number of lanes (backward compatible)
     pub fn get_num_lanes(&self) -> usize {
-        self.road.as_ref()
-            .map(|r| r.num_lanes)
-            .unwrap_or(2) // Default: 2 lanes
+        self.road.as_ref().map(|r| r.num_lanes).unwrap_or(2) // Default: 2 lanes
     }
 
     /// Validate the specification
@@ -345,13 +340,21 @@ impl ScenarioSpec {
         }
 
         // NEW: Validate exactly one ego
-        let ego_count = self.actors.iter().filter(|a| a.role == ActorRole::Ego).count();
+        let ego_count = self
+            .actors
+            .iter()
+            .filter(|a| a.role == ActorRole::Ego)
+            .count();
         if ego_count != 1 {
             return Err(format!("Expected exactly 1 ego actor, found {}", ego_count));
         }
 
         // NEW: Validate at least one NPC
-        let npc_count = self.actors.iter().filter(|a| a.role == ActorRole::Npc).count();
+        let npc_count = self
+            .actors
+            .iter()
+            .filter(|a| a.role == ActorRole::Npc)
+            .count();
         if npc_count == 0 {
             return Err("At least one NPC actor required".to_string());
         }

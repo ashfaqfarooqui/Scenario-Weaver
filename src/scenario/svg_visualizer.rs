@@ -128,7 +128,10 @@ impl<'a> SvgVisualizer<'a> {
         let mut document = Document::new()
             .set("width", self.config.canvas_width)
             .set("height", self.config.canvas_height)
-            .set("viewBox", (0, 0, self.config.canvas_width, self.config.canvas_height));
+            .set(
+                "viewBox",
+                (0, 0, self.config.canvas_width, self.config.canvas_height),
+            );
 
         document = self.add_background(document);
         document = self.add_header(document);
@@ -146,7 +149,8 @@ impl<'a> SvgVisualizer<'a> {
     fn transform_coords(&self, scenario_x: f64, scenario_y: f64) -> (f64, f64) {
         let svg_x = self.config.margin + (scenario_x - self.config.x_min) * self.config.x_scale;
         // Flip Y-axis: higher scenario Y should be at top (lower SVG Y)
-        let svg_y = self.config.road_margin_top + (self.config.y_max - scenario_y) * self.config.y_scale;
+        let svg_y =
+            self.config.road_margin_top + (self.config.y_max - scenario_y) * self.config.y_scale;
         (svg_x, svg_y)
     }
 
@@ -201,16 +205,16 @@ impl<'a> SvgVisualizer<'a> {
         // Subtitle with ID and duration
         let subtitle = Text::new(format!(
             "ID: {} | Duration: {:.1}s | Time Step: {:.2}s",
-            &self.scenario.scenario_id[..8],  // First 8 chars of UUID
+            &self.scenario.scenario_id[..8], // First 8 chars of UUID
             self.scenario.duration,
             self.scenario.time_step
         ))
-            .set("x", self.config.canvas_width / 2.0)
-            .set("y", 55)
-            .set("text-anchor", "middle")
-            .set("font-family", "Arial, sans-serif")
-            .set("font-size", 12)
-            .set("fill", COLOR_TEXT);
+        .set("x", self.config.canvas_width / 2.0)
+        .set("y", 55)
+        .set("text-anchor", "middle")
+        .set("font-family", "Arial, sans-serif")
+        .set("font-size", 12)
+        .set("fill", COLOR_TEXT);
         group = group.add(subtitle);
 
         document.add(group)
@@ -269,7 +273,8 @@ impl<'a> SvgVisualizer<'a> {
     /// Add road surface
     fn add_road_surface(&self, document: Document) -> Document {
         let road_start_y = self.config.road_margin_top;
-        let road_height = self.config.canvas_height - self.config.road_margin_top - self.config.margin;
+        let road_height =
+            self.config.canvas_height - self.config.road_margin_top - self.config.margin;
 
         let road = Rectangle::new()
             .set("x", self.config.margin)
@@ -397,8 +402,11 @@ impl<'a> SvgVisualizer<'a> {
                         if let Ok(time) = time_val.parse::<f64>() {
                             // Find positions at this time for all actors
                             for actor in &self.scenario.actors {
-                                if let Some(state) = actor.states.iter().find(|s| (s.time - time).abs() < 0.01) {
-                                    let (svg_x, svg_y) = self.transform_coords(state.position.x, state.position.y);
+                                if let Some(state) =
+                                    actor.states.iter().find(|s| (s.time - time).abs() < 0.01)
+                                {
+                                    let (svg_x, svg_y) =
+                                        self.transform_coords(state.position.x, state.position.y);
                                     let marker = Circle::new()
                                         .set("cx", svg_x)
                                         .set("cy", svg_y)
@@ -427,7 +435,8 @@ impl<'a> SvgVisualizer<'a> {
 
             // Initial position (rectangle)
             if let Some(first_state) = actor.states.first() {
-                let (svg_x, svg_y) = self.transform_coords(first_state.position.x, first_state.position.y);
+                let (svg_x, svg_y) =
+                    self.transform_coords(first_state.position.x, first_state.position.y);
                 let rect = Rectangle::new()
                     .set("x", svg_x - VEHICLE_LENGTH / 2.0)
                     .set("y", svg_y - VEHICLE_WIDTH / 2.0)
@@ -453,7 +462,8 @@ impl<'a> SvgVisualizer<'a> {
 
             // Final position (rectangle with different styling)
             if let Some(last_state) = actor.states.last() {
-                let (svg_x, svg_y) = self.transform_coords(last_state.position.x, last_state.position.y);
+                let (svg_x, svg_y) =
+                    self.transform_coords(last_state.position.x, last_state.position.y);
                 let rect = Rectangle::new()
                     .set("x", svg_x - VEHICLE_LENGTH / 2.0)
                     .set("y", svg_y - VEHICLE_WIDTH / 2.0)
@@ -575,7 +585,9 @@ impl<'a> SvgVisualizer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scenario::model::{ActorTrajectory, Position, Scenario, State, ValidationInfo, Velocity, Acceleration};
+    use crate::scenario::model::{
+        Acceleration, ActorTrajectory, Position, Scenario, State, ValidationInfo, Velocity,
+    };
 
     fn create_test_scenario() -> Scenario {
         let ego_states = vec![

@@ -72,8 +72,8 @@ impl ScenarioModel for CutInLeftModel {
         for t in 0..horizon {
             let lane_t = &encoder.lanes[npc_id][t];
             let lane_t1 = &encoder.lanes[npc_id][t + 1];
-            let target_val = Int::from_i64(encoder.ctx, target_lane as i64);
-            let initial_val = Int::from_i64(encoder.ctx, initial_lane as i64);
+            let target_val = Int::from_i64(target_lane as i64);
+            let initial_val = Int::from_i64(initial_lane as i64);
 
             // If lane[t] == target_lane, then lane[t+1] != initial_lane
             // (This is stronger than just requiring lane[t+1] == target)

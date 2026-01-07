@@ -89,22 +89,16 @@ pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
     let storyboard_builder = storyboard_builder
         .stop_after_time(scenario.duration)
         .map_err(|e| {
-            crate::error::ScenarioGenError::XoscExport(format!(
-                "Failed to add stop trigger: {}",
-                e
-            ))
+            crate::error::ScenarioGenError::XoscExport(format!("Failed to add stop trigger: {}", e))
         })?;
 
     // Build the final scenario
-    let openscenario = storyboard_builder
-        .finish()
-        .build()
-        .map_err(|e| {
-            crate::error::ScenarioGenError::XoscExport(format!(
-                "Failed to build OpenSCENARIO structure: {}",
-                e
-            ))
-        })?;
+    let openscenario = storyboard_builder.finish().build().map_err(|e| {
+        crate::error::ScenarioGenError::XoscExport(format!(
+            "Failed to build OpenSCENARIO structure: {}",
+            e
+        ))
+    })?;
 
     // Serialize to XML string
     let xml = openscenario_rs::serialize_to_string(&openscenario).map_err(|e| {
@@ -115,7 +109,9 @@ pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
 }
 
 /// Build a trajectory from an actor's state sequence
-fn build_trajectory(actor: &crate::scenario::model::ActorTrajectory) -> Result<openscenario_rs::types::actions::movement::Trajectory> {
+fn build_trajectory(
+    actor: &crate::scenario::model::ActorTrajectory,
+) -> Result<openscenario_rs::types::actions::movement::Trajectory> {
     let mut polyline_builder = TrajectoryBuilder::new()
         .name(&format!("{}_trajectory", actor.id))
         .closed(false)
@@ -139,12 +135,9 @@ fn build_trajectory(actor: &crate::scenario::model::ActorTrajectory) -> Result<o
     }
 
     // Finish polyline and build trajectory
-    let trajectory = polyline_builder
-        .finish()
-        .build()
-        .map_err(|e| {
-            crate::error::ScenarioGenError::XoscExport(format!("Failed to build trajectory: {}", e))
-        })?;
+    let trajectory = polyline_builder.finish().build().map_err(|e| {
+        crate::error::ScenarioGenError::XoscExport(format!("Failed to build trajectory: {}", e))
+    })?;
 
     Ok(trajectory)
 }
@@ -216,10 +209,7 @@ fn build_init_actions(scenario: &Scenario) -> Result<openscenario_rs::types::sce
     for actor in &scenario.actors {
         // Get initial state
         let initial_state = actor.states.first().ok_or_else(|| {
-            crate::error::ScenarioGenError::XoscExport(format!(
-                "Actor {} has no states",
-                actor.id
-            ))
+            crate::error::ScenarioGenError::XoscExport(format!("Actor {} has no states", actor.id))
         })?;
 
         // Calculate speed from velocity magnitude
