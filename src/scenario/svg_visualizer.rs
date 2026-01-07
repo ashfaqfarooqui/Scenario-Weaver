@@ -8,11 +8,11 @@ use crate::scenario::model::Scenario;
 use svg::node::element::{Circle, Group, Line, Path, Rectangle, Text};
 use svg::Document;
 
-// Canvas dimensions
+// Canvas dimensions (matched with GIF animator for consistency)
 const CANVAS_WIDTH: f64 = 1200.0;
 const CANVAS_HEIGHT: f64 = 600.0;
 const MARGIN: f64 = 80.0;
-const ROAD_MARGIN_TOP: f64 = 100.0;
+const ROAD_MARGIN_TOP: f64 = 120.0;
 
 // Colors
 const COLOR_EGO: &str = "#4CAF50"; // Green
@@ -397,9 +397,13 @@ impl<'a> SvgVisualizer<'a> {
                     if let Some(time_val) = time_str.split('s').next() {
                         if let Ok(time) = time_val.parse::<f64>() {
                             // Find positions at this time for all actors
+                            // Use dynamic tolerance based on time_step (matching GIF animator)
+                            let tolerance = self.scenario.time_step / 2.0;
                             for actor in &self.scenario.actors {
-                                if let Some(state) =
-                                    actor.states.iter().find(|s| (s.time - time).abs() < 0.01)
+                                if let Some(state) = actor
+                                    .states
+                                    .iter()
+                                    .find(|s| (s.time - time).abs() < tolerance)
                                 {
                                     let (svg_x, svg_y) =
                                         self.transform_coords(state.position.x, state.position.y);

@@ -159,9 +159,12 @@ impl<'a> GifAnimator<'a> {
             .set_repeat(Repeat::Infinite)
             .map_err(|e| ScenarioGenError::GifExport(format!("Failed to set repeat: {}", e)))?;
 
+        // Pre-render static background once (road, lanes) for performance
+        let static_background = self.render_static_background();
+
         // Generate frame for each time step
         for frame_idx in 0..self.config.num_frames {
-            let image = self.render_frame(frame_idx);
+            let image = self.render_frame(frame_idx, &static_background);
             let mut frame = Frame::from_rgb_speed(
                 self.config.canvas_width as u16,
                 self.config.canvas_height as u16,
@@ -178,13 +181,24 @@ impl<'a> GifAnimator<'a> {
         Ok(buffer)
     }
 
-    /// Render a single frame at given time index
-    fn render_frame(&self, frame_idx: usize) -> RgbImage {
+    /// Render static background elements (background, road, lane markings)
+    /// This is rendered once and cloned for each frame for performance
+    fn render_static_background(&self) -> RgbImage {
         let mut image = RgbImage::new(self.config.canvas_width, self.config.canvas_height);
 
         self.draw_background(&mut image);
         self.draw_road_surface(&mut image);
         self.draw_lane_markings(&mut image);
+
+        image
+    }
+
+    /// Render a single frame at given time index
+    fn render_frame(&self, frame_idx: usize, static_background: &RgbImage) -> RgbImage {
+        // Clone the pre-rendered static background
+        let mut image = static_background.clone();
+
+        // Only render dynamic elements
         self.draw_trajectory_trails(&mut image, frame_idx);
         self.draw_vehicles(&mut image, frame_idx);
         self.draw_violations(&mut image, frame_idx);
@@ -339,9 +353,9 @@ impl<'a> GifAnimator<'a> {
                 let state = &actor.states[t];
                 let (px, py) = self.transform_coords(state.position.x, state.position.y);
 
-                // Calculate alpha for fading effect
+                // Calculate alpha for fading effect (range 0.3 to 1.0 so oldest positions are visible)
                 let alpha = if current_frame > 0 {
-                    (t as f64) / (current_frame as f64)
+                    0.3 + 0.7 * (t as f64) / (current_frame as f64)
                 } else {
                     1.0
                 };
@@ -433,9 +447,18 @@ impl<'a> GifAnimator<'a> {
             if let Some(violation_time) = self.parse_violation_time(violation) {
                 // Check if this frame is at the violation time
                 if (violation_time - current_time).abs() < self.scenario.time_step * 0.5 {
-                    // Draw red circles around all actors at this frame
+                    // Parse which actors are involved in this violation
+                    let involved_actors = self.parse_violation_actors(violation);
+
+                    // Only draw circles around actors involved in the violation
                     for actor in &self.scenario.actors {
-                        if frame_idx < actor.states.len() {
+                        // Check if this actor is involved in the violation
+                        let is_involved = involved_actors.is_empty()
+                            || involved_actors
+                                .iter()
+                                .any(|a| actor.id.to_lowercase().contains(&a.to_lowercase()));
+
+                        if is_involved && frame_idx < actor.states.len() {
                             let state = &actor.states[frame_idx];
                             let (px, py) =
                                 self.transform_coords(state.position.x, state.position.y);
@@ -457,6 +480,21 @@ impl<'a> GifAnimator<'a> {
             .next()?
             .parse::<f64>()
             .ok()
+    }
+
+    /// Parse actor names from violation string
+    /// Format: "TTC violation at t=3.5s: ego-npc: 2.1s < 3.0s"
+    fn parse_violation_actors(&self, violation: &str) -> Vec<String> {
+        // Look for pattern "actor1-actor2:" after the time
+        if let Some(after_time) = violation.split("s: ").nth(1) {
+            if let Some(actors_pair) = after_time.split(':').next() {
+                return actors_pair
+                    .split('-')
+                    .map(|s| s.trim().to_string())
+                    .collect();
+            }
+        }
+        vec![]
     }
 
     /// Draw metrics overlay
