@@ -40,41 +40,42 @@ pub fn generate_single_scenario(yaml_content: &str) -> Result<Scenario> {
     // Generate LTL using trait (behavior + safety combined)
     let ltl_formula = ltl::generator::LTLGenerator::generate(&spec);
 
-    // Setup Z3 and solve
+    // Setup Z3 and solve (wrap in with_z3_config for Z3 0.19 compatibility)
     let cfg = z3::Config::new();
-    let ctx = z3::Context::new(&cfg);
-    let mut encoder = solver::Z3Encoder::new(&ctx, spec);
+    z3::with_z3_config(&cfg, || {
+        let mut encoder = solver::Z3Encoder::new(spec);
 
-    // Create variables
-    encoder.create_variables();
+        // Create variables
+        encoder.create_variables();
 
-    // Encode initial conditions and kinematics
-    encoder.encode_initial_conditions();
-    encoder.encode_kinematics();
-    encoder.encode_lane_velocity_constraints();
+        // Encode initial conditions and kinematics
+        encoder.encode_initial_conditions();
+        encoder.encode_kinematics();
+        encoder.encode_lane_velocity_constraints();
 
-    // Encode LTL formula
-    encoder.encode_ltl(&ltl_formula);
+        // Encode LTL formula
+        encoder.encode_ltl(&ltl_formula);
 
-    // Call scenario-specific Z3 constraints (if any)
-    encoder.encode_scenario_specific_constraints(&*scenario_model)?;
+        // Call scenario-specific Z3 constraints (if any)
+        encoder.encode_scenario_specific_constraints(&*scenario_model)?;
 
-    // Encode safety constraints
-    encoder.encode_safety();
+        // Encode safety constraints
+        encoder.encode_safety();
 
-    // Solve and extract scenario
-    match encoder.check() {
-        SatResult::Sat => {
-            let model = encoder.get_model().ok_or_else(|| {
-                ScenarioGenError::ExtractionFailed("Failed to get Z3 model".to_string())
-            })?;
-            Ok(encoder.extract_scenario(&model))
+        // Solve and extract scenario
+        match encoder.check() {
+            SatResult::Sat => {
+                let model = encoder.get_model().ok_or_else(|| {
+                    ScenarioGenError::ExtractionFailed("Failed to get Z3 model".to_string())
+                })?;
+                Ok(encoder.extract_scenario(&model))
+            }
+            SatResult::Unsat => Err(ScenarioGenError::Unsatisfiable),
+            SatResult::Unknown => Err(ScenarioGenError::Z3Encoding(
+                "Z3 solver returned UNKNOWN".to_string(),
+            )),
         }
-        SatResult::Unsat => Err(ScenarioGenError::Unsatisfiable),
-        SatResult::Unknown => Err(ScenarioGenError::Z3Encoding(
-            "Z3 solver returned UNKNOWN".to_string(),
-        )),
-    }
+    })
 }
 
 /// Generate multiple diverse scenarios from YAML specification

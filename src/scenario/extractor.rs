@@ -9,8 +9,8 @@ use crate::scenario::model::Scenario;
 ///
 /// Note: The actual extraction is implemented in Z3Encoder::extract_scenario()
 /// This module exists to provide a clean public API and future extensions.
-pub fn extract_scenario_from_model<'ctx>(
-    encoder: &crate::solver::encoder::Z3Encoder<'ctx>,
+pub fn extract_scenario_from_model(
+    encoder: &crate::solver::encoder::Z3Encoder,
     model: &z3::Model,
 ) -> Scenario {
     encoder.extract_scenario(model)
@@ -23,7 +23,7 @@ mod tests {
     use crate::ltl::generator::LTLGenerator;
     use crate::solver::encoder::Z3Encoder;
     use std::collections::HashMap;
-    use z3::{Config, Context, SatResult};
+    use z3::{Config, SatResult};
 
     fn create_test_spec() -> ScenarioSpec {
         let mut npc_behavior = HashMap::new();
@@ -67,32 +67,33 @@ mod tests {
     #[test]
     fn test_extract_scenario_integration() {
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let spec = create_test_spec();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
 
-        let mut encoder = Z3Encoder::new(&ctx, spec.clone());
-        encoder.create_variables();
-        encoder.encode_initial_conditions();
-        encoder.encode_kinematics();
-        encoder.encode_lane_velocity_constraints();
+            let mut encoder = Z3Encoder::new(spec.clone());
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
 
-        let ltl_formula = LTLGenerator::generate(&spec);
-        encoder.encode_ltl(&ltl_formula);
-        encoder.encode_safety();
+            let ltl_formula = LTLGenerator::generate(&spec);
+            encoder.encode_ltl(&ltl_formula);
+            encoder.encode_safety();
 
-        let result = encoder.check();
-        assert_eq!(result, SatResult::Sat);
+            let result = encoder.check();
+            assert_eq!(result, SatResult::Sat);
 
-        if result == SatResult::Sat {
-            let model = encoder.get_model().unwrap();
-            let scenario = extract_scenario_from_model(&encoder, &model);
+            if result == SatResult::Sat {
+                let model = encoder.get_model().unwrap();
+                let scenario = extract_scenario_from_model(&encoder, &model);
 
-            // Verify extraction worked
-            assert_eq!(scenario.actors.len(), 2);
-            assert!(scenario.get_actor("ego").is_some());
-            assert!(scenario.get_actor("npc").is_some());
+                // Verify extraction worked
+                assert_eq!(scenario.actors.len(), 2);
+                assert!(scenario.get_actor("ego").is_some());
+                assert!(scenario.get_actor("npc").is_some());
 
-            println!("Integration test passed - scenario extracted successfully");
-        }
+                println!("Integration test passed - scenario extracted successfully");
+            }
+        });
     }
 }

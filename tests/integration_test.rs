@@ -9,21 +9,22 @@ use z3::*;
 fn test_z3_basic() {
     // Verify Z3 is working
     let cfg = Config::new();
-    let ctx = Context::new(&cfg);
-    let solver = Solver::new();
+    z3::with_z3_config(&cfg, || {
+        let solver = Solver::new();
 
-    // Simple constraint: x > 0
-    let x = ast::Int::new_const("x");
-    let zero = ast::Int::from_i64(0);
-    solver.assert(&x.gt(&zero));
+        // Simple constraint: x > 0
+        let x = ast::Int::new_const("x");
+        let zero = ast::Int::from_i64(0);
+        solver.assert(&x.gt(&zero));
 
-    assert_eq!(solver.check(), SatResult::Sat);
+        assert_eq!(solver.check(), SatResult::Sat);
 
-    let model = solver.get_model().unwrap();
-    let x_val = model.eval(&x, true).unwrap().as_i64().unwrap();
-    assert!(x_val > 0);
+        let model = solver.get_model().unwrap();
+        let x_val = model.eval(&x, true).unwrap().as_i64().unwrap();
+        assert!(x_val > 0);
 
-    println!("Z3 found: x = {}", x_val);
+        println!("Z3 found: x = {}", x_val);
+    });
 }
 
 #[test]

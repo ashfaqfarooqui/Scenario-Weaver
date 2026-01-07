@@ -10,7 +10,7 @@ use crate::ltl::formula::LTLFormula;
 use crate::scenario::model::Scenario;
 use crate::solver::Z3Encoder;
 use z3::ast::{Ast, Bool, Real};
-use z3::{Config, Context, SatResult};
+use z3::{Config, SatResult};
 
 /// Generate multiple diverse scenarios from the same specification
 ///
@@ -37,44 +37,51 @@ pub fn generate_scenarios(
     for i in 0..num_scenarios {
         // Create fresh Z3 context for each scenario
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let mut encoder = Z3Encoder::new(&ctx, spec.clone());
+        z3::with_z3_config(&cfg, || {
+            let mut encoder = Z3Encoder::new(spec.clone());
 
-        // Setup encoder (same as single scenario)
-        encoder.create_variables();
-        encoder.encode_initial_conditions();
-        encoder.encode_kinematics();
-        encoder.encode_lane_velocity_constraints();
-        encoder.encode_ltl(ltl_formula);
-        encoder.encode_safety();
+            // Setup encoder (same as single scenario)
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
+            encoder.encode_ltl(ltl_formula);
+            encoder.encode_safety();
 
-        // Add blocking clauses for all previous scenarios
-        for prev_scenario in &scenarios {
-            let blocking_clause = create_blocking_clause(&encoder, prev_scenario);
-            encoder.assert_constraint(&blocking_clause);
-        }
+            // Add blocking clauses for all previous scenarios
+            for prev_scenario in &scenarios {
+                let blocking_clause = create_blocking_clause(&encoder, prev_scenario);
+                encoder.assert_constraint(&blocking_clause);
+            }
 
-        // Solve
-        match encoder.check() {
-            SatResult::Sat => {
-                let model = encoder.get_model().ok_or_else(|| {
-                    ScenarioGenError::ExtractionFailed("Failed to get Z3 model".to_string())
-                })?;
-                let scenario = encoder.extract_scenario(&model);
-                scenarios.push(scenario);
-                tracing::info!("Generated scenario {}/{}", i + 1, num_scenarios);
+            // Solve
+            match encoder.check() {
+                SatResult::Sat => {
+                    let model = encoder.get_model().ok_or_else(|| {
+                        ScenarioGenError::ExtractionFailed("Failed to get Z3 model".to_string())
+                    })?;
+                    let scenario = encoder.extract_scenario(&model);
+                    scenarios.push(scenario);
+                    tracing::info!("Generated scenario {}/{}", i + 1, num_scenarios);
+                    Ok::<(), ScenarioGenError>(())
+                }
+                SatResult::Unsat => {
+                    tracing::warn!(
+                        "No more unique scenarios found after {} scenarios",
+                        scenarios.len()
+                    );
+                    Ok::<(), ScenarioGenError>(()) // No more solutions exist
+                }
+                SatResult::Unknown => {
+                    tracing::error!("Z3 returned UNKNOWN for scenario {}", i + 1);
+                    Ok::<(), ScenarioGenError>(())
+                }
             }
-            SatResult::Unsat => {
-                tracing::warn!(
-                    "No more unique scenarios found after {} scenarios",
-                    scenarios.len()
-                );
-                break; // No more solutions exist
-            }
-            SatResult::Unknown => {
-                tracing::error!("Z3 returned UNKNOWN for scenario {}", i + 1);
-                break;
-            }
+        })?;
+
+        // Break if no more unique scenarios found
+        if scenarios.len() < i + 1 {
+            break;
         }
     }
 
@@ -92,7 +99,7 @@ pub fn generate_scenarios(
 ///
 /// The blocking clause is: !(px0 == prev_px0 AND vx0 == prev_vx0)
 /// Which is equivalent to: (px0 != prev_px0 OR vx0 != prev_vx0)
-fn create_blocking_clause<'ctx>(encoder: &Z3Encoder<'ctx>, prev_scenario: &Scenario) -> Bool {
+fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool {
     // Get NPC trajectory from previous scenario
     let npc_traj = prev_scenario
         .get_actor("npc")
@@ -126,7 +133,7 @@ fn create_blocking_clause<'ctx>(encoder: &Z3Encoder<'ctx>, prev_scenario: &Scena
 }
 
 /// Add accessor methods to Z3Encoder for multi_solve module
-impl<'ctx> Z3Encoder<'ctx> {
+impl Z3Encoder {
     /// Get position_x variable for an actor at a specific time
     pub fn get_position_x(&self, actor_id: &str, time: usize) -> &Real {
         &self.positions_x[actor_id][time]
@@ -242,60 +249,63 @@ mod tests {
     fn test_blocking_clause() {
         let spec = create_test_spec();
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let mut encoder = Z3Encoder::new(&ctx, spec.clone());
+        z3::with_z3_config(&cfg, || {
+            let mut encoder = Z3Encoder::new(spec.clone());
 
-        encoder.create_variables();
-        encoder.encode_initial_conditions();
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
 
-        // Generate first scenario
-        let ltl_formula = LTLGenerator::generate(&spec);
-        encoder.encode_kinematics();
-        encoder.encode_lane_velocity_constraints();
-        encoder.encode_ltl(&ltl_formula);
-        encoder.encode_safety();
+            // Generate first scenario
+            let ltl_formula = LTLGenerator::generate(&spec);
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
+            encoder.encode_ltl(&ltl_formula);
+            encoder.encode_safety();
 
-        let result = encoder.check();
-        assert_eq!(result, SatResult::Sat);
+            let result = encoder.check();
+            assert_eq!(result, SatResult::Sat);
 
-        let model = encoder.get_model().unwrap();
-        let scenario1 = encoder.extract_scenario(&model);
+            let model = encoder.get_model().unwrap();
+            let scenario1 = encoder.extract_scenario(&model);
 
-        // Create fresh context and encoder for second scenario
-        let cfg2 = Config::new();
-        let ctx2 = Context::new(&cfg2);
-        let mut encoder2 = Z3Encoder::new(&ctx2, spec);
+            // Create fresh context and encoder for second scenario
+            let cfg2 = Config::new();
+            z3::with_z3_config(&cfg2, || {
+                let mut enc = Z3Encoder::new(spec);
+                enc.create_variables();
+                enc.encode_initial_conditions();
+                enc.encode_kinematics();
+                enc.encode_ltl(&ltl_formula);
+                enc.encode_safety();
 
-        encoder2.create_variables();
-        encoder2.encode_initial_conditions();
-        encoder2.encode_kinematics();
-        encoder2.encode_ltl(&ltl_formula);
-        encoder2.encode_safety();
+                // Add blocking clause
+                let blocking = create_blocking_clause(&enc, &scenario1);
+                enc.assert_constraint(&blocking);
 
-        // Add blocking clause
-        let blocking = create_blocking_clause(&ctx2, &encoder2, &scenario1);
-        encoder2.assert_constraint(&blocking);
+                // Should still be satisfiable (with different solution)
+                let result2 = enc.check();
+                assert_eq!(result2, SatResult::Sat);
 
-        // Should still be satisfiable (with different solution)
-        let result2 = encoder2.check();
-        assert_eq!(result2, SatResult::Sat);
+                let model2 = enc.get_model().unwrap();
+                let scenario2 = enc.extract_scenario(&model2);
 
-        let model2 = encoder2.get_model().unwrap();
-        let scenario2 = encoder2.extract_scenario(&model2);
+                // Verify scenarios are different
+                let npc1 = scenario1.get_actor("npc").unwrap();
+                let npc2 = scenario2.get_actor("npc").unwrap();
 
-        // Verify scenarios are different
-        let npc1 = scenario1.get_actor("npc").unwrap();
-        let npc2 = scenario2.get_actor("npc").unwrap();
+                let px1 = npc1.states[0].position.x;
+                let vx1 = npc1.states[0].velocity.vx;
+                let px2 = npc2.states[0].position.x;
+                let vx2 = npc2.states[0].velocity.vx;
 
-        let px1 = npc1.states[0].position.x;
-        let vx1 = npc1.states[0].velocity.vx;
-        let px2 = npc2.states[0].position.x;
-        let vx2 = npc2.states[0].velocity.vx;
+                println!("Scenario 1: px0={:.2}, vx0={:.2}", px1, vx1);
+                println!("Scenario 2: px0={:.2}, vx0={:.2}", px2, vx2);
 
-        println!("Scenario 1: px0={:.2}, vx0={:.2}", px1, vx1);
-        println!("Scenario 2: px0={:.2}, vx0={:.2}", px2, vx2);
+                let different = (px1 - px2).abs() > 0.01 || (vx1 - vx2).abs() > 0.01;
+                assert!(different, "Scenarios should be different");
 
-        let different = (px1 - px2).abs() > 0.01 || (vx1 - vx2).abs() > 0.01;
-        assert!(different, "Scenarios should be different");
+                scenario2
+            });
+        });
     }
 }

@@ -2,18 +2,15 @@
 
 use std::collections::HashMap;
 use z3::ast::{Ast, Int, Real};
-use z3::{Context, SatResult, Solver};
+use z3::{SatResult, Solver};
 
 use crate::dsl::types::{ConstraintMode, ScenarioSpec};
 
 /// Z3 SMT encoder for scenario constraints
 ///
-/// Lifetime 'ctx is the Z3 context lifetime - all Z3 AST nodes must live
-/// as long as the context.
-pub struct Z3Encoder<'ctx> {
-    /// Z3 context (must outlive all AST nodes)
-    pub(crate) ctx: &'ctx Context,
-
+/// Note: In Z3 0.19, the context is managed internally by Solver::new()
+/// and is implicit within the `with_z3_config()` callback scope.
+pub struct Z3Encoder {
     /// Z3 solver instance
     pub(crate) solver: Solver,
 
@@ -46,14 +43,15 @@ pub struct Z3Encoder<'ctx> {
     accelerations_y: HashMap<String, Vec<Real>>,
 }
 
-impl<'ctx> Z3Encoder<'ctx> {
+impl Z3Encoder {
     /// Create a new Z3 encoder for the given specification
-    pub fn new(ctx: &'ctx Context, spec: ScenarioSpec) -> Self {
+    ///
+    /// Note: This must be called within a `z3::with_z3_config()` callback.
+    pub fn new(spec: ScenarioSpec) -> Self {
         let solver = Solver::new();
         let horizon = spec.num_time_steps();
 
         Self {
-            ctx,
             solver,
             spec,
             horizon,
@@ -1082,111 +1080,111 @@ mod tests {
     #[test]
     fn test_encoder_creation() {
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let spec = create_test_spec();
-
-        let encoder = Z3Encoder::new(&ctx, spec);
-        assert_eq!(encoder.horizon, 20); // 10.0 / 0.5 = 20
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let encoder = Z3Encoder::new(spec);
+            assert_eq!(encoder.horizon, 20); // 10.0 / 0.5 = 20
+        });
     }
 
     #[test]
     fn test_create_variables() {
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let spec = create_test_spec();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
 
-        let mut encoder = Z3Encoder::new(&ctx, spec);
-        encoder.create_variables();
+            // Check variables were created
+            assert!(encoder.positions_x.contains_key("ego"));
+            assert!(encoder.positions_x.contains_key("npc"));
 
-        // Check variables were created
-        assert!(encoder.positions_x.contains_key("ego"));
-        assert!(encoder.positions_x.contains_key("npc"));
-
-        // Check we have the right number of time steps
-        assert_eq!(encoder.positions_x["ego"].len(), 21); // 0..=20
-        assert_eq!(encoder.velocities_x["npc"].len(), 21);
+            // Check we have the right number of time steps
+            assert_eq!(encoder.positions_x["ego"].len(), 21); // 0..=20
+            assert_eq!(encoder.velocities_x["npc"].len(), 21);
+        });
     }
 
     #[test]
     fn test_encode_initial_conditions() {
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let spec = create_test_spec();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
 
-        let mut encoder = Z3Encoder::new(&ctx, spec);
-        encoder.create_variables();
-        encoder.encode_initial_conditions();
+            // Check that constraints are satisfiable
+            let result = encoder.check();
+            assert_eq!(result, SatResult::Sat);
 
-        // Check that constraints are satisfiable
-        let result = encoder.check();
-        assert_eq!(result, SatResult::Sat);
+            // Get model and verify initial values
+            let model = encoder.get_model().unwrap();
 
-        // Get model and verify initial values
-        let model = encoder.get_model().unwrap();
+            // Ego position should be 50.0
+            let ego_px_0 = model.eval(&encoder.positions_x["ego"][0], true).unwrap();
+            println!("Ego initial position: {:?}", ego_px_0);
 
-        // Ego position should be 50.0
-        let ego_px_0 = model.eval(&encoder.positions_x["ego"][0], true).unwrap();
-        println!("Ego initial position: {:?}", ego_px_0);
+            // NPC position should be in range [60.0, 80.0]
+            let npc_px_0 = model.eval(&encoder.positions_x["npc"][0], true).unwrap();
+            println!("NPC initial position: {:?}", npc_px_0);
 
-        // NPC position should be in range [60.0, 80.0]
-        let npc_px_0 = model.eval(&encoder.positions_x["npc"][0], true).unwrap();
-        println!("NPC initial position: {:?}", npc_px_0);
-
-        // Ego speed should be 15.0
-        let ego_vx_0 = model.eval(&encoder.velocities_x["ego"][0], true).unwrap();
-        println!("Ego initial speed: {:?}", ego_vx_0);
+            // Ego speed should be 15.0
+            let ego_vx_0 = model.eval(&encoder.velocities_x["ego"][0], true).unwrap();
+            println!("Ego initial speed: {:?}", ego_vx_0);
+        });
     }
 
     #[test]
     fn test_lane_position_coupling() {
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let spec = create_test_spec();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
 
-        let mut encoder = Z3Encoder::new(&ctx, spec);
-        encoder.create_variables();
-        encoder.encode_initial_conditions();
+            assert_eq!(encoder.check(), SatResult::Sat);
 
-        assert_eq!(encoder.check(), SatResult::Sat);
+            let model = encoder.get_model().unwrap();
 
-        let model = encoder.get_model().unwrap();
+            // Ego in lane 1, should have py = 1 * 3.5 + 1.75 = 5.25
+            let ego_py_0 = model.eval(&encoder.positions_y["ego"][0], true).unwrap();
+            println!("Ego lateral position: {:?}", ego_py_0);
 
-        // Ego in lane 1, should have py = 1 * 3.5 + 1.75 = 5.25
-        let ego_py_0 = model.eval(&encoder.positions_y["ego"][0], true).unwrap();
-        println!("Ego lateral position: {:?}", ego_py_0);
-
-        // NPC in lane 0, should have py = 0 * 3.5 + 1.75 = 1.75
-        let npc_py_0 = model.eval(&encoder.positions_y["npc"][0], true).unwrap();
-        println!("NPC lateral position: {:?}", npc_py_0);
+            // NPC in lane 0, should have py = 0 * 3.5 + 1.75 = 1.75
+            let npc_py_0 = model.eval(&encoder.positions_y["npc"][0], true).unwrap();
+            println!("NPC lateral position: {:?}", npc_py_0);
+        });
     }
 
     #[test]
     fn test_kinematics() {
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let spec = create_test_spec();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
 
-        let mut encoder = Z3Encoder::new(&ctx, spec);
-        encoder.create_variables();
-        encoder.encode_initial_conditions();
-        encoder.encode_kinematics();
-        encoder.encode_lane_velocity_constraints();
+            assert_eq!(encoder.check(), SatResult::Sat);
 
-        assert_eq!(encoder.check(), SatResult::Sat);
+            let model = encoder.get_model().unwrap();
 
-        let model = encoder.get_model().unwrap();
+            // Check that position evolves correctly
+            let ego_px_0 = model.eval(&encoder.positions_x["ego"][0], true).unwrap();
+            let ego_px_1 = model.eval(&encoder.positions_x["ego"][1], true).unwrap();
+            let ego_vx_0 = model.eval(&encoder.velocities_x["ego"][0], true).unwrap();
 
-        // Check that position evolves correctly
-        let ego_px_0 = model.eval(&encoder.positions_x["ego"][0], true).unwrap();
-        let ego_px_1 = model.eval(&encoder.positions_x["ego"][1], true).unwrap();
-        let ego_vx_0 = model.eval(&encoder.velocities_x["ego"][0], true).unwrap();
+            println!("Ego px[0]: {:?}", ego_px_0);
+            println!("Ego px[1]: {:?}", ego_px_1);
+            println!("Ego vx[0]: {:?}", ego_vx_0);
 
-        println!("Ego px[0]: {:?}", ego_px_0);
-        println!("Ego px[1]: {:?}", ego_px_1);
-        println!("Ego vx[0]: {:?}", ego_vx_0);
-
-        // px[1] should be px[0] + vx[0] * 0.5
-        // 50.0 + 15.0 * 0.5 = 57.5
+            // px[1] should be px[0] + vx[0] * 0.5
+            // 50.0 + 15.0 * 0.5 = 57.5
+        });
     }
 
     #[test]
@@ -1194,23 +1192,23 @@ mod tests {
         use crate::ltl::formula::{LTLFormula, Proposition};
 
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let spec = create_test_spec();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
 
-        let mut encoder = Z3Encoder::new(&ctx, spec);
-        encoder.create_variables();
-        encoder.encode_initial_conditions();
-        encoder.encode_kinematics();
-        encoder.encode_lane_velocity_constraints();
+            // Test simple atomic proposition: InLane(ego, 1)
+            let formula = LTLFormula::Atom(Proposition::InLane {
+                actor: "ego".to_string(),
+                lane: 1,
+            });
 
-        // Test simple atomic proposition: InLane(ego, 1)
-        let formula = LTLFormula::Atom(Proposition::InLane {
-            actor: "ego".to_string(),
-            lane: 1,
+            encoder.encode_ltl(&formula);
+            assert_eq!(encoder.check(), SatResult::Sat);
         });
-
-        encoder.encode_ltl(&formula);
-        assert_eq!(encoder.check(), SatResult::Sat);
     }
 
     #[test]
@@ -1218,39 +1216,39 @@ mod tests {
         use crate::ltl::formula::{LTLFormula, Proposition};
 
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let spec = create_test_spec();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
 
-        let mut encoder = Z3Encoder::new(&ctx, spec);
-        encoder.create_variables();
-        encoder.encode_initial_conditions();
-        encoder.encode_kinematics();
-        encoder.encode_lane_velocity_constraints();
+            // Test Eventually: F(InLane(npc, 1))
+            // NPC should eventually be in lane 1
+            let formula = LTLFormula::Atom(Proposition::InLane {
+                actor: "npc".to_string(),
+                lane: 1,
+            })
+            .eventually();
 
-        // Test Eventually: F(InLane(npc, 1))
-        // NPC should eventually be in lane 1
-        let formula = LTLFormula::Atom(Proposition::InLane {
-            actor: "npc".to_string(),
-            lane: 1,
-        })
-        .eventually();
+            encoder.encode_ltl(&formula);
+            assert_eq!(encoder.check(), SatResult::Sat);
 
-        encoder.encode_ltl(&formula);
-        assert_eq!(encoder.check(), SatResult::Sat);
+            let model = encoder.get_model().unwrap();
 
-        let model = encoder.get_model().unwrap();
-
-        // Check that NPC is in lane 1 at some point
-        let mut found_lane_1 = false;
-        for t in 0..=encoder.horizon {
-            let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
-            if lane.to_string() == "1" {
-                found_lane_1 = true;
-                println!("NPC in lane 1 at time {}", t);
-                break;
+            // Check that NPC is in lane 1 at some point
+            let mut found_lane_1 = false;
+            for t in 0..=encoder.horizon {
+                let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
+                if lane.to_string() == "1" {
+                    found_lane_1 = true;
+                    println!("NPC in lane 1 at time {}", t);
+                    break;
+                }
             }
-        }
-        assert!(found_lane_1, "NPC should eventually be in lane 1");
+            assert!(found_lane_1, "NPC should eventually be in lane 1");
+        });
     }
 
     #[test]
@@ -1258,33 +1256,33 @@ mod tests {
         use crate::ltl::formula::{LTLFormula, Proposition};
 
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let spec = create_test_spec();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
 
-        let mut encoder = Z3Encoder::new(&ctx, spec);
-        encoder.create_variables();
-        encoder.encode_initial_conditions();
-        encoder.encode_kinematics();
-        encoder.encode_lane_velocity_constraints();
+            // Test Always: G(InLane(ego, 1))
+            // Ego should always be in lane 1
+            let formula = LTLFormula::Atom(Proposition::InLane {
+                actor: "ego".to_string(),
+                lane: 1,
+            })
+            .always();
 
-        // Test Always: G(InLane(ego, 1))
-        // Ego should always be in lane 1
-        let formula = LTLFormula::Atom(Proposition::InLane {
-            actor: "ego".to_string(),
-            lane: 1,
-        })
-        .always();
+            encoder.encode_ltl(&formula);
+            assert_eq!(encoder.check(), SatResult::Sat);
 
-        encoder.encode_ltl(&formula);
-        assert_eq!(encoder.check(), SatResult::Sat);
+            let model = encoder.get_model().unwrap();
 
-        let model = encoder.get_model().unwrap();
-
-        // Check that ego is in lane 1 at all times
-        for t in 0..=encoder.horizon {
-            let lane = model.eval(&encoder.lanes["ego"][t], true).unwrap();
-            assert_eq!(lane.to_string(), "1", "Ego should always be in lane 1");
-        }
+            // Check that ego is in lane 1 at all times
+            for t in 0..=encoder.horizon {
+                let lane = model.eval(&encoder.lanes["ego"][t], true).unwrap();
+                assert_eq!(lane.to_string(), "1", "Ego should always be in lane 1");
+            }
+        });
     }
 
     #[test]
@@ -1292,70 +1290,70 @@ mod tests {
         use crate::ltl::formula::{LTLFormula, Proposition};
 
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let spec = create_test_spec();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
 
-        let mut encoder = Z3Encoder::new(&ctx, spec);
-        encoder.create_variables();
-        encoder.encode_initial_conditions();
-        encoder.encode_kinematics();
-        encoder.encode_lane_velocity_constraints();
+            // Test Until: InLane(npc, 0) U InLane(npc, 1)
+            // NPC stays in lane 0 until it moves to lane 1
+            let formula = LTLFormula::Atom(Proposition::InLane {
+                actor: "npc".to_string(),
+                lane: 0,
+            })
+            .until(LTLFormula::Atom(Proposition::InLane {
+                actor: "npc".to_string(),
+                lane: 1,
+            }));
 
-        // Test Until: InLane(npc, 0) U InLane(npc, 1)
-        // NPC stays in lane 0 until it moves to lane 1
-        let formula = LTLFormula::Atom(Proposition::InLane {
-            actor: "npc".to_string(),
-            lane: 0,
-        })
-        .until(LTLFormula::Atom(Proposition::InLane {
-            actor: "npc".to_string(),
-            lane: 1,
-        }));
+            encoder.encode_ltl(&formula);
+            assert_eq!(encoder.check(), SatResult::Sat);
 
-        encoder.encode_ltl(&formula);
-        assert_eq!(encoder.check(), SatResult::Sat);
+            let model = encoder.get_model().unwrap();
 
-        let model = encoder.get_model().unwrap();
-
-        // Find when NPC transitions to lane 1
-        let mut transition_time = None;
-        for t in 0..=encoder.horizon {
-            let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
-            if lane.to_string() == "1" {
-                transition_time = Some(t);
-                break;
-            }
-        }
-
-        if let Some(trans_t) = transition_time {
-            println!("NPC transitions to lane 1 at time {}", trans_t);
-            // Before transition, should be in lane 0
-            for t in 0..trans_t {
+            // Find when NPC transitions to lane 1
+            let mut transition_time = None;
+            for t in 0..=encoder.horizon {
                 let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
-                assert_eq!(
-                    lane.to_string(),
-                    "0",
-                    "NPC should be in lane 0 before transition"
-                );
+                if lane.to_string() == "1" {
+                    transition_time = Some(t);
+                    break;
+                }
             }
-        }
+
+            if let Some(trans_t) = transition_time {
+                println!("NPC transitions to lane 1 at time {}", trans_t);
+                // Before transition, should be in lane 0
+                for t in 0..trans_t {
+                    let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
+                    assert_eq!(
+                        lane.to_string(),
+                        "0",
+                        "NPC should be in lane 0 before transition"
+                    );
+                }
+            }
+        });
     }
 
     #[test]
     fn test_safety_constraints() {
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let spec = create_test_spec();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
+            encoder.encode_safety();
 
-        let mut encoder = Z3Encoder::new(&ctx, spec);
-        encoder.create_variables();
-        encoder.encode_initial_conditions();
-        encoder.encode_kinematics();
-        encoder.encode_lane_velocity_constraints();
-        encoder.encode_safety();
-
-        // Safety constraints should be satisfiable
-        assert_eq!(encoder.check(), SatResult::Sat);
+            // Safety constraints should be satisfiable
+            assert_eq!(encoder.check(), SatResult::Sat);
+        });
     }
 
     #[test]
@@ -1363,53 +1361,53 @@ mod tests {
         use crate::ltl::generator::LTLGenerator;
 
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let spec = create_test_spec();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let mut encoder = Z3Encoder::new(spec.clone());
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
 
-        let mut encoder = Z3Encoder::new(&ctx, spec.clone());
-        encoder.create_variables();
-        encoder.encode_initial_conditions();
-        encoder.encode_kinematics();
-        encoder.encode_lane_velocity_constraints();
+            // Generate and encode full cut-in LTL formula
+            let ltl_formula = LTLGenerator::generate(&spec);
+            encoder.encode_ltl(&ltl_formula);
 
-        // Generate and encode full cut-in LTL formula
-        let ltl_formula = LTLGenerator::generate(&spec);
-        encoder.encode_ltl(&ltl_formula);
+            // Add safety constraints
+            encoder.encode_safety();
 
-        // Add safety constraints
-        encoder.encode_safety();
+            // Check satisfiability
+            let result = encoder.check();
+            assert_eq!(
+                result,
+                SatResult::Sat,
+                "Full cut-in scenario should be satisfiable"
+            );
 
-        // Check satisfiability
-        let result = encoder.check();
-        assert_eq!(
-            result,
-            SatResult::Sat,
-            "Full cut-in scenario should be satisfiable"
-        );
+            if result == SatResult::Sat {
+                let model = encoder.get_model().unwrap();
 
-        if result == SatResult::Sat {
-            let model = encoder.get_model().unwrap();
+                // Verify initial conditions
+                let ego_lane_0 = model.eval(&encoder.lanes["ego"][0], true).unwrap();
+                let npc_lane_0 = model.eval(&encoder.lanes["npc"][0], true).unwrap();
+                assert_eq!(ego_lane_0.to_string(), "1");
+                assert_eq!(npc_lane_0.to_string(), "0");
 
-            // Verify initial conditions
-            let ego_lane_0 = model.eval(&encoder.lanes["ego"][0], true).unwrap();
-            let npc_lane_0 = model.eval(&encoder.lanes["npc"][0], true).unwrap();
-            assert_eq!(ego_lane_0.to_string(), "1");
-            assert_eq!(npc_lane_0.to_string(), "0");
-
-            // Verify NPC eventually changes lanes
-            let mut npc_in_lane_1 = false;
-            for t in 0..=encoder.horizon {
-                let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
-                if lane.to_string() == "1" {
-                    npc_in_lane_1 = true;
-                    println!("NPC changes to lane 1 at time step {}", t);
-                    break;
+                // Verify NPC eventually changes lanes
+                let mut npc_in_lane_1 = false;
+                for t in 0..=encoder.horizon {
+                    let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
+                    if lane.to_string() == "1" {
+                        npc_in_lane_1 = true;
+                        println!("NPC changes to lane 1 at time step {}", t);
+                        break;
+                    }
                 }
-            }
-            assert!(npc_in_lane_1, "NPC should eventually change to lane 1");
+                assert!(npc_in_lane_1, "NPC should eventually change to lane 1");
 
-            println!("Full cut-in scenario test passed!");
-        }
+                println!("Full cut-in scenario test passed!");
+            }
+        });
     }
 
     #[test]
@@ -1417,69 +1415,69 @@ mod tests {
         use crate::ltl::generator::LTLGenerator;
 
         let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let spec = create_test_spec();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let mut encoder = Z3Encoder::new(spec.clone());
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
 
-        let mut encoder = Z3Encoder::new(&ctx, spec.clone());
-        encoder.create_variables();
-        encoder.encode_initial_conditions();
-        encoder.encode_kinematics();
-        encoder.encode_lane_velocity_constraints();
+            // Generate and encode full cut-in LTL formula
+            let ltl_formula = LTLGenerator::generate(&spec);
+            encoder.encode_ltl(&ltl_formula);
+            encoder.encode_safety();
 
-        // Generate and encode full cut-in LTL formula
-        let ltl_formula = LTLGenerator::generate(&spec);
-        encoder.encode_ltl(&ltl_formula);
-        encoder.encode_safety();
+            // Check satisfiability
+            let result = encoder.check();
+            assert_eq!(result, SatResult::Sat, "Should be satisfiable");
 
-        // Check satisfiability
-        let result = encoder.check();
-        assert_eq!(result, SatResult::Sat, "Should be satisfiable");
+            if result == SatResult::Sat {
+                let model = encoder.get_model().unwrap();
 
-        if result == SatResult::Sat {
-            let model = encoder.get_model().unwrap();
+                // Extract scenario
+                let scenario = encoder.extract_scenario(&model);
 
-            // Extract scenario
-            let scenario = encoder.extract_scenario(&model);
+                // Verify basic structure
+                assert_eq!(scenario.actors.len(), 2);
+                assert_eq!(scenario.time_step, 0.5);
+                assert_eq!(scenario.duration, 10.0);
 
-            // Verify basic structure
-            assert_eq!(scenario.actors.len(), 2);
-            assert_eq!(scenario.time_step, 0.5);
-            assert_eq!(scenario.duration, 10.0);
+                // Verify ego trajectory
+                let ego = scenario.get_actor("ego").expect("Ego missing");
+                assert_eq!(ego.id, "ego");
+                assert_eq!(ego.states.len(), 21); // 0..=20
 
-            // Verify ego trajectory
-            let ego = scenario.get_actor("ego").expect("Ego missing");
-            assert_eq!(ego.id, "ego");
-            assert_eq!(ego.states.len(), 21); // 0..=20
+                // Verify NPC trajectory
+                let npc = scenario.get_actor("npc").expect("NPC missing");
+                assert_eq!(npc.id, "npc");
+                assert_eq!(npc.states.len(), 21);
 
-            // Verify NPC trajectory
-            let npc = scenario.get_actor("npc").expect("NPC missing");
-            assert_eq!(npc.id, "npc");
-            assert_eq!(npc.states.len(), 21);
+                // Verify initial conditions
+                assert_eq!(ego.states[0].lane, 1);
+                assert_eq!(npc.states[0].lane, 0);
 
-            // Verify initial conditions
-            assert_eq!(ego.states[0].lane, 1);
-            assert_eq!(npc.states[0].lane, 0);
+                // Verify NPC position is ahead initially
+                assert!(npc.states[0].position.x > ego.states[0].position.x);
 
-            // Verify NPC position is ahead initially
-            assert!(npc.states[0].position.x > ego.states[0].position.x);
+                // Verify validation metrics exist
+                println!("Min TTC: {}", scenario.validation.min_ttc);
+                println!("Min distance: {}", scenario.validation.min_distance);
+                println!(
+                    "All constraints satisfied: {}",
+                    scenario.validation.all_constraints_satisfied
+                );
 
-            // Verify validation metrics exist
-            println!("Min TTC: {}", scenario.validation.min_ttc);
-            println!("Min distance: {}", scenario.validation.min_distance);
-            println!(
-                "All constraints satisfied: {}",
-                scenario.validation.all_constraints_satisfied
-            );
+                // Test JSON serialization
+                let json = serde_json::to_string_pretty(&scenario).unwrap();
+                println!("Extracted scenario JSON:\n{}", json);
 
-            // Test JSON serialization
-            let json = serde_json::to_string_pretty(&scenario).unwrap();
-            println!("Extracted scenario JSON:\n{}", json);
+                // Verify it can be deserialized
+                let _deserialized: crate::scenario::model::Scenario =
+                    serde_json::from_str(&json).unwrap();
 
-            // Verify it can be deserialized
-            let _deserialized: crate::scenario::model::Scenario =
-                serde_json::from_str(&json).unwrap();
-
-            println!("Scenario extraction test passed!");
-        }
+                println!("Scenario extraction test passed!");
+            }
+        });
     }
 }
