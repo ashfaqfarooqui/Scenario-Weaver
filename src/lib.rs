@@ -65,11 +65,9 @@ pub fn generate_single_scenario(yaml_content: &str) -> Result<Scenario> {
     // Solve and extract scenario
     match encoder.check() {
         SatResult::Sat => {
-            let model = encoder
-                .get_model()
-                .ok_or_else(|| {
-                    ScenarioGenError::ExtractionFailed("Failed to get Z3 model".to_string())
-                })?;
+            let model = encoder.get_model().ok_or_else(|| {
+                ScenarioGenError::ExtractionFailed("Failed to get Z3 model".to_string())
+            })?;
             Ok(encoder.extract_scenario(&model))
         }
         SatResult::Unsat => Err(ScenarioGenError::Unsatisfiable),
@@ -149,4 +147,22 @@ pub fn export_scenario_to_xosc(scenario: &Scenario) -> Result<String> {
 /// ```
 pub fn export_scenario_to_svg(scenario: &Scenario) -> Result<String> {
     scenario::export_to_svg(scenario)
+}
+
+/// Export a scenario to animated GIF format
+///
+/// Generates a GIF animation showing vehicle trajectories evolving over time
+/// at 10 FPS with real-time metrics displayed as text overlay.
+///
+/// # Example
+/// ```no_run
+/// use carla_scenario_generator::{generate_single_scenario, export_scenario_to_gif};
+///
+/// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
+/// let scenario = generate_single_scenario(&yaml).unwrap();
+/// let gif_bytes = export_scenario_to_gif(&scenario).unwrap();
+/// std::fs::write("scenario.gif", gif_bytes).unwrap();
+/// ```
+pub fn export_scenario_to_gif(scenario: &Scenario) -> Result<Vec<u8>> {
+    scenario::export_to_gif(scenario)
 }
