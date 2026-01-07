@@ -1,7 +1,7 @@
 scenario_type: cut_in_right
 
 # Time configuration
-time_step: 0.5        # 0.5 second discretization
+time_step: 0.1        # 0.5 second discretization
 duration: 10.0        # 10 second scenario
 
 # Actor specifications (generic actor system)

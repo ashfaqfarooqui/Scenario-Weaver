@@ -28,23 +28,7 @@ actors:
     behavior:
       cut_in_time: [2.5, 7.5]
 
-  - id: npc2
-    role: npc
-    lane: 2
-    position: 150.0
-    speed: 16.0                 # Backward direction
-    acceleration: [-2.0, 0.0]
-    behavior:
-      cut_in_time: [2.5, 7.5]
-
-  - id: npc3
-    role: npc
-    lane: 3
-    position: 120.0
-    speed: 14.0                 # Backward direction
-    acceleration: [-2.0, 0.0]
-    behavior:
-      cut_in_time: [2.5, 7.5]
+  
 
 # Safety constraints - all vehicles maintain safe distances
 min_ttc: 3.0
