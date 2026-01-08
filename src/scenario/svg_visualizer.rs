@@ -28,6 +28,7 @@ const COLOR_ROAD: &str = "#2A2A2A"; // Dark gray
 const COLOR_LANE_MARKING: &str = "#FFFFFF"; // White
 const COLOR_TEXT: &str = "#333333"; // Dark gray text
 const COLOR_BACKGROUND: &str = "#F5F5F5"; // Light gray background
+const COLOR_JUNCTION: &str = "#3D3D3D"; // Slightly lighter than road for junctions
 
 // Vehicle dimensions (in pixels)
 const VEHICLE_LENGTH: f64 = 12.0;
@@ -175,6 +176,7 @@ impl<'a> SvgVisualizer<'a> {
         document = self.add_header(document);
         document = self.add_metrics_bar(document);
         document = self.add_road_surface(document);
+        document = self.add_junctions(document);
         document = self.add_lane_markings(document);
         document = self.add_trajectories(document);
         document = self.add_vehicles(document);
@@ -423,6 +425,80 @@ impl<'a> SvgVisualizer<'a> {
                         svg_cy - 5.0
                     ),
                 );
+            group = group.add(label);
+        }
+
+        document.add(group)
+    }
+
+    /// Add junctions to the visualization
+    fn add_junctions(&self, document: Document) -> Document {
+        // Only render junctions if we have a road network
+        let network = match self.network {
+            Some(n) if !n.junctions.is_empty() => n,
+            _ => return document,
+        };
+
+        use crate::dsl::road_network::{
+            CrossroadsGeometry, JunctionType, TJunctionGeometry,
+        };
+
+        let mut group = Group::new().set("id", "junctions");
+
+        for (idx, junction) in network.junctions.iter().enumerate() {
+            // Get junction corners based on type
+            let corners: [(f64, f64); 4] = match junction.junction_type {
+                JunctionType::TJunction => {
+                    if let Ok(geom) = TJunctionGeometry::from_junction(junction, network) {
+                        geom.get_corners()
+                    } else {
+                        continue;
+                    }
+                }
+                JunctionType::Crossroads => {
+                    if let Ok(geom) = CrossroadsGeometry::from_junction(junction, network) {
+                        geom.get_corners()
+                    } else {
+                        continue;
+                    }
+                }
+            };
+
+            // Transform corners to SVG coordinates
+            let svg_corners: Vec<(f64, f64)> = corners
+                .iter()
+                .map(|&(x, y)| self.transform_coords(x, y))
+                .collect();
+
+            // Build polygon path
+            let path_data = format!(
+                "M {} {} L {} {} L {} {} L {} {} Z",
+                svg_corners[0].0, svg_corners[0].1,
+                svg_corners[1].0, svg_corners[1].1,
+                svg_corners[2].0, svg_corners[2].1,
+                svg_corners[3].0, svg_corners[3].1
+            );
+
+            let junction_path = Path::new()
+                .set("d", path_data)
+                .set("fill", COLOR_JUNCTION)
+                .set("id", format!("junction_{}", idx));
+            group = group.add(junction_path);
+
+            // Add junction label
+            let center_x = corners.iter().map(|(x, _)| x).sum::<f64>() / 4.0;
+            let center_y = corners.iter().map(|(_, y)| y).sum::<f64>() / 4.0;
+            let (svg_cx, svg_cy) = self.transform_coords(center_x, center_y);
+
+            let label = Text::new(&junction.id)
+                .set("x", svg_cx)
+                .set("y", svg_cy)
+                .set("text-anchor", "middle")
+                .set("dominant-baseline", "middle")
+                .set("font-family", "Arial, sans-serif")
+                .set("font-size", 9)
+                .set("fill", COLOR_LANE_MARKING)
+                .set("opacity", 0.8);
             group = group.add(label);
         }
 
@@ -1011,5 +1087,56 @@ mod tests {
         // The config should consider the road geometry
         // Road goes from (50, 50) to (250, 50), so bounds should include this
         assert!(config.x_min < 50.0);
+    }
+
+    #[test]
+    fn test_export_svg_with_junction() {
+        use crate::dsl::road_network::{
+            ExtendedRoadSpec, Junction, JunctionSide, JunctionType, RoadNetwork, WorldPosition,
+        };
+
+        let main_road = ExtendedRoadSpec {
+            id: "main".to_string(),
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1, -1, -1],
+            length: 400.0,
+            origin: Some(WorldPosition { x: 0.0, y: 0.0 }),
+            heading: Some(0.0),
+        };
+
+        let side_road = ExtendedRoadSpec {
+            id: "side".to_string(),
+            num_lanes: 2,
+            lane_width: 3.0,
+            lane_directions: vec![1, -1],
+            length: 150.0,
+            origin: Some(WorldPosition { x: 200.0, y: -50.0 }),
+            heading: Some(std::f64::consts::FRAC_PI_2),
+        };
+
+        let junction = Junction {
+            id: "t_junction".to_string(),
+            junction_type: JunctionType::TJunction,
+            main_road: Some("main".to_string()),
+            incoming_roads: vec!["side".to_string()],
+            position: Some(200.0),
+            side: Some(JunctionSide::Right),
+        };
+
+        let network =
+            RoadNetwork::new(vec![main_road, side_road]).with_junctions(vec![junction]);
+
+        let scenario = create_test_scenario();
+        let svg = export_to_svg_with_network(&scenario, &network).unwrap();
+
+        // Verify basic structure
+        assert!(svg.contains("<svg"));
+        assert!(svg.contains("</svg>"));
+
+        // Verify junction is rendered
+        assert!(svg.contains("id=\"junctions\""));
+        assert!(svg.contains("junction_0"));
+        assert!(svg.contains("t_junction")); // Junction label
     }
 }
