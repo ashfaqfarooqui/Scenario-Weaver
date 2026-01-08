@@ -283,6 +283,187 @@ pub enum JunctionSide {
     Right,
 }
 
+/// Geometry data for a T-junction
+#[derive(Debug, Clone)]
+pub struct TJunctionGeometry {
+    /// Position on main road (s-coordinate) where junction occurs
+    pub main_road_s: f64,
+    /// Width of the junction area
+    pub width: f64,
+    /// Heading of the incoming road in radians (relative to world)
+    pub incoming_heading: f64,
+    /// World coordinates of junction center
+    pub center: WorldPosition,
+    /// Which side of the main road the incoming road joins from
+    pub side: JunctionSide,
+}
+
+impl TJunctionGeometry {
+    /// Calculate T-junction geometry from junction definition
+    pub fn from_junction(junction: &Junction, network: &RoadNetwork) -> Result<Self, String> {
+        if !matches!(junction.junction_type, JunctionType::TJunction) {
+            return Err("Not a T-junction".to_string());
+        }
+
+        let main_road_id = junction
+            .main_road
+            .as_ref()
+            .ok_or("T-junction requires main_road")?;
+        let main_road = network
+            .get_road(main_road_id)
+            .ok_or_else(|| format!("Unknown main_road: {}", main_road_id))?;
+
+        let incoming_road_id = junction
+            .incoming_roads
+            .first()
+            .ok_or("T-junction requires incoming_road")?;
+        let incoming_road = network
+            .get_road(incoming_road_id)
+            .ok_or_else(|| format!("Unknown incoming_road: {}", incoming_road_id))?;
+
+        let position = junction.position.unwrap_or(main_road.length / 2.0);
+        let side = junction.side.unwrap_or(JunctionSide::Right);
+
+        // Calculate junction width (based on lane widths)
+        let main_width = main_road.num_lanes as f64 * main_road.lane_width;
+        let incoming_width = incoming_road.num_lanes as f64 * incoming_road.lane_width;
+        let width = main_width.max(incoming_width) + 5.0; // Extra buffer
+
+        // Calculate center in world coordinates
+        let main_heading = main_road.heading.unwrap_or(0.0);
+        let origin_x = main_road.origin.as_ref().map(|o| o.x).unwrap_or(0.0);
+        let origin_y = main_road.origin.as_ref().map(|o| o.y).unwrap_or(0.0);
+
+        let center_x = origin_x + position * main_heading.cos();
+        let center_y = origin_y + position * main_heading.sin();
+
+        // Calculate incoming road heading (perpendicular to main road)
+        let incoming_heading = match side {
+            JunctionSide::Right => main_heading - std::f64::consts::FRAC_PI_2, // 90° right
+            JunctionSide::Left => main_heading + std::f64::consts::FRAC_PI_2,  // 90° left
+        };
+
+        Ok(Self {
+            main_road_s: position,
+            width,
+            incoming_heading,
+            center: WorldPosition {
+                x: center_x,
+                y: center_y,
+            },
+            side,
+        })
+    }
+
+    /// Get the four corners of the junction box in world coordinates
+    pub fn get_corners(&self) -> [(f64, f64); 4] {
+        let half_width = self.width / 2.0;
+        let (cx, cy) = (self.center.x, self.center.y);
+
+        // Junction box is a square centered at the junction center
+        [
+            (cx - half_width, cy - half_width), // bottom-left
+            (cx + half_width, cy - half_width), // bottom-right
+            (cx + half_width, cy + half_width), // top-right
+            (cx - half_width, cy + half_width), // top-left
+        ]
+    }
+
+    /// Get the connection point where incoming road meets the junction
+    pub fn get_incoming_connection_point(&self) -> (f64, f64) {
+        let main_heading = self.incoming_heading
+            + match self.side {
+                JunctionSide::Right => std::f64::consts::FRAC_PI_2,
+                JunctionSide::Left => -std::f64::consts::FRAC_PI_2,
+            };
+
+        let offset = self.width / 2.0;
+        match self.side {
+            JunctionSide::Right => (
+                self.center.x + offset * (-main_heading.sin()),
+                self.center.y + offset * main_heading.cos(),
+            ),
+            JunctionSide::Left => (
+                self.center.x - offset * (-main_heading.sin()),
+                self.center.y - offset * main_heading.cos(),
+            ),
+        }
+    }
+}
+
+/// Geometry data for a crossroads intersection
+#[derive(Debug, Clone)]
+pub struct CrossroadsGeometry {
+    /// World coordinates of intersection center
+    pub center: WorldPosition,
+    /// Width/height of the junction area
+    pub size: f64,
+    /// Headings of each arm of the intersection (in order of incoming_roads)
+    pub arm_headings: Vec<f64>,
+}
+
+impl CrossroadsGeometry {
+    /// Calculate crossroads geometry from junction definition
+    pub fn from_junction(junction: &Junction, network: &RoadNetwork) -> Result<Self, String> {
+        if !matches!(junction.junction_type, JunctionType::Crossroads) {
+            return Err("Not a crossroads".to_string());
+        }
+
+        if junction.incoming_roads.len() < 3 {
+            return Err("Crossroads requires at least 3 incoming roads".to_string());
+        }
+
+        // Calculate center as average of road endpoints pointing to junction
+        let mut sum_x: f64 = 0.0;
+        let mut sum_y: f64 = 0.0;
+        let mut max_width: f64 = 0.0;
+        let mut arm_headings = Vec::new();
+
+        for road_id in &junction.incoming_roads {
+            let road = network
+                .get_road(road_id)
+                .ok_or_else(|| format!("Unknown road: {}", road_id))?;
+
+            // Use road's origin as a reference point
+            let origin = road.origin.as_ref().map(|o| (o.x, o.y)).unwrap_or((0.0, 0.0));
+            sum_x += origin.0;
+            sum_y += origin.1;
+
+            let road_width = road.num_lanes as f64 * road.lane_width;
+            max_width = max_width.max(road_width);
+
+            arm_headings.push(road.heading.unwrap_or(0.0));
+        }
+
+        let count = junction.incoming_roads.len() as f64;
+        let center = WorldPosition {
+            x: sum_x / count,
+            y: sum_y / count,
+        };
+
+        let size = max_width * 2.0 + 5.0; // Double max road width plus buffer
+
+        Ok(Self {
+            center,
+            size,
+            arm_headings,
+        })
+    }
+
+    /// Get the four corners of the junction box in world coordinates
+    pub fn get_corners(&self) -> [(f64, f64); 4] {
+        let half_size = self.size / 2.0;
+        let (cx, cy) = (self.center.x, self.center.y);
+
+        [
+            (cx - half_size, cy - half_size), // bottom-left
+            (cx + half_size, cy - half_size), // bottom-right
+            (cx + half_size, cy + half_size), // top-right
+            (cx - half_size, cy + half_size), // top-left
+        ]
+    }
+}
+
 impl Junction {
     /// Validate the junction against a road network
     pub fn validate(&self, network: &RoadNetwork) -> Result<(), String> {
@@ -1119,5 +1300,255 @@ mod tests {
         let result = network.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Duplicate junction ID"));
+    }
+
+    #[test]
+    fn test_t_junction_geometry() {
+        let main_road = ExtendedRoadSpec {
+            id: "main".to_string(),
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1, -1, -1],
+            length: 400.0,
+            origin: Some(WorldPosition { x: 0.0, y: 0.0 }),
+            heading: Some(0.0), // East
+        };
+
+        let side_road = ExtendedRoadSpec {
+            id: "side".to_string(),
+            num_lanes: 2,
+            lane_width: 3.0,
+            lane_directions: vec![1, -1],
+            length: 150.0,
+            origin: None,
+            heading: None,
+        };
+
+        let network = RoadNetwork::new(vec![main_road, side_road]);
+
+        let junction = Junction {
+            id: "t_junction".to_string(),
+            junction_type: JunctionType::TJunction,
+            main_road: Some("main".to_string()),
+            incoming_roads: vec!["side".to_string()],
+            position: Some(200.0),
+            side: Some(JunctionSide::Right),
+        };
+
+        let geometry = TJunctionGeometry::from_junction(&junction, &network).unwrap();
+
+        // Check main road s-coordinate
+        assert!((geometry.main_road_s - 200.0).abs() < 0.001);
+
+        // Check center position (at 200m along east-facing road starting at origin)
+        assert!((geometry.center.x - 200.0).abs() < 0.001);
+        assert!(geometry.center.y.abs() < 0.001);
+
+        // Check width (max of main road width 14m and side road width 6m, plus 5m buffer)
+        assert!((geometry.width - 19.0).abs() < 0.001);
+
+        // Check incoming heading (should be -90° from main road heading of 0°)
+        assert!((geometry.incoming_heading - (-std::f64::consts::FRAC_PI_2)).abs() < 0.001);
+
+        // Check side
+        assert!(matches!(geometry.side, JunctionSide::Right));
+    }
+
+    #[test]
+    fn test_t_junction_geometry_left_side() {
+        let main_road = ExtendedRoadSpec {
+            id: "main".to_string(),
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            length: 300.0,
+            origin: Some(WorldPosition { x: 0.0, y: 0.0 }),
+            heading: Some(0.0),
+        };
+
+        let side_road = ExtendedRoadSpec {
+            id: "side".to_string(),
+            num_lanes: 2,
+            lane_width: 3.0,
+            lane_directions: vec![1, -1],
+            length: 100.0,
+            origin: None,
+            heading: None,
+        };
+
+        let network = RoadNetwork::new(vec![main_road, side_road]);
+
+        let junction = Junction {
+            id: "t_junction".to_string(),
+            junction_type: JunctionType::TJunction,
+            main_road: Some("main".to_string()),
+            incoming_roads: vec!["side".to_string()],
+            position: Some(150.0),
+            side: Some(JunctionSide::Left),
+        };
+
+        let geometry = TJunctionGeometry::from_junction(&junction, &network).unwrap();
+
+        // Check incoming heading (should be +90° from main road heading of 0°)
+        assert!((geometry.incoming_heading - std::f64::consts::FRAC_PI_2).abs() < 0.001);
+        assert!(matches!(geometry.side, JunctionSide::Left));
+    }
+
+    #[test]
+    fn test_t_junction_geometry_corners() {
+        let main_road = ExtendedRoadSpec {
+            id: "main".to_string(),
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            length: 200.0,
+            origin: Some(WorldPosition { x: 0.0, y: 0.0 }),
+            heading: Some(0.0),
+        };
+
+        let side_road = ExtendedRoadSpec {
+            id: "side".to_string(),
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, -1],
+            length: 100.0,
+            origin: None,
+            heading: None,
+        };
+
+        let network = RoadNetwork::new(vec![main_road, side_road]);
+
+        let junction = Junction {
+            id: "t_junction".to_string(),
+            junction_type: JunctionType::TJunction,
+            main_road: Some("main".to_string()),
+            incoming_roads: vec!["side".to_string()],
+            position: Some(100.0),
+            side: Some(JunctionSide::Right),
+        };
+
+        let geometry = TJunctionGeometry::from_junction(&junction, &network).unwrap();
+        let corners = geometry.get_corners();
+
+        // Junction centered at (100, 0) with width 12 (7 + 5 buffer)
+        let half_width = geometry.width / 2.0;
+        assert!((corners[0].0 - (100.0 - half_width)).abs() < 0.001);
+        assert!((corners[0].1 - (-half_width)).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_crossroads_geometry() {
+        // Create 4 roads meeting at origin
+        let roads: Vec<ExtendedRoadSpec> = vec![
+            ExtendedRoadSpec {
+                id: "north".to_string(),
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, -1],
+                length: 100.0,
+                origin: Some(WorldPosition { x: 0.0, y: 20.0 }),
+                heading: Some(std::f64::consts::FRAC_PI_2), // North
+            },
+            ExtendedRoadSpec {
+                id: "south".to_string(),
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, -1],
+                length: 100.0,
+                origin: Some(WorldPosition { x: 0.0, y: -20.0 }),
+                heading: Some(-std::f64::consts::FRAC_PI_2), // South
+            },
+            ExtendedRoadSpec {
+                id: "east".to_string(),
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, -1],
+                length: 100.0,
+                origin: Some(WorldPosition { x: 20.0, y: 0.0 }),
+                heading: Some(0.0), // East
+            },
+            ExtendedRoadSpec {
+                id: "west".to_string(),
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, -1],
+                length: 100.0,
+                origin: Some(WorldPosition { x: -20.0, y: 0.0 }),
+                heading: Some(std::f64::consts::PI), // West
+            },
+        ];
+
+        let network = RoadNetwork::new(roads);
+
+        let junction = Junction {
+            id: "crossroads".to_string(),
+            junction_type: JunctionType::Crossroads,
+            main_road: None,
+            incoming_roads: vec![
+                "north".to_string(),
+                "south".to_string(),
+                "east".to_string(),
+                "west".to_string(),
+            ],
+            position: None,
+            side: None,
+        };
+
+        let geometry = CrossroadsGeometry::from_junction(&junction, &network).unwrap();
+
+        // Center should be average of origins: (0, 0)
+        assert!(geometry.center.x.abs() < 0.001);
+        assert!(geometry.center.y.abs() < 0.001);
+
+        // Size should be based on max road width (7m) * 2 + 5m buffer = 19m
+        assert!((geometry.size - 19.0).abs() < 0.001);
+
+        // Should have 4 arm headings
+        assert_eq!(geometry.arm_headings.len(), 4);
+    }
+
+    #[test]
+    fn test_crossroads_geometry_corners() {
+        let roads: Vec<ExtendedRoadSpec> = (0..3)
+            .map(|i| ExtendedRoadSpec {
+                id: format!("road_{}", i),
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, -1],
+                length: 100.0,
+                origin: Some(WorldPosition { x: 0.0, y: 0.0 }),
+                heading: Some(i as f64 * std::f64::consts::FRAC_2_PI / 3.0),
+            })
+            .collect();
+
+        let network = RoadNetwork::new(roads);
+
+        let junction = Junction {
+            id: "crossroads".to_string(),
+            junction_type: JunctionType::Crossroads,
+            main_road: None,
+            incoming_roads: vec![
+                "road_0".to_string(),
+                "road_1".to_string(),
+                "road_2".to_string(),
+            ],
+            position: None,
+            side: None,
+        };
+
+        let geometry = CrossroadsGeometry::from_junction(&junction, &network).unwrap();
+        let corners = geometry.get_corners();
+
+        // Should have 4 corners forming a square
+        assert_eq!(corners.len(), 4);
+
+        // All corners should be equidistant from center
+        let center = &geometry.center;
+        let half_size = geometry.size / 2.0;
+        for corner in &corners {
+            let dist_x = (corner.0 - center.x).abs();
+            let dist_y = (corner.1 - center.y).abs();
+            assert!((dist_x - half_size).abs() < 0.001 || (dist_y - half_size).abs() < 0.001);
+        }
     }
 }
