@@ -3,7 +3,10 @@
 //! Converts RoadSpec and Scenario data to OpenDRIVE XML format
 //! for use with CARLA and other driving simulators.
 
-use crate::dsl::road_network::{ConnectionType, ExtendedRoadSpec, RoadNetwork};
+use crate::dsl::road_network::{
+    ConnectionType, ExtendedRoadSpec, Junction as DslJunction, JunctionType as DslJunctionType,
+    RoadNetwork,
+};
 use crate::dsl::types::{RoadSpec, ScenarioSpec};
 use crate::error::{Result, ScenarioGenError};
 use crate::scenario::model::Scenario;
@@ -11,7 +14,11 @@ use crate::scenario::model::Scenario;
 use opendrive::core::additional_data::AdditionalData;
 use opendrive::core::header::Header;
 use opendrive::core::OpenDrive;
+use opendrive::junction::connection::Connection as OdrConnection;
 use opendrive::junction::contact_point::ContactPoint;
+use opendrive::junction::junction_type::JunctionType as OdrJunctionType;
+use opendrive::junction::lane_link::LaneLink;
+use opendrive::junction::Junction as OdrJunction;
 use opendrive::lane::center::Center;
 use opendrive::lane::center_lane::CenterLane;
 use opendrive::lane::lane_choice::LaneChoice;
@@ -184,11 +191,19 @@ fn build_opendrive_from_network(
         roads.push(road);
     }
 
+    // Build junctions
+    let mut junctions = Vec::new();
+    for (idx, junction) in network.junctions.iter().enumerate() {
+        if let Some(odr_junction) = build_junction(junction, idx, network)? {
+            junctions.push(odr_junction);
+        }
+    }
+
     Ok(OpenDrive {
         header,
         road: roads,
         controller: vec![],
-        junction: vec![],
+        junction: junctions,
         junction_group: vec![],
         station: vec![],
         additional_data: AdditionalData::default(),
@@ -367,6 +382,197 @@ fn build_road_link(road_id: &str, network: &RoadNetwork) -> Option<Link> {
     } else {
         None
     }
+}
+
+/// Build an OpenDRIVE junction from a DSL junction
+fn build_junction(
+    junction: &DslJunction,
+    junction_index: usize,
+    network: &RoadNetwork,
+) -> Result<Option<OdrJunction>> {
+    // Get road indices for junction connections
+    let get_road_idx = |road_id: &str| -> Option<usize> {
+        network.roads.iter().position(|r| r.id == road_id)
+    };
+
+    // Build connections based on junction type
+    let connections = match junction.junction_type {
+        DslJunctionType::TJunction => {
+            build_t_junction_connections(junction, network, &get_road_idx)?
+        }
+        DslJunctionType::Crossroads => {
+            build_crossroads_connections(junction, network, &get_road_idx)?
+        }
+    };
+
+    // Need at least one connection
+    if connections.is_empty() {
+        return Ok(None);
+    }
+
+    // Convert to Vec1 (requires at least one element)
+    let connections_vec1 = vec1::Vec1::try_from(connections).map_err(|_| {
+        ScenarioGenError::XodrExport("Junction must have at least one connection".to_string())
+    })?;
+
+    // Junction ID is 1-indexed
+    let junction_id = (junction_index + 1).to_string();
+
+    Ok(Some(OdrJunction {
+        connection: connections_vec1,
+        priority: vec![],
+        controller: vec![],
+        surface: None,
+        id: junction_id,
+        main_road: junction.main_road.clone(),
+        name: Some(junction.id.clone()),
+        orientation: None,
+        s_end: None,
+        s_start: None,
+        r#type: Some(OdrJunctionType::Default),
+        additional_data: AdditionalData::default(),
+    }))
+}
+
+/// Build connections for a T-junction
+fn build_t_junction_connections(
+    junction: &DslJunction,
+    network: &RoadNetwork,
+    get_road_idx: &impl Fn(&str) -> Option<usize>,
+) -> Result<Vec<OdrConnection>> {
+    let mut connections = Vec::new();
+
+    let main_road_id = junction.main_road.as_ref().ok_or_else(|| {
+        ScenarioGenError::XodrExport("T-junction requires main_road".to_string())
+    })?;
+
+    let main_road_idx = get_road_idx(main_road_id).ok_or_else(|| {
+        ScenarioGenError::XodrExport(format!("Unknown main_road: {}", main_road_id))
+    })?;
+
+    let incoming_road_id = junction.incoming_roads.first().ok_or_else(|| {
+        ScenarioGenError::XodrExport("T-junction requires incoming_road".to_string())
+    })?;
+
+    let incoming_road_idx = get_road_idx(incoming_road_id).ok_or_else(|| {
+        ScenarioGenError::XodrExport(format!("Unknown incoming_road: {}", incoming_road_id))
+    })?;
+
+    let main_road = network.get_road(main_road_id).unwrap();
+    let incoming_road = network.get_road(incoming_road_id).unwrap();
+
+    // Connection 1: From incoming road to main road (turn onto main road)
+    let mut lane_links_to_main = Vec::new();
+    // Map incoming road lanes to main road lanes (simple mapping for now)
+    for lane_idx in 0..incoming_road.num_lanes.min(main_road.num_lanes) {
+        if let (Some(from_lane), Some(to_lane)) = (
+            map_lane_to_opendrive_id(lane_idx, &incoming_road.lane_directions),
+            map_lane_to_opendrive_id(lane_idx, &main_road.lane_directions),
+        ) {
+            lane_links_to_main.push(LaneLink {
+                from: from_lane,
+                to: to_lane,
+            });
+        }
+    }
+
+    connections.push(OdrConnection {
+        predecessor: None,
+        successor: None,
+        lane_link: lane_links_to_main,
+        connecting_road: None,
+        contact_point: Some(ContactPoint::Start),
+        id: "0".to_string(),
+        incoming_road: Some((incoming_road_idx + 1).to_string()),
+        linked_road: Some((main_road_idx + 1).to_string()),
+        r#type: None,
+    });
+
+    // Connection 2: From main road to incoming road (turn off main road)
+    let mut lane_links_from_main = Vec::new();
+    for lane_idx in 0..main_road.num_lanes.min(incoming_road.num_lanes) {
+        if let (Some(from_lane), Some(to_lane)) = (
+            map_lane_to_opendrive_id(lane_idx, &main_road.lane_directions),
+            map_lane_to_opendrive_id(lane_idx, &incoming_road.lane_directions),
+        ) {
+            lane_links_from_main.push(LaneLink {
+                from: from_lane,
+                to: to_lane,
+            });
+        }
+    }
+
+    connections.push(OdrConnection {
+        predecessor: None,
+        successor: None,
+        lane_link: lane_links_from_main,
+        connecting_road: None,
+        contact_point: Some(ContactPoint::End),
+        id: "1".to_string(),
+        incoming_road: Some((main_road_idx + 1).to_string()),
+        linked_road: Some((incoming_road_idx + 1).to_string()),
+        r#type: None,
+    });
+
+    Ok(connections)
+}
+
+/// Build connections for a crossroads
+fn build_crossroads_connections(
+    junction: &DslJunction,
+    network: &RoadNetwork,
+    get_road_idx: &impl Fn(&str) -> Option<usize>,
+) -> Result<Vec<OdrConnection>> {
+    let mut connections = Vec::new();
+    let mut conn_id = 0;
+
+    // Create connections between all pairs of roads
+    for (i, from_road_id) in junction.incoming_roads.iter().enumerate() {
+        let from_road_idx = get_road_idx(from_road_id).ok_or_else(|| {
+            ScenarioGenError::XodrExport(format!("Unknown road: {}", from_road_id))
+        })?;
+
+        let from_road = network.get_road(from_road_id).unwrap();
+
+        for (j, to_road_id) in junction.incoming_roads.iter().enumerate() {
+            if i == j {
+                continue; // Skip self-connections
+            }
+
+            let to_road_idx = get_road_idx(to_road_id).ok_or_else(|| {
+                ScenarioGenError::XodrExport(format!("Unknown road: {}", to_road_id))
+            })?;
+
+            let to_road = network.get_road(to_road_id).unwrap();
+
+            // Create lane links (simple lane-to-lane mapping)
+            let mut lane_links = Vec::new();
+            for lane_idx in 0..from_road.num_lanes.min(to_road.num_lanes) {
+                if let (Some(from_lane), Some(to_lane)) = (
+                    map_lane_to_opendrive_id(lane_idx, &from_road.lane_directions),
+                    map_lane_to_opendrive_id(lane_idx, &to_road.lane_directions),
+                ) {
+                    lane_links.push(LaneLink { from: from_lane, to: to_lane });
+                }
+            }
+
+            connections.push(OdrConnection {
+                predecessor: None,
+                successor: None,
+                lane_link: lane_links,
+                connecting_road: None,
+                contact_point: Some(ContactPoint::Start),
+                id: conn_id.to_string(),
+                incoming_road: Some((from_road_idx + 1).to_string()),
+                linked_road: Some((to_road_idx + 1).to_string()),
+                r#type: None,
+            });
+
+            conn_id += 1;
+        }
+    }
+
+    Ok(connections)
 }
 
 fn build_road(road_spec: &RoadSpec, road_length: f64) -> Result<Road> {
@@ -929,5 +1135,140 @@ mod tests {
 
         let link = build_road_link("isolated_road", &network);
         assert!(link.is_none());
+    }
+
+    #[test]
+    fn test_export_network_with_t_junction() {
+        use crate::dsl::road_network::{
+            ExtendedRoadSpec, Junction, JunctionSide, JunctionType, RoadNetwork, WorldPosition,
+        };
+
+        let main_road = ExtendedRoadSpec {
+            id: "main".to_string(),
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1, -1, -1],
+            length: 400.0,
+            origin: Some(WorldPosition { x: 0.0, y: 0.0 }),
+            heading: Some(0.0),
+        };
+
+        let side_road = ExtendedRoadSpec {
+            id: "side".to_string(),
+            num_lanes: 2,
+            lane_width: 3.0,
+            lane_directions: vec![1, -1],
+            length: 150.0,
+            origin: Some(WorldPosition { x: 200.0, y: -50.0 }),
+            heading: Some(std::f64::consts::FRAC_PI_2),
+        };
+
+        let junction = Junction {
+            id: "t_junction_1".to_string(),
+            junction_type: JunctionType::TJunction,
+            main_road: Some("main".to_string()),
+            incoming_roads: vec!["side".to_string()],
+            position: Some(200.0),
+            side: Some(JunctionSide::Right),
+        };
+
+        let network =
+            RoadNetwork::new(vec![main_road, side_road]).with_junctions(vec![junction]);
+
+        let mut spec = create_test_spec();
+        spec.roads = network;
+
+        let scenario = create_test_scenario();
+        let xml = export_to_xodr(&scenario, &spec).unwrap();
+
+        // Verify basic structure
+        assert!(xml.contains("<?xml"));
+        assert!(xml.contains("OpenDRIVE"));
+
+        // Verify junction is present
+        assert!(xml.contains("<junction"));
+        assert!(xml.contains("t_junction_1")); // Junction name
+
+        // Verify connections exist
+        assert!(xml.contains("<connection"));
+    }
+
+    #[test]
+    fn test_export_network_with_crossroads() {
+        use crate::dsl::road_network::{
+            ExtendedRoadSpec, Junction, JunctionType, RoadNetwork, WorldPosition,
+        };
+
+        let roads: Vec<ExtendedRoadSpec> = vec![
+            ExtendedRoadSpec {
+                id: "north".to_string(),
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, -1],
+                length: 100.0,
+                origin: Some(WorldPosition { x: 0.0, y: 20.0 }),
+                heading: Some(std::f64::consts::FRAC_PI_2),
+            },
+            ExtendedRoadSpec {
+                id: "south".to_string(),
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, -1],
+                length: 100.0,
+                origin: Some(WorldPosition { x: 0.0, y: -20.0 }),
+                heading: Some(-std::f64::consts::FRAC_PI_2),
+            },
+            ExtendedRoadSpec {
+                id: "east".to_string(),
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, -1],
+                length: 100.0,
+                origin: Some(WorldPosition { x: 20.0, y: 0.0 }),
+                heading: Some(0.0),
+            },
+            ExtendedRoadSpec {
+                id: "west".to_string(),
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, -1],
+                length: 100.0,
+                origin: Some(WorldPosition { x: -20.0, y: 0.0 }),
+                heading: Some(std::f64::consts::PI),
+            },
+        ];
+
+        let junction = Junction {
+            id: "crossroads_1".to_string(),
+            junction_type: JunctionType::Crossroads,
+            main_road: None,
+            incoming_roads: vec![
+                "north".to_string(),
+                "south".to_string(),
+                "east".to_string(),
+                "west".to_string(),
+            ],
+            position: None,
+            side: None,
+        };
+
+        let network = RoadNetwork::new(roads).with_junctions(vec![junction]);
+
+        let mut spec = create_test_spec();
+        spec.roads = network;
+
+        let scenario = create_test_scenario();
+        let xml = export_to_xodr(&scenario, &spec).unwrap();
+
+        // Verify basic structure
+        assert!(xml.contains("<?xml"));
+        assert!(xml.contains("OpenDRIVE"));
+
+        // Verify junction is present
+        assert!(xml.contains("<junction"));
+        assert!(xml.contains("crossroads_1"));
+
+        // Verify connections exist (4 roads * 3 connections each = 12)
+        assert!(xml.contains("<connection"));
     }
 }
