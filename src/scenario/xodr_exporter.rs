@@ -498,6 +498,7 @@ mod tests {
                         velocity: Velocity { vx: 15.0, vy: 0.0 },
                         acceleration: crate::scenario::model::Acceleration { ax: 0.0, ay: 0.0 },
                         lane: 1,
+                        road_id: None,
                     },
                     State {
                         time: 5.0,
@@ -505,6 +506,7 @@ mod tests {
                         velocity: Velocity { vx: 15.0, vy: 0.0 },
                         acceleration: crate::scenario::model::Acceleration { ax: 0.0, ay: 0.0 },
                         lane: 1,
+                        road_id: None,
                     },
                 ],
             }],

@@ -228,6 +228,34 @@ pub struct ActorSpec {
     pub behavior: std::collections::HashMap<String, serde_json::Value>,
 }
 
+impl ActorSpec {
+    /// Get the s-coordinate where this actor should change roads
+    /// Reads from behavior["change_road_at"]
+    pub fn get_road_change_position(&self) -> Option<f64> {
+        self.behavior.get("change_road_at").and_then(|v| v.as_f64())
+    }
+
+    /// Get the target road ID for a road transition
+    /// Reads from behavior["target_road"]
+    pub fn get_target_road(&self) -> Option<&str> {
+        self.behavior.get("target_road").and_then(|v| v.as_str())
+    }
+
+    /// Get the target lane for a road transition
+    /// Reads from behavior["target_lane"]
+    pub fn get_target_lane(&self) -> Option<usize> {
+        self.behavior
+            .get("target_lane")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+    }
+
+    /// Check if this actor has a road transition defined
+    pub fn has_road_transition(&self) -> bool {
+        self.get_target_road().is_some()
+    }
+}
+
 /// Root scenario specification
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ScenarioSpec {

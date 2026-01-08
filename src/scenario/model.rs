@@ -54,6 +54,10 @@ pub struct State {
 
     /// Current lane
     pub lane: usize,
+
+    /// Road the actor is on (for multi-road scenarios)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub road_id: Option<String>,
 }
 
 /// 2D position
@@ -181,7 +185,7 @@ impl ActorTrajectory {
 }
 
 impl State {
-    /// Create a new state
+    /// Create a new state without road_id (backward compatible)
     pub fn new(
         time: f64,
         position: Position,
@@ -195,7 +199,14 @@ impl State {
             velocity,
             acceleration,
             lane,
+            road_id: None,
         }
+    }
+
+    /// Set the road_id for this state (builder pattern)
+    pub fn with_road(mut self, road_id: String) -> Self {
+        self.road_id = Some(road_id);
+        self
     }
 }
 

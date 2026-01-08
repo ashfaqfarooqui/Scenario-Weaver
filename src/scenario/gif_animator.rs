@@ -598,6 +598,7 @@ mod tests {
                 velocity: Velocity { vx: 10.0, vy: 0.0 },
                 acceleration: Acceleration { ax: 0.0, ay: 0.0 },
                 lane: 1,
+                road_id: None,
             },
             State {
                 time: 1.0,
@@ -605,6 +606,7 @@ mod tests {
                 velocity: Velocity { vx: 10.0, vy: 0.0 },
                 acceleration: Acceleration { ax: 0.0, ay: 0.0 },
                 lane: 1,
+                road_id: None,
             },
         ];
 
@@ -615,6 +617,7 @@ mod tests {
                 velocity: Velocity { vx: 10.0, vy: 0.0 },
                 acceleration: Acceleration { ax: 0.0, ay: 0.0 },
                 lane: 0,
+                road_id: None,
             },
             State {
                 time: 1.0,
@@ -622,6 +625,7 @@ mod tests {
                 velocity: Velocity { vx: 10.0, vy: 0.0 },
                 acceleration: Acceleration { ax: 0.0, ay: 0.0 },
                 lane: 1,
+                road_id: None,
             },
         ];
 
