@@ -3,6 +3,7 @@
 //! Converts internal Scenario data structures to animated GIF showing
 //! vehicle trajectories evolving over time with real-time metrics overlay.
 
+use crate::dsl::road_network::RoadNetwork;
 use crate::error::{Result, ScenarioGenError};
 use crate::scenario::model::{Scenario, Velocity};
 use ab_glyph::{FontArc, PxScale};
@@ -35,6 +36,7 @@ const COLOR_ROAD: Rgb<u8> = Rgb([42, 42, 42]); // #2A2A2A Dark gray
 const COLOR_LANE_MARKING: Rgb<u8> = Rgb([255, 255, 255]); // #FFFFFF White
 const COLOR_BACKGROUND: Rgb<u8> = Rgb([245, 245, 245]); // #F5F5F5 Light gray
 const COLOR_TEXT: Rgb<u8> = Rgb([51, 51, 51]); // #333333 Dark gray text
+const COLOR_JUNCTION: Rgb<u8> = Rgb([61, 61, 61]); // #3D3D3D Slightly lighter than road
 
 // Vehicle dimensions (in pixels)
 const VEHICLE_LENGTH: u32 = 12;
@@ -55,7 +57,16 @@ const VEHICLE_WIDTH: u32 = 6;
 /// std::fs::write("scenario.gif", gif_bytes).unwrap();
 /// ```
 pub fn export_to_gif(scenario: &Scenario) -> Result<Vec<u8>> {
-    let animator = GifAnimator::new(scenario);
+    let animator = GifAnimator::new(scenario, None);
+    animator.generate()
+}
+
+/// Export a scenario with road network to animated GIF format
+///
+/// This function renders multi-road scenarios with junctions at different
+/// positions and headings.
+pub fn export_to_gif_with_network(scenario: &Scenario, network: &RoadNetwork) -> Result<Vec<u8>> {
+    let animator = GifAnimator::new(scenario, Some(network));
     animator.generate()
 }
 
@@ -127,10 +138,11 @@ struct GifAnimator<'a> {
     scenario: &'a Scenario,
     config: AnimatorConfig,
     font: FontArc,
+    network: Option<&'a RoadNetwork>,
 }
 
 impl<'a> GifAnimator<'a> {
-    fn new(scenario: &'a Scenario) -> Self {
+    fn new(scenario: &'a Scenario, network: Option<&'a RoadNetwork>) -> Self {
         let config = AnimatorConfig::from_scenario(scenario);
 
         // Load embedded font
@@ -139,6 +151,7 @@ impl<'a> GifAnimator<'a> {
 
         Self {
             scenario,
+            network,
             config,
             font,
         }
@@ -188,6 +201,7 @@ impl<'a> GifAnimator<'a> {
 
         self.draw_background(&mut image);
         self.draw_road_surface(&mut image);
+        self.draw_junctions(&mut image);
         self.draw_lane_markings(&mut image);
 
         image
@@ -249,6 +263,58 @@ impl<'a> GifAnimator<'a> {
                 self.config.canvas_height - self.config.road_area_top - self.config.margin,
             );
         draw_filled_rect_mut(image, road_rect, COLOR_ROAD);
+    }
+
+    /// Add junctions to the image
+    fn draw_junctions(&self, image: &mut RgbImage) {
+        // Only render junctions if we have a road network
+        let network = match self.network {
+            Some(n) if !n.junctions.is_empty() => n,
+            _ => return,
+        };
+
+        use crate::dsl::road_network::{
+            CrossroadsGeometry, JunctionType, TJunctionGeometry,
+        };
+
+        for junction in &network.junctions {
+            // Get junction corners based on type
+            let corners: [(f64, f64); 4] = match junction.junction_type {
+                JunctionType::TJunction => {
+                    if let Ok(geom) = TJunctionGeometry::from_junction(junction, network) {
+                        geom.get_corners()
+                    } else {
+                        continue;
+                    }
+                }
+                JunctionType::Crossroads => {
+                    if let Ok(geom) = CrossroadsGeometry::from_junction(junction, network) {
+                        geom.get_corners()
+                    } else {
+                        continue;
+                    }
+                }
+            };
+
+            // Transform corners to image coordinates
+            let img_corners: Vec<(i32, i32)> = corners
+                .iter()
+                .map(|&(x, y)| self.transform_coords(x, y))
+                .collect();
+
+            // Find bounding box for the junction
+            let min_x = img_corners.iter().map(|(x, _)| *x).min().unwrap_or(0);
+            let max_x = img_corners.iter().map(|(x, _)| *x).max().unwrap_or(0);
+            let min_y = img_corners.iter().map(|(_, y)| *y).min().unwrap_or(0);
+            let max_y = img_corners.iter().map(|(_, y)| *y).max().unwrap_or(0);
+
+            // Draw a filled rectangle for the junction (simplified from polygon)
+            if max_x > min_x && max_y > min_y {
+                let junction_rect = Rect::at(min_x, min_y)
+                    .of_size((max_x - min_x) as u32, (max_y - min_y) as u32);
+                draw_filled_rect_mut(image, junction_rect, COLOR_JUNCTION);
+            }
+        }
     }
 
     /// Add lane markings
@@ -672,7 +738,7 @@ mod tests {
     #[test]
     fn test_coordinate_transformation() {
         let scenario = create_test_scenario();
-        let animator = GifAnimator::new(&scenario);
+        let animator = GifAnimator::new(&scenario, None);
 
         let (px, py) = animator.transform_coords(5.0, 3.0);
         assert!(px >= animator.config.margin as i32);
@@ -682,7 +748,7 @@ mod tests {
     #[test]
     fn test_vehicle_color_coding() {
         let scenario = create_test_scenario();
-        let animator = GifAnimator::new(&scenario);
+        let animator = GifAnimator::new(&scenario, None);
 
         assert_eq!(animator.get_actor_color("ego"), COLOR_EGO);
         assert_eq!(animator.get_actor_color("npc"), COLOR_NPC);
@@ -692,7 +758,7 @@ mod tests {
     #[test]
     fn test_frame_metrics_computation() {
         let scenario = create_test_scenario();
-        let animator = GifAnimator::new(&scenario);
+        let animator = GifAnimator::new(&scenario, None);
 
         let (ttc, distance) = animator.compute_frame_metrics(0);
         // Different lanes at frame 0, so metrics should be infinity
@@ -703,7 +769,7 @@ mod tests {
     #[test]
     fn test_violation_time_parsing() {
         let scenario = create_test_scenario();
-        let animator = GifAnimator::new(&scenario);
+        let animator = GifAnimator::new(&scenario, None);
 
         let violation = "TTC violation at t=3.5s: ego-npc: 2.1s < 3.0s";
         let time = animator.parse_violation_time(violation);
