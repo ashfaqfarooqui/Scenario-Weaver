@@ -31,6 +31,9 @@ pub enum ScenarioGenError {
     #[error("GIF export failed: {0}")]
     GifExport(String),
 
+    #[error("OpenDRIVE export failed: {0}")]
+    XodrExport(String),
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 

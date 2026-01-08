@@ -196,3 +196,32 @@ pub fn export_scenario_to_svg(scenario: &Scenario) -> Result<String> {
 pub fn export_scenario_to_gif(scenario: &Scenario) -> Result<Vec<u8>> {
     scenario::export_to_gif(scenario)
 }
+
+/// Export scenario road network to OpenDRIVE format
+///
+/// Converts the road specification from a scenario to OpenDRIVE (.xodr) format
+/// for use with CARLA and other driving simulators.
+///
+/// # Arguments
+/// * `scenario` - The generated scenario with actor trajectories
+/// * `spec` - The original scenario specification containing road definition
+///
+/// # Returns
+/// OpenDRIVE XML string
+///
+/// # Example
+/// ```no_run
+/// use carla_scenario_generator::{generate_single_scenario, export_scenario_to_xodr};
+///
+/// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
+/// let spec = carla_scenario_generator::dsl::parser::parse_yaml(&yaml).unwrap();
+/// let scenario = generate_single_scenario(&yaml).unwrap();
+/// let xodr_xml = export_scenario_to_xodr(&scenario, &spec).unwrap();
+/// std::fs::write("scenario.xodr", xodr_xml).unwrap();
+/// ```
+pub fn export_scenario_to_xodr(
+    scenario: &Scenario,
+    spec: &dsl::types::ScenarioSpec,
+) -> Result<String> {
+    scenario::xodr_exporter::export_to_xodr(scenario, spec)
+}

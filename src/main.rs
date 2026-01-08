@@ -115,7 +115,7 @@ fn main() -> Result<()> {
     tracing::info!("Successfully generated {} scenario(s)", scenarios.len());
 
     // Write output - always to a directory
-    write_scenarios(&scenarios, &cli.output)?;
+    write_scenarios(&scenarios, &spec, &cli.output)?;
 
     if scenarios.len() == 1 {
         print_scenario_summary(&scenarios[0]);
@@ -133,6 +133,7 @@ fn main() -> Result<()> {
 /// Write scenarios to a directory (handles both single and multiple scenarios)
 fn write_scenarios(
     scenarios: &[carla_scenario_generator::scenario::model::Scenario],
+    spec: &carla_scenario_generator::dsl::types::ScenarioSpec,
     output_dir: &PathBuf,
 ) -> Result<()> {
     std::fs::create_dir_all(output_dir)?;
@@ -158,6 +159,13 @@ fn write_scenarios(
         std::fs::write(&xosc_path, xosc_xml)?;
         tracing::debug!("Wrote XOSC to: {:?}", xosc_path);
 
+        // Write XODR (OpenDRIVE road network)
+        let xodr_path = output_dir.join(format!("{}.xodr", base));
+        let xodr_xml =
+            carla_scenario_generator::scenario::xodr_exporter::export_to_xodr(scenario, spec)?;
+        std::fs::write(&xodr_path, xodr_xml)?;
+        tracing::debug!("Wrote XODR to: {:?}", xodr_path);
+
         // Write SVG
         let svg_path = output_dir.join(format!("{}.svg", base));
         let svg = carla_scenario_generator::scenario::export_to_svg(scenario)?;
@@ -172,7 +180,7 @@ fn write_scenarios(
     }
 
     tracing::info!(
-        "Wrote {} scenario quadruplet(s) (JSON+XOSC+SVG+GIF) to directory: {:?}",
+        "Wrote {} scenario quintuplet(s) (JSON+XOSC+XODR+SVG+GIF) to directory: {:?}",
         scenarios.len(),
         output_dir
     );

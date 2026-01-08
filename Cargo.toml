@@ -46,6 +46,11 @@ gif = "0.14"       # GIF encoding
 imageproc = "0.26" # Text rendering
 ab_glyph = "0.2"   # Font loading (compatible with imageproc)
 
+# OpenDRIVE export
+opendrive = "0.1"  # OpenDRIVE parser/writer
+uom = "0.32"       # Units of measurement (required by opendrive)
+vec1 = "1.12"      # Non-empty vec (required by opendrive)
+
 [dev-dependencies]
 pretty_assertions = "1.4" # Better test output
 tempfile = "3.8"          # Temporary files for testing
