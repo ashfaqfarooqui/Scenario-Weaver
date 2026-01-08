@@ -283,6 +283,105 @@ pub enum JunctionSide {
     Right,
 }
 
+impl Junction {
+    /// Validate the junction against a road network
+    pub fn validate(&self, network: &RoadNetwork) -> Result<(), String> {
+        if self.id.is_empty() {
+            return Err("Junction id cannot be empty".to_string());
+        }
+
+        match self.junction_type {
+            JunctionType::TJunction => {
+                // T-junction requires main_road
+                let main_road_id = self.main_road.as_ref().ok_or_else(|| {
+                    format!("T-junction {} requires main_road", self.id)
+                })?;
+
+                let main_road = network.get_road(main_road_id).ok_or_else(|| {
+                    format!(
+                        "T-junction {} references unknown main_road: {}",
+                        self.id, main_road_id
+                    )
+                })?;
+
+                // T-junction requires exactly one incoming road
+                if self.incoming_roads.len() != 1 {
+                    return Err(format!(
+                        "T-junction {} requires exactly one incoming_road, found {}",
+                        self.id,
+                        self.incoming_roads.len()
+                    ));
+                }
+
+                let incoming_id = &self.incoming_roads[0];
+                if network.get_road(incoming_id).is_none() {
+                    return Err(format!(
+                        "T-junction {} references unknown incoming_road: {}",
+                        self.id, incoming_id
+                    ));
+                }
+
+                // Position must be within main road length
+                if let Some(pos) = self.position {
+                    if pos < 0.0 || pos > main_road.length {
+                        return Err(format!(
+                            "T-junction {} position {} outside main_road bounds [0, {}]",
+                            self.id, pos, main_road.length
+                        ));
+                    }
+                }
+            }
+            JunctionType::Crossroads => {
+                // Crossroads requires at least 3 incoming roads
+                if self.incoming_roads.len() < 3 {
+                    return Err(format!(
+                        "Crossroads {} requires at least 3 incoming_roads, found {}",
+                        self.id,
+                        self.incoming_roads.len()
+                    ));
+                }
+
+                // Validate all incoming roads exist
+                for road_id in &self.incoming_roads {
+                    if network.get_road(road_id).is_none() {
+                        return Err(format!(
+                            "Crossroads {} references unknown road: {}",
+                            self.id, road_id
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get the world position of the junction center
+    pub fn get_center_position(&self, network: &RoadNetwork) -> Option<WorldPosition> {
+        match self.junction_type {
+            JunctionType::TJunction => {
+                let main_road = network.get_road(self.main_road.as_ref()?)?;
+                let position = self.position.unwrap_or(main_road.length / 2.0);
+
+                let origin_x = main_road.origin.as_ref().map(|o| o.x).unwrap_or(0.0);
+                let origin_y = main_road.origin.as_ref().map(|o| o.y).unwrap_or(0.0);
+                let heading = main_road.heading.unwrap_or(0.0);
+
+                Some(WorldPosition {
+                    x: origin_x + position * heading.cos(),
+                    y: origin_y + position * heading.sin(),
+                })
+            }
+            JunctionType::Crossroads => {
+                // For crossroads, use the first road's origin as center
+                // (can be refined later)
+                let first_road = network.get_road(self.incoming_roads.first()?)?;
+                first_road.origin.clone()
+            }
+        }
+    }
+}
+
 impl RoadNetwork {
     /// Create a new road network
     pub fn new(roads: Vec<ExtendedRoadSpec>) -> Self {
@@ -351,27 +450,21 @@ impl RoadNetwork {
             }
         }
 
-        // Validate junctions reference existing roads
+        // Validate junctions
+        let mut junction_ids = std::collections::HashSet::new();
         for junction in &self.junctions {
-            if let Some(main) = &junction.main_road {
-                if self.get_road(main).is_none() {
-                    return Err(format!(
-                        "Junction {} references unknown main road: {}",
-                        junction.id, main
-                    ));
-                }
+            if !junction_ids.insert(&junction.id) {
+                return Err(format!("Duplicate junction ID: {}", junction.id));
             }
-            for road_id in &junction.incoming_roads {
-                if self.get_road(road_id).is_none() {
-                    return Err(format!(
-                        "Junction {} references unknown road: {}",
-                        junction.id, road_id
-                    ));
-                }
-            }
+            junction.validate(self)?;
         }
 
         Ok(())
+    }
+
+    /// Get junction by ID
+    pub fn get_junction(&self, id: &str) -> Option<&Junction> {
+        self.junctions.iter().find(|j| j.id == id)
     }
 }
 
@@ -709,5 +802,322 @@ mod tests {
         let (end_x, end_y) = road_endpoint(&road, false);
         assert!((end_x - 110.0).abs() < 0.001);
         assert!((end_y - 20.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_t_junction_validation_valid() {
+        let main_road = ExtendedRoadSpec {
+            id: "main".to_string(),
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1, -1, -1],
+            length: 400.0,
+            origin: Some(WorldPosition { x: 0.0, y: 0.0 }),
+            heading: Some(0.0),
+        };
+
+        let side_road = ExtendedRoadSpec {
+            id: "side".to_string(),
+            num_lanes: 2,
+            lane_width: 3.0,
+            lane_directions: vec![1, -1],
+            length: 150.0,
+            origin: None,
+            heading: None,
+        };
+
+        let network = RoadNetwork::new(vec![main_road, side_road]);
+
+        let junction = Junction {
+            id: "t_junction_1".to_string(),
+            junction_type: JunctionType::TJunction,
+            main_road: Some("main".to_string()),
+            incoming_roads: vec!["side".to_string()],
+            position: Some(200.0),
+            side: Some(JunctionSide::Right),
+        };
+
+        assert!(junction.validate(&network).is_ok());
+    }
+
+    #[test]
+    fn test_t_junction_validation_missing_main_road() {
+        let road = ExtendedRoadSpec {
+            id: "main".to_string(),
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            length: 400.0,
+            origin: None,
+            heading: None,
+        };
+
+        let network = RoadNetwork::new(vec![road]);
+
+        let junction = Junction {
+            id: "bad_junction".to_string(),
+            junction_type: JunctionType::TJunction,
+            main_road: None, // Missing main_road
+            incoming_roads: vec!["main".to_string()],
+            position: None,
+            side: None,
+        };
+
+        let result = junction.validate(&network);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("requires main_road"));
+    }
+
+    #[test]
+    fn test_t_junction_validation_wrong_incoming_count() {
+        let main_road = ExtendedRoadSpec {
+            id: "main".to_string(),
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            length: 400.0,
+            origin: None,
+            heading: None,
+        };
+
+        let network = RoadNetwork::new(vec![main_road]);
+
+        let junction = Junction {
+            id: "bad_junction".to_string(),
+            junction_type: JunctionType::TJunction,
+            main_road: Some("main".to_string()),
+            incoming_roads: vec![], // Should be exactly 1
+            position: None,
+            side: None,
+        };
+
+        let result = junction.validate(&network);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("exactly one incoming_road"));
+    }
+
+    #[test]
+    fn test_t_junction_validation_position_out_of_bounds() {
+        let main_road = ExtendedRoadSpec {
+            id: "main".to_string(),
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            length: 100.0,
+            origin: None,
+            heading: None,
+        };
+
+        let side_road = ExtendedRoadSpec {
+            id: "side".to_string(),
+            num_lanes: 2,
+            lane_width: 3.0,
+            lane_directions: vec![1, -1],
+            length: 50.0,
+            origin: None,
+            heading: None,
+        };
+
+        let network = RoadNetwork::new(vec![main_road, side_road]);
+
+        let junction = Junction {
+            id: "bad_junction".to_string(),
+            junction_type: JunctionType::TJunction,
+            main_road: Some("main".to_string()),
+            incoming_roads: vec!["side".to_string()],
+            position: Some(150.0), // Beyond main road length of 100
+            side: None,
+        };
+
+        let result = junction.validate(&network);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("outside main_road bounds"));
+    }
+
+    #[test]
+    fn test_crossroads_validation_valid() {
+        let roads: Vec<ExtendedRoadSpec> = (1..=4)
+            .map(|i| ExtendedRoadSpec {
+                id: format!("road_{}", i),
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, -1],
+                length: 100.0,
+                origin: None,
+                heading: None,
+            })
+            .collect();
+
+        let network = RoadNetwork::new(roads);
+
+        let junction = Junction {
+            id: "crossroads_1".to_string(),
+            junction_type: JunctionType::Crossroads,
+            main_road: None,
+            incoming_roads: vec![
+                "road_1".to_string(),
+                "road_2".to_string(),
+                "road_3".to_string(),
+                "road_4".to_string(),
+            ],
+            position: None,
+            side: None,
+        };
+
+        assert!(junction.validate(&network).is_ok());
+    }
+
+    #[test]
+    fn test_crossroads_validation_too_few_roads() {
+        let roads: Vec<ExtendedRoadSpec> = (1..=2)
+            .map(|i| ExtendedRoadSpec {
+                id: format!("road_{}", i),
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, -1],
+                length: 100.0,
+                origin: None,
+                heading: None,
+            })
+            .collect();
+
+        let network = RoadNetwork::new(roads);
+
+        let junction = Junction {
+            id: "bad_crossroads".to_string(),
+            junction_type: JunctionType::Crossroads,
+            main_road: None,
+            incoming_roads: vec!["road_1".to_string(), "road_2".to_string()], // Only 2, need 3+
+            position: None,
+            side: None,
+        };
+
+        let result = junction.validate(&network);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("at least 3 incoming_roads"));
+    }
+
+    #[test]
+    fn test_junction_get_center_position() {
+        let main_road = ExtendedRoadSpec {
+            id: "main".to_string(),
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            length: 400.0,
+            origin: Some(WorldPosition { x: 0.0, y: 0.0 }),
+            heading: Some(0.0), // East
+        };
+
+        let side_road = ExtendedRoadSpec {
+            id: "side".to_string(),
+            num_lanes: 2,
+            lane_width: 3.0,
+            lane_directions: vec![1, -1],
+            length: 150.0,
+            origin: None,
+            heading: None,
+        };
+
+        let network = RoadNetwork::new(vec![main_road, side_road]);
+
+        let junction = Junction {
+            id: "t_junction".to_string(),
+            junction_type: JunctionType::TJunction,
+            main_road: Some("main".to_string()),
+            incoming_roads: vec!["side".to_string()],
+            position: Some(200.0),
+            side: Some(JunctionSide::Right),
+        };
+
+        let center = junction.get_center_position(&network).unwrap();
+        assert!((center.x - 200.0).abs() < 0.001);
+        assert!(center.y.abs() < 0.001);
+    }
+
+    #[test]
+    fn test_road_network_with_junctions_validation() {
+        let main_road = ExtendedRoadSpec {
+            id: "main".to_string(),
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1, -1, -1],
+            length: 400.0,
+            origin: Some(WorldPosition { x: 0.0, y: 0.0 }),
+            heading: Some(0.0),
+        };
+
+        let side_road = ExtendedRoadSpec {
+            id: "side".to_string(),
+            num_lanes: 2,
+            lane_width: 3.0,
+            lane_directions: vec![1, -1],
+            length: 150.0,
+            origin: None,
+            heading: None,
+        };
+
+        let junction = Junction {
+            id: "t_junction_1".to_string(),
+            junction_type: JunctionType::TJunction,
+            main_road: Some("main".to_string()),
+            incoming_roads: vec!["side".to_string()],
+            position: Some(200.0),
+            side: Some(JunctionSide::Right),
+        };
+
+        let network = RoadNetwork::new(vec![main_road, side_road]).with_junctions(vec![junction]);
+
+        assert!(network.validate().is_ok());
+        assert!(network.get_junction("t_junction_1").is_some());
+        assert!(network.get_junction("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_road_network_duplicate_junction_ids() {
+        let road = ExtendedRoadSpec {
+            id: "main".to_string(),
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            length: 400.0,
+            origin: None,
+            heading: None,
+        };
+
+        let side = ExtendedRoadSpec {
+            id: "side".to_string(),
+            num_lanes: 2,
+            lane_width: 3.0,
+            lane_directions: vec![1, -1],
+            length: 150.0,
+            origin: None,
+            heading: None,
+        };
+
+        let junction1 = Junction {
+            id: "same_id".to_string(),
+            junction_type: JunctionType::TJunction,
+            main_road: Some("main".to_string()),
+            incoming_roads: vec!["side".to_string()],
+            position: Some(100.0),
+            side: None,
+        };
+
+        let junction2 = Junction {
+            id: "same_id".to_string(), // Duplicate ID
+            junction_type: JunctionType::TJunction,
+            main_road: Some("main".to_string()),
+            incoming_roads: vec!["side".to_string()],
+            position: Some(200.0),
+            side: None,
+        };
+
+        let network =
+            RoadNetwork::new(vec![road, side]).with_junctions(vec![junction1, junction2]);
+
+        let result = network.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Duplicate junction ID"));
     }
 }
