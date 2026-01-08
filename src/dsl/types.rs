@@ -216,6 +216,9 @@ fn default_lane_directions() -> Vec<i32> {
 pub struct ActorSpec {
     pub id: String,
     pub role: ActorRole,
+    /// Road the actor starts on (required for multi-road scenarios)
+    #[serde(default)]
+    pub road_id: Option<String>,
     pub lane: usize,
     pub position: ValueOrRange,
     pub speed: ValueOrRange,
@@ -234,10 +237,13 @@ pub struct ScenarioSpec {
     pub actors: Vec<ActorSpec>,
     pub min_ttc: f64,      // minimum time-to-collision (seconds)
     pub min_distance: f64, // minimum longitudinal distance (meters)
-    /// Road specification (optional, for bidirectional traffic)
+    /// Road network (new format, preferred)
+    #[serde(default)]
+    pub roads: super::road_network::RoadNetwork,
+    /// Road specification (deprecated, use roads instead)
     #[serde(default)]
     pub road: Option<RoadSpec>,
-    /// Lane width (deprecated, use road.lane_width instead)
+    /// Lane width (deprecated, use roads[0].lane_width instead)
     #[serde(default = "default_lane_width")]
     pub lane_width: f64, // meters
     pub num_scenarios: usize, // 1 for single, N for multiple
@@ -315,7 +321,13 @@ impl ScenarioSpec {
     }
 
     /// Get lane width (backward compatible)
+    /// Priority: roads -> road -> lane_width
     pub fn get_lane_width(&self) -> f64 {
+        // Check new roads field first
+        if let Some(primary) = self.roads.primary_road() {
+            return primary.lane_width;
+        }
+        // Fall back to old road field
         self.road
             .as_ref()
             .map(|r| r.lane_width)
@@ -324,16 +336,46 @@ impl ScenarioSpec {
 
     /// Get lane direction (backward compatible)
     /// Returns +1 for forward lanes, -1 for backward lanes
+    /// For multi-road scenarios, this uses the primary road
     pub fn get_lane_direction(&self, lane: usize) -> i32 {
+        // Check new roads field first
+        if let Some(primary) = self.roads.primary_road() {
+            return primary.get_lane_direction(lane);
+        }
+        // Fall back to old road field
         self.road
             .as_ref()
             .map(|r| r.get_lane_direction(lane))
             .unwrap_or(1) // Default: all forward
     }
 
+    /// Get lane direction for a specific road
+    pub fn get_road_lane_direction(&self, road_id: &str, lane: usize) -> i32 {
+        self.roads
+            .get_road(road_id)
+            .map(|r| r.get_lane_direction(lane))
+            .unwrap_or(1)
+    }
+
     /// Get number of lanes (backward compatible)
+    /// For multi-road scenarios, this uses the primary road
     pub fn get_num_lanes(&self) -> usize {
+        // Check new roads field first
+        if let Some(primary) = self.roads.primary_road() {
+            return primary.num_lanes;
+        }
+        // Fall back to old road field
         self.road.as_ref().map(|r| r.num_lanes).unwrap_or(2) // Default: 2 lanes
+    }
+
+    /// Get road by ID, returns None if not found
+    pub fn get_road(&self, road_id: &str) -> Option<&super::road_network::ExtendedRoadSpec> {
+        self.roads.get_road(road_id)
+    }
+
+    /// Check if this spec uses the new roads format
+    pub fn uses_road_network(&self) -> bool {
+        !self.roads.is_empty()
     }
 
     /// Validate the specification
@@ -357,13 +399,31 @@ impl ScenarioSpec {
             return Err("min_distance must be positive".to_string());
         }
 
-        // Validate road specification if present
-        if let Some(road) = &self.road {
+        // Validate road specifications
+        if !self.roads.is_empty() {
+            // Validate new road network format
+            self.roads.validate()?;
+        } else if let Some(road) = &self.road {
+            // Fall back to old road spec format
             road.validate()?;
         } else {
             // Backward compatibility: validate lane_width
             if self.lane_width <= 0.0 {
                 return Err("lane_width must be positive".to_string());
+            }
+        }
+
+        // If using road network, validate actor road_ids reference valid roads
+        if !self.roads.is_empty() {
+            for actor in &self.actors {
+                if let Some(road_id) = &actor.road_id {
+                    if self.roads.get_road(road_id).is_none() {
+                        return Err(format!(
+                            "Actor {} references unknown road: {}",
+                            actor.id, road_id
+                        ));
+                    }
+                }
             }
         }
 
@@ -507,6 +567,7 @@ mod tests {
                 ActorSpec {
                     id: "ego".to_string(),
                     role: ActorRole::Ego,
+                    road_id: None,
                     lane: 1,
                     position: ValueOrRange::Value(50.0),
                     speed: ValueOrRange::Value(15.0),
@@ -516,6 +577,7 @@ mod tests {
                 ActorSpec {
                     id: "npc".to_string(),
                     role: ActorRole::Npc,
+                    road_id: None,
                     lane: 0,
                     position: ValueOrRange::Range([60.0, 80.0]),
                     speed: ValueOrRange::Range([12.0, 14.0]),
@@ -529,6 +591,7 @@ mod tests {
             ],
             min_ttc: 3.0,
             min_distance: 5.0,
+            roads: Default::default(),
             road: None,
             lane_width: 3.5,
             num_scenarios: 1,

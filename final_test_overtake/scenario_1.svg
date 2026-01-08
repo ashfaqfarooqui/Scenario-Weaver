@@ -1,0 +1,149 @@
+<svg height="600" viewBox="0 0 1200 600" width="1200" xmlns="http://www.w3.org/2000/svg">
+<rect fill="#F5F5F5" height="600" width="1200"/>
+<g id="header">
+<text fill="#333333" font-family="Arial, sans-serif" font-size="24" font-weight="bold" text-anchor="middle" x="600" y="30">
+Scenario: overtake_left
+</text>
+<text fill="#333333" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" x="600" y="55">
+ID: 5c178e9b | Duration: 12.0s | Time Step: 0.50s
+</text>
+</g>
+<g id="metrics">
+<text fill="#333333" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" x="600" y="80">
+Min TTC: 0.10s | Min Distance: 0.25m | Max Accel: 4.00 m/s² | Max Decel: -3.00 m/s² | Constraints: 
+</text>
+<text fill="#F44336" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="start" x="920" y="80">
+✗ VIOLATED
+</text>
+</g>
+<rect fill="#2A2A2A" height="400" width="1040" x="80" y="120"/>
+<g id="lane_markings">
+<line opacity="0.6" stroke="#FFFFFF" stroke-dasharray="10,10" stroke-width="2" x1="80" x2="1120" y1="320" y2="320"/>
+<line stroke="#FFFFFF" stroke-width="3" x1="80" x2="1120" y1="-13.333333333333371" y2="-13.333333333333371"/>
+<line stroke="#FFFFFF" stroke-width="3" x1="80" x2="1120" y1="653.3333333333334" y2="653.3333333333334"/>
+</g>
+<g id="trajectories">
+<path d="M 235.17786561264825 153.33333333333331 L 267.1497584541063 153.33333333333331 L 300.26350461133075 153.33333333333331 L 334.5191040843215 153.33333333333331 L 369.9165568730786 153.33333333333331 L 406.45586297760207 153.33333333333331 L 440.7114624505929 153.33333333333331 L 472.6833552920509 153.33333333333331 L 502.37154150197625 153.33333333333331 L 533.201581027668 153.33333333333331 L 565.173473869126 153.33333333333331 L 598.2872200263505 153.33333333333331 L 632.5428194993412 153.33333333333331 L 667.9402722880984 153.33333333333331 L 704.4795783926219 153.33333333333331 L 738.7351778656126 153.33333333333331 L 770.7070707070707 153.33333333333331 L 803.8208168642951 153.33333333333331 L 838.0764163372859 153.33333333333331 L 873.473869126043 153.33333333333331 L 906.5876152832675 153.33333333333331 L 937.4176548089591 153.33333333333331 L 969.3895476504172 153.33333333333331 L 1002.5032938076416 153.33333333333331 L 1033.3333333333335 153.33333333333331 " fill="none" opacity="0.7" stroke="#8BC34A" stroke-width="3"/>
+<circle cx="235.17786561264825" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="267.1497584541063" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="300.26350461133075" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="334.5191040843215" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="369.9165568730786" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="406.45586297760207" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="440.7114624505929" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="472.6833552920509" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="502.37154150197625" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="533.201581027668" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="565.173473869126" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="598.2872200263505" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="632.5428194993412" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="667.9402722880984" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="704.4795783926219" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="738.7351778656126" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="770.7070707070707" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="803.8208168642951" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="838.0764163372859" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="873.473869126043" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="906.5876152832675" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="937.4176548089591" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="969.3895476504172" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="1002.5032938076416" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<circle cx="1033.3333333333335" cy="153.33333333333331" fill="#8BC34A" opacity="0.5" r="2"/>
+<path d="M 166.66666666666669 153.33333333333331 L 215.76635924462013 153.33333333333331 L 269.433465085639 153.33333333333331 L 324.62304201434637 153.33333333333331 L 376.3870589957547 153.33333333333331 L 424.72551602986385 153.33333333333331 L 469.63841311667403 153.33333333333331 L 511.12575025618514 153.33333333333331 L 549.1875274483971 486.66666666666663 L 583.8237446933099 486.66666666666663 L 615.0344019909237 486.66666666666663 L 642.8194993412385 486.66666666666663 L 675.1720099546187 486.66666666666663 L 711.6351925047577 486.66666666666663 L 744.6728151075978 486.66666666666663 L 774.2848777631386 486.66666666666663 L 800.4713804713805 486.66666666666663 L 823.2323232323232 486.66666666666663 L 847.2112428634168 486.66666666666663 L 875.7575757575758 486.66666666666663 L 908.8713219148002 153.33333333333331 L 938.5595081247255 153.33333333333331 L 964.8221343873518 153.33333333333331 L 987.659200702679 153.33333333333331 L 1007.070707070707 153.33333333333331 " fill="none" opacity="0.7" stroke="#64B5F6" stroke-width="3"/>
+<circle cx="166.66666666666669" cy="153.33333333333331" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="215.76635924462013" cy="153.33333333333331" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="269.433465085639" cy="153.33333333333331" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="324.62304201434637" cy="153.33333333333331" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="376.3870589957547" cy="153.33333333333331" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="424.72551602986385" cy="153.33333333333331" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="469.63841311667403" cy="153.33333333333331" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="511.12575025618514" cy="153.33333333333331" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="549.1875274483971" cy="486.66666666666663" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="583.8237446933099" cy="486.66666666666663" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="615.0344019909237" cy="486.66666666666663" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="642.8194993412385" cy="486.66666666666663" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="675.1720099546187" cy="486.66666666666663" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="711.6351925047577" cy="486.66666666666663" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="744.6728151075978" cy="486.66666666666663" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="774.2848777631386" cy="486.66666666666663" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="800.4713804713805" cy="486.66666666666663" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="823.2323232323232" cy="486.66666666666663" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="847.2112428634168" cy="486.66666666666663" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="875.7575757575758" cy="486.66666666666663" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="908.8713219148002" cy="153.33333333333331" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="938.5595081247255" cy="153.33333333333331" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="964.8221343873518" cy="153.33333333333331" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="987.659200702679" cy="153.33333333333331" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="1007.070707070707" cy="153.33333333333331" fill="#64B5F6" opacity="0.5" r="2"/>
+<circle cx="267.1497584541063" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="215.76635924462013" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="300.26350461133075" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="269.433465085639" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="334.5191040843215" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="324.62304201434637" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="334.5191040843215" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="324.62304201434637" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="369.9165568730786" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="376.3870589957547" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="369.9165568730786" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="376.3870589957547" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="406.45586297760207" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="424.72551602986385" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="440.7114624505929" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="469.63841311667403" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="906.5876152832675" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="908.8713219148002" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="906.5876152832675" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="908.8713219148002" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="937.4176548089591" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="938.5595081247255" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="937.4176548089591" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="938.5595081247255" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="969.3895476504172" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="964.8221343873518" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="969.3895476504172" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="964.8221343873518" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="1002.5032938076416" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="987.659200702679" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="1002.5032938076416" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="987.659200702679" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="1033.3333333333335" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+<circle cx="1007.070707070707" cy="153.33333333333331" fill="none" r="8" stroke="#F44336" stroke-width="3"/>
+</g>
+<g id="vehicles">
+<rect fill="#4CAF50" height="6" rx="1" stroke="#333333" stroke-width="1" width="12" x="229.17786561264825" y="150.33333333333331"/>
+<text fill="#333333" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" x="235.17786561264825" y="145.33333333333331">
+ego (t=0)
+</text>
+<rect fill="#4CAF50" height="6" opacity="0.8" rx="1" stroke="#333333" stroke-dasharray="3,3" stroke-width="2" width="12" x="1027.3333333333335" y="150.33333333333331"/>
+<text fill="#333333" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" x="1033.3333333333335" y="171.33333333333331">
+ego (t=12.0)
+</text>
+<rect fill="#2196F3" height="6" rx="1" stroke="#333333" stroke-width="1" width="12" x="160.66666666666669" y="150.33333333333331"/>
+<text fill="#333333" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" x="166.66666666666669" y="145.33333333333331">
+npc (t=0)
+</text>
+<rect fill="#2196F3" height="6" opacity="0.8" rx="1" stroke="#333333" stroke-dasharray="3,3" stroke-width="2" width="12" x="1001.070707070707" y="150.33333333333331"/>
+<text fill="#333333" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" x="1007.070707070707" y="171.33333333333331">
+npc (t=12.0)
+</text>
+</g>
+<g id="legend">
+<rect fill="white" height="80" rx="3" stroke="#333333" stroke-width="1" width="150" x="970" y="440"/>
+<text fill="#333333" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" x="1045" y="455">
+Legend
+</text>
+<rect fill="#4CAF50" height="8" width="12" x="980" y="465"/>
+<text fill="#333333" font-family="Arial, sans-serif" font-size="10" text-anchor="start" x="1000" y="472">
+Ego Vehicle
+</text>
+<rect fill="#2196F3" height="8" width="12" x="980" y="480"/>
+<text fill="#333333" font-family="Arial, sans-serif" font-size="10" text-anchor="start" x="1000" y="487">
+NPC Vehicle
+</text>
+<circle cx="986" cy="499" fill="none" r="6" stroke="#F44336" stroke-width="2"/>
+<text fill="#333333" font-family="Arial, sans-serif" font-size="10" text-anchor="start" x="1000" y="502">
+Safety Violation
+</text>
+</g>
+</svg>

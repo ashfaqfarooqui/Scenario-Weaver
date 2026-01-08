@@ -292,6 +292,7 @@ mod tests {
                 ActorSpec {
                     id: "ego".to_string(),
                     role: ActorRole::Ego,
+                    road_id: None,
                     lane: 1, // Ego in right lane
                     position: ValueOrRange::Value(50.0),
                     speed: ValueOrRange::Value(15.0),
@@ -301,6 +302,7 @@ mod tests {
                 ActorSpec {
                     id: "npc".to_string(),
                     role: ActorRole::Npc,
+                    road_id: None,
                     lane: 1, // NPC starts in SAME lane as ego
                     position: ValueOrRange::Range([30.0, 40.0]), // Behind ego
                     speed: ValueOrRange::Range([18.0, 22.0]), // Faster than ego
@@ -310,6 +312,7 @@ mod tests {
             ],
             min_ttc: 2.0,
             min_distance: 5.0,
+            roads: Default::default(),
             road: None,
             lane_width: 3.5,
             num_scenarios: 1,

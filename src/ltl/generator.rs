@@ -48,6 +48,7 @@ mod tests {
                 ActorSpec {
                     id: "ego".to_string(),
                     role: ActorRole::Ego,
+                    road_id: None,
                     lane: 1,
                     position: ValueOrRange::Value(50.0),
                     speed: ValueOrRange::Value(15.0),
@@ -57,6 +58,7 @@ mod tests {
                 ActorSpec {
                     id: "npc".to_string(),
                     role: ActorRole::Npc,
+                    road_id: None,
                     lane: 0,
                     position: ValueOrRange::Range([60.0, 80.0]),
                     speed: ValueOrRange::Range([12.0, 14.0]),
@@ -70,6 +72,7 @@ mod tests {
             ],
             min_ttc: 3.0,
             min_distance: 5.0,
+            roads: Default::default(),
             road: None,
             lane_width: 3.5,
             num_scenarios: 1,
