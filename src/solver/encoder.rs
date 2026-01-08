@@ -45,6 +45,10 @@ pub struct GenericEncoder<B: Z3Backend> {
 
     /// Lateral accelerations (m/s²)
     pub(crate) accelerations_y: HashMap<String, Vec<Real>>,
+
+    /// Road index for multi-road scenarios (0-indexed into roads vec)
+    /// For single-road scenarios, this remains 0 throughout
+    pub(crate) road_indices: HashMap<String, Vec<Int>>,
 }
 
 /// Type alias for backward compatibility - uses Solver backend
@@ -68,6 +72,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
             lanes: HashMap::new(),
             accelerations_x: HashMap::new(),
             accelerations_y: HashMap::new(),
+            road_indices: HashMap::new(),
         }
     }
 
@@ -117,6 +122,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
     /// - ax_t: longitudinal acceleration
     /// - ay_t: lateral acceleration
     /// - lane_t: lane number
+    /// - road_idx_t: road index (for multi-road scenarios)
     pub fn create_variables(&mut self) {
         for actor in &self.spec.actors {
             let actor_id = &actor.id;
@@ -128,6 +134,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
             let mut lane_vars = Vec::new();
             let mut ax_vars = Vec::new();
             let mut ay_vars = Vec::new();
+            let mut road_idx_vars = Vec::new();
 
             // Create variables for each time step
             for t in 0..=self.horizon {
@@ -138,6 +145,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 lane_vars.push(Int::new_const(format!("{}_lane_{}", actor_id, t)));
                 ax_vars.push(Real::new_const(format!("{}_ax_{}", actor_id, t)));
                 ay_vars.push(Real::new_const(format!("{}_ay_{}", actor_id, t)));
+                road_idx_vars.push(Int::new_const(format!("{}_road_idx_{}", actor_id, t)));
             }
 
             self.positions_x.insert(actor_id.clone(), px_vars);
@@ -147,6 +155,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
             self.lanes.insert(actor_id.clone(), lane_vars);
             self.accelerations_x.insert(actor_id.clone(), ax_vars);
             self.accelerations_y.insert(actor_id.clone(), ay_vars);
+            self.road_indices.insert(actor_id.clone(), road_idx_vars);
         }
     }
 
@@ -170,12 +179,25 @@ impl<B: Z3Backend> GenericEncoder<B> {
                     actor.acceleration.min(),
                     actor.acceleration.max(),
                     actor.role,
+                    actor.road_id.clone(),
+                    actor.has_road_transition(),
                 )
             })
             .collect();
 
-        for (actor_id, lane, pos_min, pos_max, speed_min, speed_max, acc_min, acc_max, role) in
-            actor_data
+        for (
+            actor_id,
+            lane,
+            pos_min,
+            pos_max,
+            speed_min,
+            speed_max,
+            acc_min,
+            acc_max,
+            role,
+            road_id,
+            has_road_transition,
+        ) in actor_data
         {
             // Call existing encoding method
             self.encode_actor_initial_state(
@@ -191,7 +213,49 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 let vy_0 = &self.velocities_y[&actor_id][0];
                 self.backend.assert(&vy_0.eq(&zero));
             }
+
+            // Encode road index constraints
+            self.encode_road_index_constraints(&actor_id, road_id.as_deref(), has_road_transition);
         }
+    }
+
+    /// Encode road index constraints for an actor
+    ///
+    /// For multi-road scenarios, constrains the road index based on the actor's
+    /// starting road and whether they have a road transition defined.
+    fn encode_road_index_constraints(
+        &mut self,
+        actor_id: &str,
+        road_id: Option<&str>,
+        has_road_transition: bool,
+    ) {
+        // Get the road index from the road_id
+        let road_index = if let Some(rid) = road_id {
+            self.spec
+                .roads
+                .roads
+                .iter()
+                .position(|r| r.id == rid)
+                .unwrap_or(0) as i64
+        } else {
+            0 // Default to first road
+        };
+
+        let road_idx_val = Int::from_i64(road_index);
+
+        // Set initial road index
+        let road_idx_0 = &self.road_indices[actor_id][0];
+        self.backend.assert(&road_idx_0.eq(&road_idx_val));
+
+        // If no road transition, road index must remain constant
+        if !has_road_transition {
+            for t in 1..=self.horizon {
+                let road_idx_t = &self.road_indices[actor_id][t];
+                self.backend.assert(&road_idx_t.eq(&road_idx_val));
+            }
+        }
+        // TODO: For actors with road transitions, add constraints based on
+        // change_road_at position and target_road
     }
 
     /// Encode initial state for an actor
@@ -903,7 +967,11 @@ impl<B: Z3Backend> GenericEncoder<B> {
             // Extract lane
             let lane = self.extract_int(model, &self.lanes[actor_id][t]);
 
-            let state = State::new(
+            // Extract road index and convert to road_id
+            let road_idx = self.extract_int(model, &self.road_indices[actor_id][t]);
+            let road_id = self.get_road_id_from_index(road_idx);
+
+            let mut state = State::new(
                 time,
                 Position::new(px, py),
                 Velocity::new(vx, vy),
@@ -911,10 +979,28 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 lane,
             );
 
+            // Set road_id if we have a road network
+            if let Some(rid) = road_id {
+                state = state.with_road(rid);
+            }
+
             trajectory.add_state(state);
         }
 
         trajectory
+    }
+
+    /// Convert road index to road_id string
+    fn get_road_id_from_index(&self, road_idx: usize) -> Option<String> {
+        if self.spec.roads.roads.is_empty() {
+            None
+        } else {
+            self.spec
+                .roads
+                .roads
+                .get(road_idx)
+                .map(|r| r.id.clone())
+        }
     }
 
     /// Extract a real value from Z3 model
