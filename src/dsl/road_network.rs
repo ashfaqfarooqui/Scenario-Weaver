@@ -293,6 +293,18 @@ impl RoadNetwork {
         }
     }
 
+    /// Builder method to add connections
+    pub fn with_connections(mut self, connections: Vec<RoadConnection>) -> Self {
+        self.connections = connections;
+        self
+    }
+
+    /// Builder method to add junctions
+    pub fn with_junctions(mut self, junctions: Vec<Junction>) -> Self {
+        self.junctions = junctions;
+        self
+    }
+
     /// Check if the road network is empty
     pub fn is_empty(&self) -> bool {
         self.roads.is_empty()
