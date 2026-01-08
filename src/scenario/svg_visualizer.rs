@@ -2,7 +2,11 @@
 //!
 //! Converts internal Scenario data structures to SVG static images
 //! showing vehicle trajectories, lane layout, and safety metrics.
+//!
+//! Supports both single-road and multi-road scenarios with roads at
+//! different positions and headings.
 
+use crate::dsl::road_network::RoadNetwork;
 use crate::error::Result;
 use crate::scenario::model::Scenario;
 use svg::node::element::{Circle, Group, Line, Path, Rectangle, Text};
@@ -49,7 +53,16 @@ const VEHICLE_WIDTH: f64 = 6.0;
 /// std::fs::write("scenario.svg", svg).unwrap();
 /// ```
 pub fn export_to_svg(scenario: &Scenario) -> Result<String> {
-    let visualizer = SvgVisualizer::new(scenario);
+    let visualizer = SvgVisualizer::new(scenario, None);
+    visualizer.generate()
+}
+
+/// Export a scenario with road network to SVG format
+///
+/// This function renders multi-road scenarios with roads at different
+/// positions and headings. Each road is drawn with its proper geometry.
+pub fn export_to_svg_with_network(scenario: &Scenario, network: &RoadNetwork) -> Result<String> {
+    let visualizer = SvgVisualizer::new(scenario, Some(network));
     visualizer.generate()
 }
 
@@ -67,7 +80,7 @@ struct VisualizerConfig {
 }
 
 impl VisualizerConfig {
-    fn from_scenario(scenario: &Scenario) -> Self {
+    fn from_scenario(scenario: &Scenario, network: Option<&RoadNetwork>) -> Self {
         // Find bounds of all trajectories
         let (mut x_min, mut x_max, mut y_min, mut y_max) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
 
@@ -77,6 +90,30 @@ impl VisualizerConfig {
                 x_max = x_max.max(state.position.x);
                 y_min = y_min.min(state.position.y);
                 y_max = y_max.max(state.position.y);
+            }
+        }
+
+        // Also consider road network geometry if present
+        if let Some(network) = network {
+            for road in &network.roads {
+                let origin_x = road.origin.as_ref().map(|o| o.x).unwrap_or(0.0);
+                let origin_y = road.origin.as_ref().map(|o| o.y).unwrap_or(0.0);
+                let heading = road.heading.unwrap_or(0.0);
+                let half_width = road.num_lanes as f64 * road.lane_width / 2.0;
+
+                // Road start point
+                x_min = x_min.min(origin_x - half_width * heading.sin().abs());
+                x_max = x_max.max(origin_x + half_width * heading.sin().abs());
+                y_min = y_min.min(origin_y - half_width * heading.cos().abs());
+                y_max = y_max.max(origin_y + half_width * heading.cos().abs());
+
+                // Road end point
+                let end_x = origin_x + road.length * heading.cos();
+                let end_y = origin_y + road.length * heading.sin();
+                x_min = x_min.min(end_x - half_width * heading.sin().abs());
+                x_max = x_max.max(end_x + half_width * heading.sin().abs());
+                y_min = y_min.min(end_y - half_width * heading.cos().abs());
+                y_max = y_max.max(end_y + half_width * heading.cos().abs());
             }
         }
 
@@ -111,12 +148,17 @@ impl VisualizerConfig {
 struct SvgVisualizer<'a> {
     scenario: &'a Scenario,
     config: VisualizerConfig,
+    network: Option<&'a RoadNetwork>,
 }
 
 impl<'a> SvgVisualizer<'a> {
-    fn new(scenario: &'a Scenario) -> Self {
-        let config = VisualizerConfig::from_scenario(scenario);
-        Self { scenario, config }
+    fn new(scenario: &'a Scenario, network: Option<&'a RoadNetwork>) -> Self {
+        let config = VisualizerConfig::from_scenario(scenario, network);
+        Self {
+            scenario,
+            config,
+            network,
+        }
     }
 
     /// Generate the complete SVG document
@@ -268,6 +310,14 @@ impl<'a> SvgVisualizer<'a> {
 
     /// Add road surface
     fn add_road_surface(&self, document: Document) -> Document {
+        // If we have a road network, render each road with proper geometry
+        if let Some(network) = self.network {
+            if !network.roads.is_empty() {
+                return self.add_multi_road_surface(document, network);
+            }
+        }
+
+        // Fallback to single rectangular road
         let road_start_y = self.config.road_margin_top;
         let road_height =
             self.config.canvas_height - self.config.road_margin_top - self.config.margin;
@@ -282,8 +332,112 @@ impl<'a> SvgVisualizer<'a> {
         document.add(road)
     }
 
+    /// Add multiple roads from a road network
+    fn add_multi_road_surface(&self, document: Document, network: &RoadNetwork) -> Document {
+        let mut group = Group::new().set("id", "roads");
+
+        for (idx, road) in network.roads.iter().enumerate() {
+            let origin_x = road.origin.as_ref().map(|o| o.x).unwrap_or(0.0);
+            let origin_y = road.origin.as_ref().map(|o| o.y).unwrap_or(0.0);
+            let heading = road.heading.unwrap_or(0.0);
+            let road_width = road.num_lanes as f64 * road.lane_width;
+            let half_width = road_width / 2.0;
+
+            // Calculate road corners in world coordinates
+            let cos_h = heading.cos();
+            let sin_h = heading.sin();
+
+            // Road is a rectangle: from origin to origin + length in heading direction
+            // with width perpendicular to heading
+            // Corners: (origin - perp*half_width) to (origin + length*dir - perp*half_width)
+            //          and (origin + perp*half_width) to (origin + length*dir + perp*half_width)
+
+            // Perpendicular vector (90 degrees left of heading)
+            let perp_x = -sin_h;
+            let perp_y = cos_h;
+
+            // Four corners of the road
+            let corners = [
+                (
+                    origin_x + perp_x * half_width,
+                    origin_y + perp_y * half_width,
+                ),
+                (
+                    origin_x - perp_x * half_width,
+                    origin_y - perp_y * half_width,
+                ),
+                (
+                    origin_x + road.length * cos_h - perp_x * half_width,
+                    origin_y + road.length * sin_h - perp_y * half_width,
+                ),
+                (
+                    origin_x + road.length * cos_h + perp_x * half_width,
+                    origin_y + road.length * sin_h + perp_y * half_width,
+                ),
+            ];
+
+            // Transform to SVG coordinates and build path
+            let svg_corners: Vec<(f64, f64)> = corners
+                .iter()
+                .map(|&(x, y)| self.transform_coords(x, y))
+                .collect();
+
+            // Build polygon path (0 -> 1 -> 2 -> 3 -> 0)
+            let path_data = format!(
+                "M {} {} L {} {} L {} {} L {} {} Z",
+                svg_corners[0].0,
+                svg_corners[0].1,
+                svg_corners[1].0,
+                svg_corners[1].1,
+                svg_corners[2].0,
+                svg_corners[2].1,
+                svg_corners[3].0,
+                svg_corners[3].1
+            );
+
+            let road_path = Path::new()
+                .set("d", path_data)
+                .set("fill", COLOR_ROAD)
+                .set("id", format!("road_{}", idx));
+            group = group.add(road_path);
+
+            // Add road name label at the center
+            let center_x = origin_x + road.length * cos_h / 2.0;
+            let center_y = origin_y + road.length * sin_h / 2.0;
+            let (svg_cx, svg_cy) = self.transform_coords(center_x, center_y);
+
+            let label = Text::new(&road.id)
+                .set("x", svg_cx)
+                .set("y", svg_cy - 5.0)
+                .set("text-anchor", "middle")
+                .set("font-family", "Arial, sans-serif")
+                .set("font-size", 10)
+                .set("fill", COLOR_LANE_MARKING)
+                .set("opacity", 0.7)
+                .set(
+                    "transform",
+                    format!(
+                        "rotate({} {} {})",
+                        heading.to_degrees(),
+                        svg_cx,
+                        svg_cy - 5.0
+                    ),
+                );
+            group = group.add(label);
+        }
+
+        document.add(group)
+    }
+
     /// Add lane markings
     fn add_lane_markings(&self, document: Document) -> Document {
+        // If we have a road network, render lane markings for each road
+        if let Some(network) = self.network {
+            if !network.roads.is_empty() {
+                return self.add_multi_road_lane_markings(document, network);
+            }
+        }
+
         let mut group = Group::new().set("id", "lane_markings");
 
         // Get unique lane Y positions from all actor states
@@ -345,6 +499,92 @@ impl<'a> SvgVisualizer<'a> {
                 .set("stroke", COLOR_LANE_MARKING)
                 .set("stroke-width", 3);
             group = group.add(bottom_line);
+        }
+
+        document.add(group)
+    }
+
+    /// Add lane markings for multi-road networks
+    fn add_multi_road_lane_markings(&self, document: Document, network: &RoadNetwork) -> Document {
+        let mut group = Group::new().set("id", "lane_markings");
+
+        for road in &network.roads {
+            let origin_x = road.origin.as_ref().map(|o| o.x).unwrap_or(0.0);
+            let origin_y = road.origin.as_ref().map(|o| o.y).unwrap_or(0.0);
+            let heading = road.heading.unwrap_or(0.0);
+
+            let cos_h = heading.cos();
+            let sin_h = heading.sin();
+
+            // Perpendicular vector (90 degrees left of heading)
+            let perp_x = -sin_h;
+            let perp_y = cos_h;
+
+            let road_width = road.num_lanes as f64 * road.lane_width;
+            let half_width = road_width / 2.0;
+
+            // Draw lane dividers (dashed lines between lanes)
+            for lane_idx in 1..road.num_lanes {
+                // Calculate offset from center
+                let offset = half_width - lane_idx as f64 * road.lane_width;
+
+                // Start and end points of lane divider
+                let start_x = origin_x + perp_x * offset;
+                let start_y = origin_y + perp_y * offset;
+                let end_x = origin_x + road.length * cos_h + perp_x * offset;
+                let end_y = origin_y + road.length * sin_h + perp_y * offset;
+
+                let (svg_x1, svg_y1) = self.transform_coords(start_x, start_y);
+                let (svg_x2, svg_y2) = self.transform_coords(end_x, end_y);
+
+                let line = Line::new()
+                    .set("x1", svg_x1)
+                    .set("y1", svg_y1)
+                    .set("x2", svg_x2)
+                    .set("y2", svg_y2)
+                    .set("stroke", COLOR_LANE_MARKING)
+                    .set("stroke-width", 2)
+                    .set("stroke-dasharray", "10,10")
+                    .set("opacity", 0.6);
+                group = group.add(line);
+            }
+
+            // Draw road edges (solid lines)
+            // Left edge
+            let left_start_x = origin_x + perp_x * half_width;
+            let left_start_y = origin_y + perp_y * half_width;
+            let left_end_x = origin_x + road.length * cos_h + perp_x * half_width;
+            let left_end_y = origin_y + road.length * sin_h + perp_y * half_width;
+
+            let (svg_lx1, svg_ly1) = self.transform_coords(left_start_x, left_start_y);
+            let (svg_lx2, svg_ly2) = self.transform_coords(left_end_x, left_end_y);
+
+            let left_line = Line::new()
+                .set("x1", svg_lx1)
+                .set("y1", svg_ly1)
+                .set("x2", svg_lx2)
+                .set("y2", svg_ly2)
+                .set("stroke", COLOR_LANE_MARKING)
+                .set("stroke-width", 3);
+            group = group.add(left_line);
+
+            // Right edge
+            let right_start_x = origin_x - perp_x * half_width;
+            let right_start_y = origin_y - perp_y * half_width;
+            let right_end_x = origin_x + road.length * cos_h - perp_x * half_width;
+            let right_end_y = origin_y + road.length * sin_h - perp_y * half_width;
+
+            let (svg_rx1, svg_ry1) = self.transform_coords(right_start_x, right_start_y);
+            let (svg_rx2, svg_ry2) = self.transform_coords(right_end_x, right_end_y);
+
+            let right_line = Line::new()
+                .set("x1", svg_rx1)
+                .set("y1", svg_ry1)
+                .set("x2", svg_rx2)
+                .set("y2", svg_ry2)
+                .set("stroke", COLOR_LANE_MARKING)
+                .set("stroke-width", 3);
+            group = group.add(right_line);
         }
 
         document.add(group)
@@ -672,7 +912,7 @@ mod tests {
     #[test]
     fn test_coordinate_transformation() {
         let scenario = create_test_scenario();
-        let visualizer = SvgVisualizer::new(&scenario);
+        let visualizer = SvgVisualizer::new(&scenario, None);
 
         // Test transformation exists and produces reasonable values
         let (svg_x, svg_y) = visualizer.transform_coords(5.0, 3.0);
@@ -685,7 +925,7 @@ mod tests {
     #[test]
     fn test_vehicle_color_coding() {
         let scenario = create_test_scenario();
-        let visualizer = SvgVisualizer::new(&scenario);
+        let visualizer = SvgVisualizer::new(&scenario, None);
 
         assert_eq!(visualizer.get_actor_color("ego"), COLOR_EGO);
         assert_eq!(visualizer.get_actor_color("npc"), COLOR_NPC);
@@ -703,5 +943,73 @@ mod tests {
         assert!(svg.contains("cut_in_left"));
         assert!(svg.contains("Min TTC"));
         assert!(svg.contains("Legend"));
+    }
+
+    #[test]
+    fn test_export_multi_road_svg() {
+        use crate::dsl::road_network::{ExtendedRoadSpec, RoadNetwork, WorldPosition};
+
+        let road_a = ExtendedRoadSpec {
+            id: "road_a".to_string(),
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            length: 100.0,
+            origin: Some(WorldPosition { x: 0.0, y: 0.0 }),
+            heading: Some(0.0),
+        };
+
+        let road_b = ExtendedRoadSpec {
+            id: "road_b".to_string(),
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            length: 100.0,
+            origin: Some(WorldPosition { x: 100.0, y: 0.0 }),
+            heading: Some(std::f64::consts::FRAC_PI_4), // 45 degrees
+        };
+
+        let network = RoadNetwork::new(vec![road_a, road_b]);
+        let scenario = create_test_scenario();
+
+        let svg = export_to_svg_with_network(&scenario, &network).unwrap();
+
+        // Verify basic structure
+        assert!(svg.contains("<svg"));
+        assert!(svg.contains("</svg>"));
+
+        // Verify roads group exists
+        assert!(svg.contains("id=\"roads\""));
+
+        // Verify road names are present
+        assert!(svg.contains("road_a"));
+        assert!(svg.contains("road_b"));
+
+        // Verify lane markings group exists
+        assert!(svg.contains("id=\"lane_markings\""));
+    }
+
+    #[test]
+    fn test_multi_road_config_bounds() {
+        use crate::dsl::road_network::{ExtendedRoadSpec, RoadNetwork, WorldPosition};
+
+        let road = ExtendedRoadSpec {
+            id: "road".to_string(),
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            length: 200.0,
+            origin: Some(WorldPosition { x: 50.0, y: 50.0 }),
+            heading: Some(0.0),
+        };
+
+        let network = RoadNetwork::new(vec![road]);
+        let scenario = create_test_scenario();
+
+        let config = VisualizerConfig::from_scenario(&scenario, Some(&network));
+
+        // The config should consider the road geometry
+        // Road goes from (50, 50) to (250, 50), so bounds should include this
+        assert!(config.x_min < 50.0);
     }
 }
