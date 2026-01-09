@@ -117,6 +117,20 @@ pub enum ScenarioType {
     OvertakeLeft,
 }
 
+/// Turn direction at a junction
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnDirection {
+    /// Go straight through the junction
+    Straight,
+    /// Turn left at the junction
+    Left,
+    /// Turn right at the junction
+    Right,
+    /// U-turn at the junction
+    UTurn,
+}
+
 impl std::fmt::Display for ScenarioType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -253,6 +267,31 @@ impl ActorSpec {
     /// Check if this actor has a road transition defined
     pub fn has_road_transition(&self) -> bool {
         self.get_target_road().is_some()
+    }
+
+    /// Get the turn direction at a junction
+    /// Reads from behavior["turn_direction"]
+    pub fn get_turn_direction(&self) -> Option<TurnDirection> {
+        self.behavior.get("turn_direction").and_then(|v| {
+            v.as_str().and_then(|s| match s {
+                "straight" => Some(TurnDirection::Straight),
+                "left" => Some(TurnDirection::Left),
+                "right" => Some(TurnDirection::Right),
+                "u_turn" => Some(TurnDirection::UTurn),
+                _ => None,
+            })
+        })
+    }
+
+    /// Get the junction ID where the turn happens
+    /// Reads from behavior["junction_id"]
+    pub fn get_junction_id(&self) -> Option<&str> {
+        self.behavior.get("junction_id").and_then(|v| v.as_str())
+    }
+
+    /// Check if this actor has a junction turn defined
+    pub fn has_junction_turn(&self) -> bool {
+        self.get_junction_id().is_some() && self.get_turn_direction().is_some()
     }
 }
 
