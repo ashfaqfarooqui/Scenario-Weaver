@@ -179,7 +179,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
         {
             // Call existing encoding method
             self.encode_actor_initial_state(
-                &actor_id, lane, pos_min, pos_max, speed_min, speed_max, acc_min, acc_max,
+                &actor_id, lane, pos_min, pos_max, speed_min, speed_max, acc_min, acc_max, role,
             );
 
             // Handle lateral position constraints
@@ -232,6 +232,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
         speed_max: f64,
         accel_min: f64,
         accel_max: f64,
+        role: crate::dsl::types::ActorRole,
     ) {
         // Lane at t=0
         let lane_var = &self.lanes[actor_id][0];
@@ -283,10 +284,15 @@ impl<B: Z3Backend> GenericEncoder<B> {
             }
         }
 
-        // Initial lateral velocity is zero (not changing lanes initially)
+        // Initial lateral velocity
+        // For vehicles: zero (not changing lanes initially)
+        // For pedestrians: unconstrained (they need to cross laterally)
+        use crate::dsl::types::ActorRole;
         let vy_var = &self.velocities_y[actor_id][0];
         let zero = Real::from_rational(0_i64, 1_i64);
-        self.backend.assert(&vy_var.eq(&zero));
+        if role != ActorRole::Pedestrian {
+            self.backend.assert(&vy_var.eq(&zero));
+        }
 
         // Initial acceleration at t=0
         let ax_var = &self.accelerations_x[actor_id][0];
@@ -302,9 +308,13 @@ impl<B: Z3Backend> GenericEncoder<B> {
             self.backend.assert(&ax_var.le(&max_val));
         }
 
-        // Initial lateral acceleration is zero
+        // Initial lateral acceleration
+        // For vehicles: zero (not changing lanes initially)
+        // For pedestrians: unconstrained (they need to accelerate laterally to cross)
         let ay_var = &self.accelerations_y[actor_id][0];
-        self.backend.assert(&ay_var.eq(&zero));
+        if role != ActorRole::Pedestrian {
+            self.backend.assert(&ay_var.eq(&zero));
+        }
     }
 
     /// Encode constraint: lateral position matches lane center
@@ -334,7 +344,8 @@ impl<B: Z3Backend> GenericEncoder<B> {
         for actor in &self.spec.actors {
             let actor_id = &actor.id;
 
-            // Get acceleration bounds directly from actor spec
+            // Get acceleration bounds from actor spec
+            // Note: Pedestrian-specific physics will be added in future phase
             let ax_min = actor.acceleration.min();
             let ax_max = actor.acceleration.max();
             let ax_min_real = Real::from_rational((ax_min * 10.0) as i64, 10_i64);

@@ -2,6 +2,25 @@
 
 use serde::{Deserialize, Serialize};
 
+// Pedestrian physics constants
+/// Maximum walking speed for pedestrians (m/s) - normal walk
+pub const PEDESTRIAN_WALK_MAX_SPEED: f64 = 2.0;
+
+/// Minimum walking speed for pedestrians (m/s)
+pub const PEDESTRIAN_WALK_MIN_SPEED: f64 = 0.5;
+
+/// Maximum running speed for pedestrians (m/s)
+pub const PEDESTRIAN_RUN_MAX_SPEED: f64 = 5.0;
+
+/// Minimum running speed for pedestrians (m/s)
+pub const PEDESTRIAN_RUN_MIN_SPEED: f64 = 2.0;
+
+/// Maximum acceleration for pedestrians (m/s²)
+pub const PEDESTRIAN_MAX_ACCELERATION: f64 = 1.0;
+
+/// Maximum deceleration for pedestrians (m/s²) - negative value
+pub const PEDESTRIAN_MAX_DECELERATION: f64 = -1.0;
+
 /// Constraint enforcement mode
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

@@ -21,9 +21,10 @@ actors:
     lane: 0
     position: [45.0, 55.0]
     speed: [0.8, 1.5]
-    acceleration: [-0.5, 0.5]
+    acceleration: [-1.0, 1.0]
     behavior:
-      crossing_time: [2.5, 5.5]
+      crossing_time: [1.0, 8.0]  # Wider window for walking speed
+      walking_mode: walk  # Options: "walk" (0.5-2.0 m/s) or "run" (2.0-5.0 m/s)
 
 min_ttc: 2.0
 min_distance: 2.0
