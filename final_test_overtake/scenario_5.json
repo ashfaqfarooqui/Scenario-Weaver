@@ -1,8 +1,8 @@
 {
-  "scenario_id": "f58a72e0-0233-45df-b690-b2d5cb0cc00c",
-  "scenario_type": "overtake_left",
+  "scenario_id": "19d23cf4-5848-424a-9773-a4cd6e82ab76",
+  "scenario_type": "cut_in_left",
   "time_step": 0.5,
-  "duration": 12.0,
+  "duration": 10.0,
   "actors": [
     {
       "id": "ego",
@@ -11,312 +11,331 @@
         {
           "time": 0.0,
           "position": {
-            "x": 50.0,
-            "y": 5.2
+            "x": 30.3,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 14.0,
+            "vx": 10.0,
             "vy": 0.0
           },
           "acceleration": {
             "ax": -2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 0.5,
           "position": {
-            "x": 57.0,
-            "y": 5.2
+            "x": 35.3,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 13.0,
+            "vx": 9.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": 0.6166666666666667,
+            "ax": -2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 1.0,
           "position": {
-            "x": 63.5,
-            "y": 5.2
+            "x": 39.8,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 13.308333333333334,
+            "vx": 8.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": 1.0,
+            "ax": -2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 1.5,
           "position": {
-            "x": 70.15416666666667,
-            "y": 5.2
+            "x": 43.8,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 13.808333333333334,
+            "vx": 7.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": 1.0,
+            "ax": -2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 2.0,
           "position": {
-            "x": 77.05833333333334,
-            "y": 5.2
+            "x": 47.3,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 14.308333333333334,
+            "vx": 6.0,
             "vy": 0.0
           },
           "acceleration": {
             "ax": -2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 2.5,
           "position": {
-            "x": 84.2125,
-            "y": 5.2
+            "x": 50.3,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 13.308333333333334,
+            "vx": 5.0,
             "vy": 0.0
           },
           "acceleration": {
             "ax": -2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 3.0,
           "position": {
-            "x": 90.86666666666666,
-            "y": 5.2
+            "x": 52.8,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 12.308333333333334,
+            "vx": 4.0,
             "vy": 0.0
           },
           "acceleration": {
             "ax": -2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 3.5,
           "position": {
-            "x": 97.02083333333333,
-            "y": 5.2
+            "x": 54.8,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 11.308333333333334,
+            "vx": 3.0,
             "vy": 0.0
           },
           "acceleration": {
             "ax": -2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 4.0,
           "position": {
-            "x": 102.675,
-            "y": 5.2
+            "x": 56.3,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 10.308333333333334,
+            "vx": 2.0,
             "vy": 0.0
           },
           "acceleration": {
             "ax": -2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 4.5,
           "position": {
-            "x": 107.82916666666667,
-            "y": 5.2
+            "x": 57.3,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 9.308333333333334,
+            "vx": 1.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -2.0,
+            "ax": -1.87,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 5.0,
           "position": {
-            "x": 112.48333333333333,
-            "y": 5.2
+            "x": 57.8,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 8.308333333333334,
+            "vx": 0.065,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -2.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 5.5,
           "position": {
-            "x": 116.6375,
-            "y": 5.2
+            "x": 57.8325,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 7.308333333333334,
+            "vx": 0.065,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -2.0,
+            "ax": -0.13,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 6.0,
           "position": {
-            "x": 120.29166666666667,
-            "y": 5.2
+            "x": 57.865,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 6.308333333333334,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -2.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 6.5,
           "position": {
-            "x": 123.44583333333334,
-            "y": 5.2
+            "x": 57.865,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 5.308333333333334,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -2.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 7.0,
           "position": {
-            "x": 126.1,
-            "y": 5.2
+            "x": 57.865,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 4.308333333333334,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -2.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 7.5,
           "position": {
-            "x": 128.25416666666666,
-            "y": 5.2
+            "x": 57.865,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 3.308333333333333,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -2.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 8.0,
           "position": {
-            "x": 129.90833333333333,
-            "y": 5.2
+            "x": 57.865,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 2.308333333333333,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -2.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 8.5,
           "position": {
-            "x": 131.0625,
-            "y": 5.2
+            "x": 57.865,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 1.3083333333333333,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -2.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 9.0,
           "position": {
-            "x": 131.71666666666667,
-            "y": 5.2
+            "x": 57.865,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 0.30833333333333335,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -0.6166666666666667,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 9.5,
           "position": {
-            "x": 131.87083333333334,
-            "y": 5.2
+            "x": 57.865,
+            "y": 1.7
           },
           "velocity": {
             "vx": 0.0,
@@ -326,13 +345,14 @@
             "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 10.0,
           "position": {
-            "x": 131.87083333333334,
-            "y": 5.2
+            "x": 57.865,
+            "y": 1.7
           },
           "velocity": {
             "vx": 0.0,
@@ -342,71 +362,8 @@
             "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
-        },
-        {
-          "time": 10.5,
-          "position": {
-            "x": 131.87083333333334,
-            "y": 5.2
-          },
-          "velocity": {
-            "vx": 0.0,
-            "vy": 0.0
-          },
-          "acceleration": {
-            "ax": 0.0,
-            "ay": 0.0
-          },
-          "lane": 1
-        },
-        {
-          "time": 11.0,
-          "position": {
-            "x": 131.87083333333334,
-            "y": 5.2
-          },
-          "velocity": {
-            "vx": 0.0,
-            "vy": 0.0
-          },
-          "acceleration": {
-            "ax": 0.0,
-            "ay": 0.0
-          },
-          "lane": 1
-        },
-        {
-          "time": 11.5,
-          "position": {
-            "x": 131.87083333333334,
-            "y": 5.2
-          },
-          "velocity": {
-            "vx": 0.0,
-            "vy": 0.0
-          },
-          "acceleration": {
-            "ax": 0.0,
-            "ay": 0.0
-          },
-          "lane": 1
-        },
-        {
-          "time": 12.0,
-          "position": {
-            "x": 131.87083333333334,
-            "y": 5.2
-          },
-          "velocity": {
-            "vx": 0.0,
-            "vy": 0.0
-          },
-          "acceleration": {
-            "ax": 0.0,
-            "ay": 0.0
-          },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         }
       ]
     },
@@ -417,328 +374,348 @@
         {
           "time": 0.0,
           "position": {
-            "x": 25.06388888888889,
+            "x": 80.055,
             "y": 5.2
           },
           "velocity": {
-            "vx": 21.733888888888888,
+            "vx": -8.055,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": 4.0,
+            "ax": 0.11,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 1,
+          "road_id": "east_west_road"
         },
         {
           "time": 0.5,
           "position": {
-            "x": 35.93083333333333,
+            "x": 76.0275,
             "y": 5.2
           },
           "velocity": {
-            "vx": 23.733888888888888,
+            "vx": -8.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": 4.0,
+            "ax": 2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 1,
+          "road_id": "east_west_road"
         },
         {
           "time": 1.0,
           "position": {
-            "x": 47.797777777777775,
+            "x": 72.0275,
             "y": 5.2
           },
           "velocity": {
-            "vx": 25.733888888888888,
+            "vx": -7.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 1,
+          "road_id": "east_west_road"
         },
         {
           "time": 1.5,
           "position": {
-            "x": 60.664722222222224,
+            "x": 68.5275,
             "y": 5.2
           },
           "velocity": {
-            "vx": 24.233888888888888,
+            "vx": -6.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 1,
+          "road_id": "east_west_road"
         },
         {
           "time": 2.0,
           "position": {
-            "x": 72.78166666666667,
+            "x": 65.5275,
             "y": 5.2
           },
           "velocity": {
-            "vx": 22.733888888888888,
+            "vx": -5.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 1,
+          "road_id": "east_west_road"
         },
         {
           "time": 2.5,
           "position": {
-            "x": 84.14861111111111,
+            "x": 63.0275,
             "y": 5.2
           },
           "velocity": {
-            "vx": 21.233888888888888,
+            "vx": -4.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 1,
+          "road_id": "east_west_road"
         },
         {
           "time": 3.0,
           "position": {
-            "x": 94.76555555555555,
+            "x": 61.0275,
             "y": 5.2
           },
           "velocity": {
-            "vx": 19.733888888888888,
+            "vx": -3.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 1,
+          "road_id": "east_west_road"
         },
         {
           "time": 3.5,
           "position": {
-            "x": 104.6325,
+            "x": 59.5275,
             "y": 5.2
           },
           "velocity": {
-            "vx": 18.233888888888888,
-            "vy": -7.0
+            "vx": -2.0,
+            "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 2.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 1,
+          "road_id": "east_west_road"
         },
         {
           "time": 4.0,
           "position": {
-            "x": 113.74944444444445,
-            "y": 1.7
+            "x": 58.5275,
+            "y": 5.2
           },
           "velocity": {
-            "vx": 16.733888888888888,
-            "vy": 0.0
+            "vx": -1.0,
+            "vy": -7.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 2.0,
             "ay": 0.0
           },
-          "lane": 0
+          "lane": 1,
+          "road_id": "east_west_road"
         },
         {
           "time": 4.5,
           "position": {
-            "x": 122.11638888888889,
+            "x": 58.0275,
             "y": 1.7
           },
           "velocity": {
-            "vx": 15.233888888888888,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 0
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 5.0,
           "position": {
-            "x": 129.73333333333332,
+            "x": 58.0275,
             "y": 1.7
           },
           "velocity": {
-            "vx": 13.733888888888888,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 0
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 5.5,
           "position": {
-            "x": 136.6002777777778,
+            "x": 58.0275,
             "y": 1.7
           },
           "velocity": {
-            "vx": 12.233888888888888,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 0
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 6.0,
           "position": {
-            "x": 142.71722222222223,
+            "x": 58.0275,
             "y": 1.7
           },
           "velocity": {
-            "vx": 10.733888888888888,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 0
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 6.5,
           "position": {
-            "x": 148.08416666666668,
+            "x": 58.0275,
             "y": 1.7
           },
           "velocity": {
-            "vx": 9.233888888888888,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 0
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 7.0,
           "position": {
-            "x": 152.70111111111112,
+            "x": 58.0275,
             "y": 1.7
           },
           "velocity": {
-            "vx": 7.733888888888889,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 0
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 7.5,
           "position": {
-            "x": 156.56805555555556,
+            "x": 58.0275,
             "y": 1.7
           },
           "velocity": {
-            "vx": 6.233888888888889,
-            "vy": 7.0
+            "vx": 0.0,
+            "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 0
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 8.0,
           "position": {
-            "x": 159.685,
-            "y": 5.2
+            "x": 58.0275,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 4.733888888888889,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 8.5,
           "position": {
-            "x": 162.05194444444444,
-            "y": 5.2
+            "x": 58.0275,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 3.233888888888889,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 9.0,
           "position": {
-            "x": 163.6688888888889,
-            "y": 5.2
+            "x": 58.0275,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 1.7338888888888888,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -3.0,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 9.5,
           "position": {
-            "x": 164.53583333333333,
-            "y": 5.2
+            "x": 58.0275,
+            "y": 1.7
           },
           "velocity": {
-            "vx": 0.2338888888888889,
+            "vx": 0.0,
             "vy": 0.0
           },
           "acceleration": {
-            "ax": -0.4677777777777778,
+            "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         },
         {
           "time": 10.0,
           "position": {
-            "x": 164.65277777777777,
-            "y": 5.2
+            "x": 58.0275,
+            "y": 1.7
           },
           "velocity": {
             "vx": 0.0,
@@ -748,92 +725,33 @@
             "ax": 0.0,
             "ay": 0.0
           },
-          "lane": 1
-        },
-        {
-          "time": 10.5,
-          "position": {
-            "x": 164.65277777777777,
-            "y": 5.2
-          },
-          "velocity": {
-            "vx": 0.0,
-            "vy": 0.0
-          },
-          "acceleration": {
-            "ax": 0.0,
-            "ay": 0.0
-          },
-          "lane": 1
-        },
-        {
-          "time": 11.0,
-          "position": {
-            "x": 164.65277777777777,
-            "y": 5.2
-          },
-          "velocity": {
-            "vx": 0.0,
-            "vy": 0.0
-          },
-          "acceleration": {
-            "ax": 0.0,
-            "ay": 0.0
-          },
-          "lane": 1
-        },
-        {
-          "time": 11.5,
-          "position": {
-            "x": 164.65277777777777,
-            "y": 5.2
-          },
-          "velocity": {
-            "vx": 0.0,
-            "vy": 0.0
-          },
-          "acceleration": {
-            "ax": 0.0,
-            "ay": 0.0
-          },
-          "lane": 1
-        },
-        {
-          "time": 12.0,
-          "position": {
-            "x": 164.65277777777777,
-            "y": 5.2
-          },
-          "velocity": {
-            "vx": 0.0,
-            "vy": 0.0
-          },
-          "acceleration": {
-            "ax": 0.0,
-            "ay": 0.0
-          },
-          "lane": 1
+          "lane": 0,
+          "road_id": "east_west_road"
         }
       ]
     }
   ],
   "validation": {
-    "min_ttc": 0.008061124351606252,
-    "min_distance": 0.0638888888888971,
+    "min_ttc": 0.7275000000000063,
+    "min_distance": 0.16250000000000142,
     "all_constraints_satisfied": false,
     "safety_violations": [
-      "TTC violation at t=0.5s: ego-npc: 1.96s < 2.00s",
-      "TTC violation at t=1.0s: ego-npc: 1.26s < 2.00s",
-      "TTC violation at t=1.5s: ego-npc: 0.91s < 2.00s",
-      "TTC violation at t=2.0s: ego-npc: 0.51s < 2.00s",
-      "Distance violation at t=2.5s: ego-npc: 0.06m < 4.00m",
-      "TTC violation at t=2.5s: ego-npc: 0.01s < 2.00s",
-      "Distance violation at t=3.0s: ego-npc: 3.90m < 4.00m",
-      "TTC violation at t=3.0s: ego-npc: 0.53s < 2.00s",
-      "TTC violation at t=3.5s: ego-npc: 1.10s < 2.00s"
+      "Distance violation at t=4.5s: ego-npc: 0.73m < 5.00m",
+      "TTC violation at t=4.5s: ego-npc: 0.73s < 3.00s",
+      "Distance violation at t=5.0s: ego-npc: 0.23m < 5.00m",
+      "Distance violation at t=5.5s: ego-npc: 0.20m < 5.00m",
+      "Distance violation at t=6.0s: ego-npc: 0.16m < 5.00m",
+      "Distance violation at t=6.5s: ego-npc: 0.16m < 5.00m",
+      "Distance violation at t=7.0s: ego-npc: 0.16m < 5.00m",
+      "Distance violation at t=7.5s: ego-npc: 0.16m < 5.00m",
+      "Distance violation at t=8.0s: ego-npc: 0.16m < 5.00m",
+      "Distance violation at t=8.5s: ego-npc: 0.16m < 5.00m",
+      "Distance violation at t=9.0s: ego-npc: 0.16m < 5.00m",
+      "Distance violation at t=9.5s: ego-npc: 0.16m < 5.00m",
+      "Distance violation at t=10.0s: ego-npc: 0.16m < 5.00m"
     ],
-    "max_acceleration": 4.0,
-    "max_deceleration": -3.0,
+    "max_acceleration": 2.0,
+    "max_deceleration": -2.0,
     "acceleration_violations": []
   }
 }

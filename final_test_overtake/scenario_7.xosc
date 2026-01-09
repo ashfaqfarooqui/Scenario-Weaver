@@ -1,23 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <OpenSCENARIO><FileHeader
     author="CARLA Scenario Generator"
-    date="2026-01-07T23:46:25"
-    description="Scenario: 6bccc92d-6aed-470f-9bb6-90932e065f0f (ID: 6bccc92d-6aed-470f-9bb6-90932e065f0f)
-Type: overtake_left
-Duration: 12s, Time step: 0.5s
+    date="2026-01-09T07:30:27"
+    description="Scenario: d0d4cead-19e8-4fec-be9f-e2f35a626762 (ID: d0d4cead-19e8-4fec-be9f-e2f35a626762)
+Type: cut_in_left
+Duration: 10s, Time step: 0.5s
 
 Actors: 2
 
 ego (ego):
-  Start: pos=(50.0, 5.2) vel=(16.0, 0.0) lane=1
-  End: pos=(173.6, 5.2) vel=(0.0, 0.0) lane=1
+  Start: pos=(34.4, 1.7) vel=(10.0, 0.0) lane=0
+  End: pos=(62.0, 1.7) vel=(0.0, 0.0) lane=0
 
 npc (npc):
-  Start: pos=(25.0, 5.2) vel=(22.0, 0.0) lane=1
-  End: pos=(199.3, 5.2) vel=(0.0, 0.0) lane=1
+  Start: pos=(80.0, 5.2) vel=(-8.0, 0.0) lane=1
+  End: pos=(62.0, 1.7) vel=(0.0, 0.0) lane=0
 
 Validation:
-  Min TTC: 0.00s
+  Min TTC: 0.33s
   Min distance: 0.00m
   Constraints satisfied: false"
     revMajor="1"
@@ -84,11 +84,11 @@ Validation:
                   dynamicsShape="step"
                   value="1"
                 /><SpeedActionTarget><AbsoluteTargetSpeed
-                    value="16"
+                    value="10"
                   /></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction><PrivateAction
           ><TeleportAction><Position><WorldPosition
-                  x="50"
-                  y="5.2"
+                  x="34.44"
+                  y="1.7"
                   z="0"
                   h="0"
                 /></Position></TeleportAction></PrivateAction></Private><Private
@@ -98,13 +98,13 @@ Validation:
                   dynamicsShape="step"
                   value="1"
                 /><SpeedActionTarget><AbsoluteTargetSpeed
-                    value="22"
+                    value="8.005"
                   /></SpeedActionTarget></SpeedAction></LongitudinalAction></PrivateAction><PrivateAction
           ><TeleportAction><Position><WorldPosition
-                  x="25.016"
+                  x="80.005"
                   y="5.2"
                   z="0"
-                  h="0"
+                  h="3.141592653589793"
                 /></Position></TeleportAction></PrivateAction></Private></Actions></Init><Story
       name="main_story"
     ><Act name="ego_trajectory_act"><ManeuverGroup
@@ -121,167 +121,139 @@ Validation:
                         closed="false"
                       ><Shape><Polyline><Vertex time="0"><Position
                               ><WorldPosition
-                                  x="50"
-                                  y="5.2"
+                                  x="34.44"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="0.5"
                             ><Position><WorldPosition
-                                  x="58"
-                                  y="5.2"
+                                  x="39.44"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex time="1"><Position
                               ><WorldPosition
-                                  x="65.51"
-                                  y="5.2"
+                                  x="43.94"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="1.5"
                             ><Position><WorldPosition
-                                  x="73.012"
-                                  y="5.2"
+                                  x="47.94"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex time="2"><Position
                               ><WorldPosition
-                                  x="80.764"
-                                  y="5.2"
+                                  x="51.44"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="2.5"
                             ><Position><WorldPosition
-                                  x="88.766"
-                                  y="5.2"
+                                  x="54.44"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex time="3"><Position
                               ><WorldPosition
-                                  x="97.018"
-                                  y="5.2"
+                                  x="56.94"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="3.5"
                             ><Position><WorldPosition
-                                  x="105.52"
-                                  y="5.2"
+                                  x="58.94"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex time="4"><Position
                               ><WorldPosition
-                                  x="113.522"
-                                  y="5.2"
+                                  x="60.44"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="4.5"
                             ><Position><WorldPosition
-                                  x="121.024"
-                                  y="5.2"
+                                  x="61.44"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex time="5"><Position
                               ><WorldPosition
-                                  x="128.026"
-                                  y="5.2"
+                                  x="61.94"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="5.5"
                             ><Position><WorldPosition
-                                  x="134.528"
-                                  y="5.2"
+                                  x="61.9475"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex time="6"><Position
                               ><WorldPosition
-                                  x="140.53"
-                                  y="5.2"
+                                  x="61.955"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="6.5"
                             ><Position><WorldPosition
-                                  x="146.032"
-                                  y="5.2"
+                                  x="61.9625"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex time="7"><Position
                               ><WorldPosition
-                                  x="151.034"
-                                  y="5.2"
+                                  x="61.97"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="7.5"
                             ><Position><WorldPosition
-                                  x="155.536"
-                                  y="5.2"
+                                  x="61.9775"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex time="8"><Position
                               ><WorldPosition
-                                  x="159.538"
-                                  y="5.2"
+                                  x="61.985"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="8.5"
                             ><Position><WorldPosition
-                                  x="163.04"
-                                  y="5.2"
+                                  x="61.985"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex time="9"><Position
                               ><WorldPosition
-                                  x="166.042"
-                                  y="5.2"
+                                  x="61.985"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="9.5"
                             ><Position><WorldPosition
-                                  x="168.544"
-                                  y="5.2"
+                                  x="61.985"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="10"
                             ><Position><WorldPosition
-                                  x="170.546"
-                                  y="5.2"
-                                  z="0"
-                                  h="0"
-                                /></Position></Vertex><Vertex
-                              time="10.5"
-                            ><Position><WorldPosition
-                                  x="172.048"
-                                  y="5.2"
-                                  z="0"
-                                  h="0"
-                                /></Position></Vertex><Vertex
-                              time="11"
-                            ><Position><WorldPosition
-                                  x="173.05"
-                                  y="5.2"
-                                  z="0"
-                                  h="0"
-                                /></Position></Vertex><Vertex
-                              time="11.5"
-                            ><Position><WorldPosition
-                                  x="173.552"
-                                  y="5.2"
-                                  z="0"
-                                  h="0"
-                                /></Position></Vertex><Vertex
-                              time="12"
-                            ><Position><WorldPosition
-                                  x="173.554"
-                                  y="5.2"
+                                  x="61.985"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex></Polyline></Shape></Trajectory><TimeReference
@@ -315,167 +287,139 @@ Validation:
                         closed="false"
                       ><Shape><Polyline><Vertex time="0"><Position
                               ><WorldPosition
-                                  x="25.016"
+                                  x="80.005"
                                   y="5.2"
                                   z="0"
-                                  h="0"
+                                  h="3.141592653589793"
                                 /></Position></Vertex><Vertex
                               time="0.5"
                             ><Position><WorldPosition
-                                  x="36.016"
+                                  x="76.0025"
                                   y="5.2"
                                   z="0"
-                                  h="0"
+                                  h="3.141592653589793"
                                 /></Position></Vertex><Vertex time="1"><Position
                               ><WorldPosition
-                                  x="48.016"
+                                  x="72.5"
                                   y="5.2"
                                   z="0"
-                                  h="0"
+                                  h="3.141592653589793"
                                 /></Position></Vertex><Vertex
                               time="1.5"
                             ><Position><WorldPosition
-                                  x="61.016"
+                                  x="69.4975"
                                   y="5.2"
                                   z="0"
-                                  h="0"
+                                  h="3.141592653589793"
                                 /></Position></Vertex><Vertex time="2"><Position
                               ><WorldPosition
-                                  x="73.266"
+                                  x="66.995"
                                   y="5.2"
                                   z="0"
-                                  h="0"
+                                  h="3.141592653589793"
                                 /></Position></Vertex><Vertex
                               time="2.5"
                             ><Position><WorldPosition
-                                  x="84.766"
+                                  x="64.9925"
                                   y="5.2"
                                   z="0"
-                                  h="0"
+                                  h="3.141592653589793"
                                 /></Position></Vertex><Vertex time="3"><Position
                               ><WorldPosition
-                                  x="95.516"
+                                  x="63.49"
                                   y="5.2"
                                   z="0"
-                                  h="0"
+                                  h="3.141592653589793"
                                 /></Position></Vertex><Vertex
                               time="3.5"
                             ><Position><WorldPosition
-                                  x="105.516"
+                                  x="62.4875"
                                   y="5.2"
                                   z="0"
-                                  h="-0.36172924151993224"
+                                  h="3.141592653589793"
                                 /></Position></Vertex><Vertex time="4"><Position
                               ><WorldPosition
-                                  x="114.766"
-                                  y="1.7"
+                                  x="61.985"
+                                  y="5.2"
                                   z="0"
-                                  h="0"
+                                  h="3.141592653589793"
                                 /></Position></Vertex><Vertex
                               time="4.5"
                             ><Position><WorldPosition
-                                  x="123.266"
-                                  y="1.7"
+                                  x="61.9825"
+                                  y="5.2"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex time="5"><Position
                               ><WorldPosition
-                                  x="131.016"
-                                  y="1.7"
+                                  x="61.9825"
+                                  y="5.2"
                                   z="0"
-                                  h="0"
+                                  h="-1.5707963267948966"
                                 /></Position></Vertex><Vertex
                               time="5.5"
                             ><Position><WorldPosition
-                                  x="138.016"
+                                  x="61.9825"
                                   y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex time="6"><Position
                               ><WorldPosition
-                                  x="144.266"
+                                  x="61.9825"
                                   y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="6.5"
                             ><Position><WorldPosition
-                                  x="151.516"
+                                  x="61.9825"
                                   y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex time="7"><Position
                               ><WorldPosition
-                                  x="158.016"
+                                  x="61.9825"
                                   y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="7.5"
                             ><Position><WorldPosition
-                                  x="165.516"
+                                  x="61.9825"
                                   y="1.7"
                                   z="0"
-                                  h="0.47835243137865757"
+                                  h="0"
                                 /></Position></Vertex><Vertex time="8"><Position
                               ><WorldPosition
-                                  x="172.266"
-                                  y="5.2"
+                                  x="61.9825"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="8.5"
                             ><Position><WorldPosition
-                                  x="178.266"
-                                  y="5.2"
+                                  x="61.9825"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex time="9"><Position
                               ><WorldPosition
-                                  x="183.516"
-                                  y="5.2"
+                                  x="61.9825"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="9.5"
                             ><Position><WorldPosition
-                                  x="188.016"
-                                  y="5.2"
+                                  x="61.9825"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex><Vertex
                               time="10"
                             ><Position><WorldPosition
-                                  x="191.766"
-                                  y="5.2"
-                                  z="0"
-                                  h="0"
-                                /></Position></Vertex><Vertex
-                              time="10.5"
-                            ><Position><WorldPosition
-                                  x="194.766"
-                                  y="5.2"
-                                  z="0"
-                                  h="0"
-                                /></Position></Vertex><Vertex
-                              time="11"
-                            ><Position><WorldPosition
-                                  x="197.016"
-                                  y="5.2"
-                                  z="0"
-                                  h="0"
-                                /></Position></Vertex><Vertex
-                              time="11.5"
-                            ><Position><WorldPosition
-                                  x="198.516"
-                                  y="5.2"
-                                  z="0"
-                                  h="0"
-                                /></Position></Vertex><Vertex
-                              time="12"
-                            ><Position><WorldPosition
-                                  x="199.266"
-                                  y="5.2"
+                                  x="61.9825"
+                                  y="1.7"
                                   z="0"
                                   h="0"
                                 /></Position></Vertex></Polyline></Shape></Trajectory><TimeReference
@@ -499,6 +443,6 @@ Validation:
           conditionEdge="rising"
           delay="0"
         ><ByValueCondition><SimulationTimeCondition
-              value="12"
+              value="10"
               rule="greaterThan"
             /></ByValueCondition></Condition></ConditionGroup></StopTrigger></Storyboard></OpenSCENARIO>
