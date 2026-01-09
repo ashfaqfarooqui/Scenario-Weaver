@@ -128,3 +128,4 @@ fn generate_default_safety(spec: &ScenarioSpec) -> LTLFormula {
 pub mod cut_in_left;
 pub mod cut_in_right;
 pub mod overtake_left;
+pub mod pedestrian_crossing;

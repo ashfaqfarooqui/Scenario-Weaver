@@ -43,6 +43,12 @@ pub enum Proposition {
         actor2: String,
         ttc: f64,
     },
+
+    /// Pedestrian is on a specific side of the road ("left" or "right")
+    OnSidewalk { actor: String, side: String },
+
+    /// Pedestrian is actively crossing the road
+    CrossingRoad { actor: String },
 }
 
 // Builder methods for ergonomic formula construction

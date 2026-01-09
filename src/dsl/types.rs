@@ -100,13 +100,15 @@ impl ConstraintModes {
     }
 }
 
-/// Actor role (ego or NPC)
+/// Actor role (ego, NPC vehicle, or pedestrian)
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 pub enum ActorRole {
     #[serde(rename = "ego")]
     Ego,
     #[serde(rename = "npc")]
     Npc,
+    #[serde(rename = "pedestrian")]
+    Pedestrian,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -115,6 +117,7 @@ pub enum ScenarioType {
     CutInLeft,
     CutInRight,
     OvertakeLeft,
+    PedestrianCrossing,
 }
 
 impl std::fmt::Display for ScenarioType {
@@ -123,6 +126,7 @@ impl std::fmt::Display for ScenarioType {
             ScenarioType::CutInLeft => write!(f, "cut_in_left"),
             ScenarioType::CutInRight => write!(f, "cut_in_right"),
             ScenarioType::OvertakeLeft => write!(f, "overtake_left"),
+            ScenarioType::PedestrianCrossing => write!(f, "pedestrian_crossing"),
         }
     }
 }
@@ -135,6 +139,9 @@ impl ScenarioType {
             ScenarioType::CutInRight => Box::new(crate::scenarios::cut_in_right::CutInRightModel),
             ScenarioType::OvertakeLeft => {
                 Box::new(crate::scenarios::overtake_left::OvertakeLeftModel)
+            }
+            ScenarioType::PedestrianCrossing => {
+                Box::new(crate::scenarios::pedestrian_crossing::PedestrianCrossingModel)
             }
         }
     }
@@ -290,11 +297,11 @@ impl ScenarioSpec {
             .ok_or_else(|| "No ego actor found".to_string())
     }
 
-    /// Get all NPC actors
+    /// Get all NPC actors (includes pedestrians)
     pub fn npcs(&self) -> Vec<&ActorSpec> {
         self.actors
             .iter()
-            .filter(|a| a.role == ActorRole::Npc)
+            .filter(|a| a.role == ActorRole::Npc || a.role == ActorRole::Pedestrian)
             .collect()
     }
 
@@ -371,14 +378,14 @@ impl ScenarioSpec {
             return Err(format!("Expected exactly 1 ego actor, found {}", ego_count));
         }
 
-        // NEW: Validate at least one NPC
+        // NEW: Validate at least one NPC or pedestrian
         let npc_count = self
             .actors
             .iter()
-            .filter(|a| a.role == ActorRole::Npc)
+            .filter(|a| a.role == ActorRole::Npc || a.role == ActorRole::Pedestrian)
             .count();
         if npc_count == 0 {
-            return Err("At least one NPC actor required".to_string());
+            return Err("At least one NPC or pedestrian actor required".to_string());
         }
 
         // NEW: Validate unique actor IDs

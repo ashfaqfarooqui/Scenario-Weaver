@@ -17,9 +17,11 @@ const ROAD_MARGIN_TOP: f64 = 120.0;
 // Colors
 const COLOR_EGO: &str = "#4CAF50"; // Green
 const COLOR_NPC: &str = "#2196F3"; // Blue
+const COLOR_PEDESTRIAN: &str = "#FF9800"; // Orange
 const COLOR_VIOLATION: &str = "#F44336"; // Red
 const COLOR_EGO_PATH: &str = "#8BC34A"; // Light green
 const COLOR_NPC_PATH: &str = "#64B5F6"; // Light blue
+const COLOR_PEDESTRIAN_PATH: &str = "#FFB74D"; // Light orange
 const COLOR_ROAD: &str = "#2A2A2A"; // Dark gray
 const COLOR_LANE_MARKING: &str = "#FFFFFF"; // White
 const COLOR_TEXT: &str = "#333333"; // Dark gray text
@@ -160,6 +162,8 @@ impl<'a> SvgVisualizer<'a> {
     fn get_actor_color(&self, actor_id: &str) -> &'static str {
         if actor_id.to_lowercase().contains("ego") {
             COLOR_EGO
+        } else if actor_id.to_lowercase().contains("pedestrian") {
+            COLOR_PEDESTRIAN
         } else {
             COLOR_NPC
         }
@@ -169,6 +173,8 @@ impl<'a> SvgVisualizer<'a> {
     fn get_actor_path_color(&self, actor_id: &str) -> &'static str {
         if actor_id.to_lowercase().contains("ego") {
             COLOR_EGO_PATH
+        } else if actor_id.to_lowercase().contains("pedestrian") {
+            COLOR_PEDESTRIAN_PATH
         } else {
             COLOR_NPC_PATH
         }
@@ -432,61 +438,114 @@ impl<'a> SvgVisualizer<'a> {
 
         for actor in &self.scenario.actors {
             let color = self.get_actor_color(&actor.id);
+            let is_pedestrian = actor.role.to_lowercase() == "pedestrian";
 
-            // Initial position (rectangle)
+            // Initial position
             if let Some(first_state) = actor.states.first() {
                 let (svg_x, svg_y) =
                     self.transform_coords(first_state.position.x, first_state.position.y);
-                let rect = Rectangle::new()
-                    .set("x", svg_x - VEHICLE_LENGTH / 2.0)
-                    .set("y", svg_y - VEHICLE_WIDTH / 2.0)
-                    .set("width", VEHICLE_LENGTH)
-                    .set("height", VEHICLE_WIDTH)
-                    .set("fill", color)
-                    .set("stroke", COLOR_TEXT)
-                    .set("stroke-width", 1)
-                    .set("rx", 1);
-                group = group.add(rect);
 
-                // Label
-                let label = Text::new(format!("{} (t=0)", actor.id))
-                    .set("x", svg_x)
-                    .set("y", svg_y - VEHICLE_WIDTH / 2.0 - 5.0)
-                    .set("text-anchor", "middle")
-                    .set("font-family", "Arial, sans-serif")
-                    .set("font-size", 10)
-                    .set("font-weight", "bold")
-                    .set("fill", COLOR_TEXT);
-                group = group.add(label);
+                if is_pedestrian {
+                    // Pedestrian rendered as circle
+                    let circle = Circle::new()
+                        .set("cx", svg_x)
+                        .set("cy", svg_y)
+                        .set("r", VEHICLE_WIDTH / 2.0)
+                        .set("fill", color)
+                        .set("stroke", COLOR_TEXT)
+                        .set("stroke-width", 1);
+                    group = group.add(circle);
+
+                    // Label
+                    let label = Text::new(format!("{} (t=0)", actor.id))
+                        .set("x", svg_x)
+                        .set("y", svg_y - VEHICLE_WIDTH / 2.0 - 5.0)
+                        .set("text-anchor", "middle")
+                        .set("font-family", "Arial, sans-serif")
+                        .set("font-size", 10)
+                        .set("font-weight", "bold")
+                        .set("fill", COLOR_TEXT);
+                    group = group.add(label);
+                } else {
+                    // Vehicle rendered as rectangle
+                    let rect = Rectangle::new()
+                        .set("x", svg_x - VEHICLE_LENGTH / 2.0)
+                        .set("y", svg_y - VEHICLE_WIDTH / 2.0)
+                        .set("width", VEHICLE_LENGTH)
+                        .set("height", VEHICLE_WIDTH)
+                        .set("fill", color)
+                        .set("stroke", COLOR_TEXT)
+                        .set("stroke-width", 1)
+                        .set("rx", 1);
+                    group = group.add(rect);
+
+                    // Label
+                    let label = Text::new(format!("{} (t=0)", actor.id))
+                        .set("x", svg_x)
+                        .set("y", svg_y - VEHICLE_WIDTH / 2.0 - 5.0)
+                        .set("text-anchor", "middle")
+                        .set("font-family", "Arial, sans-serif")
+                        .set("font-size", 10)
+                        .set("font-weight", "bold")
+                        .set("fill", COLOR_TEXT);
+                    group = group.add(label);
+                }
             }
 
-            // Final position (rectangle with different styling)
+            // Final position
             if let Some(last_state) = actor.states.last() {
                 let (svg_x, svg_y) =
                     self.transform_coords(last_state.position.x, last_state.position.y);
-                let rect = Rectangle::new()
-                    .set("x", svg_x - VEHICLE_LENGTH / 2.0)
-                    .set("y", svg_y - VEHICLE_WIDTH / 2.0)
-                    .set("width", VEHICLE_LENGTH)
-                    .set("height", VEHICLE_WIDTH)
-                    .set("fill", color)
-                    .set("stroke", COLOR_TEXT)
-                    .set("stroke-width", 2)
-                    .set("stroke-dasharray", "3,3")
-                    .set("rx", 1)
-                    .set("opacity", 0.8);
-                group = group.add(rect);
 
-                // Label
-                let label = Text::new(format!("{} (t={:.1})", actor.id, last_state.time))
-                    .set("x", svg_x)
-                    .set("y", svg_y + VEHICLE_WIDTH / 2.0 + 15.0)
-                    .set("text-anchor", "middle")
-                    .set("font-family", "Arial, sans-serif")
-                    .set("font-size", 10)
-                    .set("font-weight", "bold")
-                    .set("fill", COLOR_TEXT);
-                group = group.add(label);
+                if is_pedestrian {
+                    // Pedestrian rendered as circle
+                    let circle = Circle::new()
+                        .set("cx", svg_x)
+                        .set("cy", svg_y)
+                        .set("r", VEHICLE_WIDTH / 2.0)
+                        .set("fill", color)
+                        .set("stroke", COLOR_TEXT)
+                        .set("stroke-width", 2)
+                        .set("stroke-dasharray", "3,3")
+                        .set("opacity", 0.8);
+                    group = group.add(circle);
+
+                    // Label
+                    let label = Text::new(format!("{} (t={:.1})", actor.id, last_state.time))
+                        .set("x", svg_x)
+                        .set("y", svg_y + VEHICLE_WIDTH / 2.0 + 15.0)
+                        .set("text-anchor", "middle")
+                        .set("font-family", "Arial, sans-serif")
+                        .set("font-size", 10)
+                        .set("font-weight", "bold")
+                        .set("fill", COLOR_TEXT);
+                    group = group.add(label);
+                } else {
+                    // Vehicle rendered as rectangle
+                    let rect = Rectangle::new()
+                        .set("x", svg_x - VEHICLE_LENGTH / 2.0)
+                        .set("y", svg_y - VEHICLE_WIDTH / 2.0)
+                        .set("width", VEHICLE_LENGTH)
+                        .set("height", VEHICLE_WIDTH)
+                        .set("fill", color)
+                        .set("stroke", COLOR_TEXT)
+                        .set("stroke-width", 2)
+                        .set("stroke-dasharray", "3,3")
+                        .set("rx", 1)
+                        .set("opacity", 0.8);
+                    group = group.add(rect);
+
+                    // Label
+                    let label = Text::new(format!("{} (t={:.1})", actor.id, last_state.time))
+                        .set("x", svg_x)
+                        .set("y", svg_y + VEHICLE_WIDTH / 2.0 + 15.0)
+                        .set("text-anchor", "middle")
+                        .set("font-family", "Arial, sans-serif")
+                        .set("font-size", 10)
+                        .set("font-weight", "bold")
+                        .set("fill", COLOR_TEXT);
+                    group = group.add(label);
+                }
             }
         }
 
@@ -498,14 +557,14 @@ impl<'a> SvgVisualizer<'a> {
         let mut group = Group::new().set("id", "legend");
 
         let legend_x = self.config.canvas_width - self.config.margin - 150.0;
-        let legend_y = self.config.canvas_height - self.config.margin - 80.0;
+        let legend_y = self.config.canvas_height - self.config.margin - 100.0;
 
         // Legend background
         let bg = Rectangle::new()
             .set("x", legend_x)
             .set("y", legend_y)
             .set("width", 150)
-            .set("height", 80)
+            .set("height", 100)
             .set("fill", "white")
             .set("stroke", COLOR_TEXT)
             .set("stroke-width", 1)
@@ -559,10 +618,27 @@ impl<'a> SvgVisualizer<'a> {
             .set("fill", COLOR_TEXT);
         group = group.add(npc_text);
 
+        // Pedestrian
+        let pedestrian_marker = Circle::new()
+            .set("cx", legend_x + 16.0)
+            .set("cy", legend_y + 59.0)
+            .set("r", 4)
+            .set("fill", COLOR_PEDESTRIAN);
+        group = group.add(pedestrian_marker);
+
+        let pedestrian_text = Text::new("Pedestrian")
+            .set("x", legend_x + 30.0)
+            .set("y", legend_y + 62.0)
+            .set("text-anchor", "start")
+            .set("font-family", "Arial, sans-serif")
+            .set("font-size", 10)
+            .set("fill", COLOR_TEXT);
+        group = group.add(pedestrian_text);
+
         // Violation marker
         let violation_marker = Circle::new()
             .set("cx", legend_x + 16.0)
-            .set("cy", legend_y + 59.0)
+            .set("cy", legend_y + 78.0)
             .set("r", 6)
             .set("fill", "none")
             .set("stroke", COLOR_VIOLATION)
@@ -571,7 +647,7 @@ impl<'a> SvgVisualizer<'a> {
 
         let violation_text = Text::new("Safety Violation")
             .set("x", legend_x + 30.0)
-            .set("y", legend_y + 62.0)
+            .set("y", legend_y + 81.0)
             .set("text-anchor", "start")
             .set("font-family", "Arial, sans-serif")
             .set("font-size", 10)

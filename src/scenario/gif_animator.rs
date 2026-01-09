@@ -28,9 +28,11 @@ const FRAME_DELAY_CENTISECONDS: u16 = 10; // 100ms per frame = 10 FPS
 // Colors (match SVG visualizer)
 const COLOR_EGO: Rgb<u8> = Rgb([76, 175, 80]); // #4CAF50 Green
 const COLOR_NPC: Rgb<u8> = Rgb([33, 150, 243]); // #2196F3 Blue
+const COLOR_PEDESTRIAN: Rgb<u8> = Rgb([255, 152, 0]); // #FF9800 Orange
 const COLOR_VIOLATION: Rgb<u8> = Rgb([244, 67, 54]); // #F44336 Red
 const COLOR_EGO_TRAIL: Rgb<u8> = Rgb([139, 195, 74]); // #8BC34A Light green
 const COLOR_NPC_TRAIL: Rgb<u8> = Rgb([100, 181, 246]); // #64B5F6 Light blue
+const COLOR_PEDESTRIAN_TRAIL: Rgb<u8> = Rgb([255, 183, 77]); // #FFB74D Light orange
 const COLOR_ROAD: Rgb<u8> = Rgb([42, 42, 42]); // #2A2A2A Dark gray
 const COLOR_LANE_MARKING: Rgb<u8> = Rgb([255, 255, 255]); // #FFFFFF White
 const COLOR_BACKGROUND: Rgb<u8> = Rgb([245, 245, 245]); // #F5F5F5 Light gray
@@ -220,6 +222,8 @@ impl<'a> GifAnimator<'a> {
     fn get_actor_color(&self, actor_id: &str) -> Rgb<u8> {
         if actor_id.to_lowercase().contains("ego") {
             COLOR_EGO
+        } else if actor_id.to_lowercase().contains("pedestrian") {
+            COLOR_PEDESTRIAN
         } else {
             COLOR_NPC
         }
@@ -229,6 +233,8 @@ impl<'a> GifAnimator<'a> {
     fn get_trail_color(&self, actor_id: &str) -> Rgb<u8> {
         if actor_id.to_lowercase().contains("ego") {
             COLOR_EGO_TRAIL
+        } else if actor_id.to_lowercase().contains("pedestrian") {
+            COLOR_PEDESTRIAN_TRAIL
         } else {
             COLOR_NPC_TRAIL
         }
@@ -395,17 +401,23 @@ impl<'a> GifAnimator<'a> {
             let state = &actor.states[frame_idx];
             let color = self.get_actor_color(&actor.id);
             let (px, py) = self.transform_coords(state.position.x, state.position.y);
+            let is_pedestrian = actor.role.to_lowercase() == "pedestrian";
 
-            // Draw vehicle rectangle
-            let rect = Rect::at(
-                px - VEHICLE_LENGTH as i32 / 2,
-                py - VEHICLE_WIDTH as i32 / 2,
-            )
-            .of_size(VEHICLE_LENGTH, VEHICLE_WIDTH);
-            draw_filled_rect_mut(image, rect, color);
+            if is_pedestrian {
+                // Draw pedestrian as circle
+                draw_filled_circle_mut(image, (px, py), VEHICLE_WIDTH as i32 / 2, color);
+            } else {
+                // Draw vehicle rectangle
+                let rect = Rect::at(
+                    px - VEHICLE_LENGTH as i32 / 2,
+                    py - VEHICLE_WIDTH as i32 / 2,
+                )
+                .of_size(VEHICLE_LENGTH, VEHICLE_WIDTH);
+                draw_filled_rect_mut(image, rect, color);
 
-            // Draw heading arrow
-            self.draw_heading_arrow(image, px, py, &state.velocity, color);
+                // Draw heading arrow
+                self.draw_heading_arrow(image, px, py, &state.velocity, color);
+            }
         }
     }
 

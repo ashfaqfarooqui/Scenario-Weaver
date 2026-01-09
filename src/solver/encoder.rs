@@ -182,10 +182,37 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 &actor_id, lane, pos_min, pos_max, speed_min, speed_max, acc_min, acc_max,
             );
 
-            // Initial lateral position matches lane center
-            self.encode_lane_position_coupling_at_time(&actor_id, 0);
+            // Handle lateral position constraints
+            if role == ActorRole::Pedestrian {
+                // Pedestrians start on sidewalk (based on lane field)
+                // Use range to allow Z3 to choose specific position that works
+                let lane_width = self.spec.get_lane_width();
+                let num_lanes = self.spec.get_num_lanes();
+                let road_width = lane_width * num_lanes as f64;
+
+                let py_0 = &self.positions_y[&actor_id][0];
+                let road_width_real = Real::from_rational((road_width * 10.0) as i64, 10_i64);
+
+                if lane == 0 {
+                    // Left sidewalk: py between -0.6 and -0.4
+                    let sidewalk_min = Real::from_rational(-6_i64, 10_i64); // -0.6m
+                    let sidewalk_max = Real::from_rational(-4_i64, 10_i64); // -0.4m
+                    self.backend.assert(&py_0.ge(&sidewalk_min));
+                    self.backend.assert(&py_0.le(&sidewalk_max));
+                } else {
+                    // Right sidewalk: py between road_width + 0.4 and road_width + 0.6
+                    let sidewalk_min = &road_width_real + &Real::from_rational(4_i64, 10_i64);
+                    let sidewalk_max = &road_width_real + &Real::from_rational(6_i64, 10_i64);
+                    self.backend.assert(&py_0.ge(&sidewalk_min));
+                    self.backend.assert(&py_0.le(&sidewalk_max));
+                }
+            } else {
+                // Vehicles: initial lateral position matches lane center
+                self.encode_lane_position_coupling_at_time(&actor_id, 0);
+            }
 
             // Ego never changes lanes (vy = 0)
+            // Pedestrians can move laterally, so skip this constraint for them
             if role == ActorRole::Ego {
                 let zero = Real::from_rational(0_i64, 1_i64);
                 let vy_0 = &self.velocities_y[&actor_id][0];
@@ -355,8 +382,14 @@ impl<B: Z3Backend> GenericEncoder<B> {
             // in encode_lane_velocity_constraints() based on lane direction
         }
 
-        // Lane-position coupling for all time steps
-        let actor_ids: Vec<_> = self.spec.actors.iter().map(|a| a.id.clone()).collect();
+        // Lane-position coupling for all time steps (skip pedestrians)
+        let actor_ids: Vec<_> = self
+            .spec
+            .actors
+            .iter()
+            .filter(|a| a.role != ActorRole::Pedestrian)
+            .map(|a| a.id.clone())
+            .collect();
         for actor_id in actor_ids {
             for t in 0..=self.horizon {
                 self.encode_lane_position_coupling_at_time(&actor_id, t);
@@ -369,6 +402,8 @@ impl<B: Z3Backend> GenericEncoder<B> {
     /// For each actor and time step, constrains velocity to match lane direction:
     /// - Forward lanes (direction = +1): vx >= 0
     /// - Backward lanes (direction = -1): vx <= 0
+    ///
+    /// Note: Pedestrians are skipped as they don't follow lane-based kinematics
     pub fn encode_lane_velocity_constraints(&mut self) {
         use crate::dsl::types::ActorRole;
 
@@ -376,6 +411,11 @@ impl<B: Z3Backend> GenericEncoder<B> {
 
         for actor in &self.spec.actors.clone() {
             let actor_id = &actor.id;
+
+            // Skip pedestrians - they don't follow lane-based kinematics
+            if actor.role == ActorRole::Pedestrian {
+                continue;
+            }
 
             if actor.role == ActorRole::Ego {
                 // Ego never changes lanes, so apply direction constraint for initial lane
@@ -663,6 +703,38 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 actor2,
                 ttc,
             } => self.encode_ttc_constraint(actor1, actor2, *ttc, time),
+
+            // OnSidewalk(actor, side): py < 0 (left) or py > road_width (right)
+            Proposition::OnSidewalk { actor, side } => {
+                let py = &self.positions_y[actor][time];
+                let zero = Real::from_rational(0_i64, 1_i64);
+
+                let lane_width = self.spec.get_lane_width();
+                let num_lanes = self.spec.get_num_lanes();
+                let road_width = lane_width * num_lanes as f64;
+                let road_width_real = Real::from_rational((road_width * 10.0) as i64, 10_i64);
+
+                if side == "left" {
+                    py.lt(&zero)
+                } else {
+                    py.gt(&road_width_real)
+                }
+            }
+
+            // CrossingRoad(actor): 0 <= py <= road_width
+            Proposition::CrossingRoad { actor } => {
+                let py = &self.positions_y[actor][time];
+                let zero = Real::from_rational(0_i64, 1_i64);
+
+                let lane_width = self.spec.get_lane_width();
+                let num_lanes = self.spec.get_num_lanes();
+                let road_width = lane_width * num_lanes as f64;
+                let road_width_real = Real::from_rational((road_width * 10.0) as i64, 10_i64);
+
+                let on_road_start = py.ge(&zero);
+                let on_road_end = py.le(&road_width_real);
+                z3::ast::Bool::and(&[&on_road_start, &on_road_end])
+            }
         }
     }
 
@@ -862,6 +934,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
             let role_str = match actor.role {
                 ActorRole::Ego => "ego",
                 ActorRole::Npc => "npc",
+                ActorRole::Pedestrian => "pedestrian",
             };
 
             let trajectory = self.extract_actor_trajectory(model, &actor.id, role_str);

@@ -1,0 +1,30 @@
+scenario_type: pedestrian_crossing
+
+time_step: 0.1
+duration: 10.0
+
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, 1]
+
+actors:
+  - id: ego
+    role: ego
+    lane: 0
+    position: [0.0, 40.0]
+    speed: [10.0, 12.0]
+    acceleration: [-3.0, 2.0]
+
+  - id: pedestrian
+    role: pedestrian
+    lane: 0
+    position: [45.0, 55.0]
+    speed: [0.8, 1.5]
+    acceleration: [-0.5, 0.5]
+    behavior:
+      crossing_time: [2.5, 5.5]
+
+min_ttc: 2.0
+min_distance: 2.0
+num_scenarios: 1

@@ -31,6 +31,8 @@ pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
         .with_entities();
 
     // Add vehicle entity for each actor
+    // Note: Pedestrians are treated as vehicles in OpenSCENARIO export
+    // due to library limitations. This can be improved in the future.
     for actor in &scenario.actors {
         builder = builder.add_vehicle(&actor.id, |vehicle| vehicle.car());
     }
