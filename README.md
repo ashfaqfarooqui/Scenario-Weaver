@@ -10,7 +10,9 @@ Automatically generate diverse, safety-critical driving test scenarios from high
 - **Multiple diverse scenario generation**
 - **Adversarial scenario generation** - Generate scenarios that violate safety constraints for testing edge cases
 - **Per-constraint control** - Enforce, violate, or ignore each constraint independently
-- **JSON output** compatible with CARLA simulator
+- **Multi-road network support** - Define complex road networks with named roads and connections
+- **Junction support** - T-junctions and crossroads intersections with automatic geometry calculation
+- **Multiple output formats**: JSON, OpenSCENARIO (.xosc), OpenDRIVE (.xodr), SVG, and animated GIF
 
 ## Quick Start
 
@@ -35,7 +37,7 @@ This will:
 1. Parse the YAML specification
 2. Generate LTL constraints
 3. Solve with Z3
-4. Output scenario files to the directory (JSON + XOSC + SVG + GIF)
+4. Output scenario files to the directory (JSON + XOSC + XODR + SVG + GIF)
 
 ### Generate Multiple Scenarios
 
@@ -155,24 +157,110 @@ num_scenarios: 1          # generate 1 scenario (or use -n flag)
 - **Ranges**: `position: [45.0, 55.0]` - Z3 chooses any value in range
 - **Behavior parameters**: Scenario-specific values in the `behavior` map (e.g., `cut_in_time`)
 
+## Multi-Road Network Support
+
+Define complex road networks with multiple named roads and connections:
+
+```yaml
+scenario_type: cut_in_left
+time_step: 0.5
+duration: 10.0
+
+# Multi-road network definition
+roads:
+  roads:
+    - id: main_road
+      num_lanes: 4
+      lane_width: 3.5
+      lane_directions: [1, 1, -1, -1]  # 2 forward, 2 backward
+      length: 400.0
+      origin:
+        x: 0.0
+        y: 0.0
+      heading: 0.0  # East (radians)
+
+    - id: side_road
+      num_lanes: 2
+      lane_width: 3.0
+      lane_directions: [1, -1]  # Bidirectional
+      length: 150.0
+      origin:
+        x: 200.0
+        y: -50.0
+      heading: 1.5708  # North (pi/2)
+
+  # Optional: Road connections
+  connections:
+    - from_road: main_road
+      to_road: side_road
+      connection_type: junction
+
+  # Optional: Junction definitions
+  junctions:
+    - id: t_junction_1
+      junction_type: t_junction
+      main_road: main_road
+      incoming_roads:
+        - side_road
+      position: 200.0  # s-coordinate on main road
+      side: right
+
+# Actors reference roads by ID
+actors:
+  - id: ego
+    role: ego
+    road_id: main_road  # Which road the actor is on
+    lane: 0
+    position: [50.0, 100.0]
+    speed: [12.0, 15.0]
+    acceleration: [-3.0, 2.0]
+```
+
+### Junction Types
+
+**T-Junction:**
+```yaml
+junctions:
+  - id: t_junction_1
+    junction_type: t_junction
+    main_road: main_road      # Required: the through road
+    incoming_roads: [side_road]  # Exactly one incoming road
+    position: 200.0           # Where on main road
+    side: right               # left or right
+```
+
+**Crossroads:**
+```yaml
+junctions:
+  - id: crossroads_1
+    junction_type: crossroads
+    incoming_roads:           # At least 3 roads
+      - north_road
+      - south_road
+      - east_road
+      - west_road
+```
+
+See `examples/t_junction.yaml` and `examples/crossroads.yaml` for complete examples.
+
 ## Output Formats
 
-The generator automatically produces scenarios in **four formats**: JSON, OpenSCENARIO (.xosc), SVG, and GIF.
+The generator automatically produces scenarios in **five formats**: JSON, OpenSCENARIO (.xosc), OpenDRIVE (.xodr), SVG, and GIF.
 
-### Quad Output
+### Quintuplet Output
 
 **Single scenario mode:**
 ```bash
 cargo run --release -- -i examples/cut_in_left.yaml -o output/
-# Creates: output/scenario.json + scenario.xosc + scenario.svg + scenario.gif
+# Creates: output/scenario.json + scenario.xosc + scenario.xodr + scenario.svg + scenario.gif
 ```
 
 **Multiple scenario mode:**
 ```bash
 cargo run --release -- -i examples/cut_in_left.yaml -o scenarios/ -n 5
-# Creates: scenarios/scenario_0.json + scenario_0.xosc + scenario_0.svg + scenario_0.gif
-#          scenarios/scenario_1.json + scenario_1.xosc + scenario_1.svg + scenario_1.gif
-#          ... (5 quadruplets total)
+# Creates: scenarios/scenario_0.json + scenario_0.xosc + scenario_0.xodr + scenario_0.svg + scenario_0.gif
+#          scenarios/scenario_1.json + scenario_1.xosc + scenario_1.xodr + scenario_1.svg + scenario_1.gif
+#          ... (5 quintuplets total)
 ```
 
 ### JSON Format
@@ -220,8 +308,9 @@ Valid OpenSCENARIO XML files for simulator compatibility:
 - Standard OpenSCENARIO 1.0+ structure
 - File header with scenario metadata
 - Vehicle entities for all actors
-- Trajectory data embedded in description field
-- Compatible with CARLA and other OpenSCENARIO-compliant simulators
+- Complete trajectory-based actions for each actor
+- Automatic linking to OpenDRIVE road network file
+- Compatible with CARLA, esmini, and other OpenSCENARIO-compliant simulators
 
 **Programmatic export:**
 ```rust
@@ -233,6 +322,33 @@ let scenario = generate_single_scenario(&yaml)?;
 // Export to XOSC
 let xosc_xml = export_scenario_to_xosc(&scenario)?;
 std::fs::write("scenario.xosc", xosc_xml)?;
+
+// Or export with explicit road file reference
+let xosc_xml = export_scenario_to_xosc_with_road_file(&scenario, "scenario.xodr")?;
+```
+
+### OpenDRIVE Format (.xodr)
+
+Valid OpenDRIVE 1.7 XML files for road network definition:
+- Complete road geometry (straight lines, multiple roads)
+- Lane definitions with proper OpenDRIVE conventions
+- Lane directions (left/right lanes for traffic flow)
+- Road connections and links between roads
+- Junction definitions (T-junctions and crossroads)
+- Compatible with CARLA and other OpenDRIVE-compliant simulators
+
+**Programmatic export:**
+```rust
+use carla_scenario_generator::{generate_single_scenario, export_scenario_to_xodr};
+use carla_scenario_generator::dsl::parser::parse_yaml;
+
+let yaml = std::fs::read_to_string("scenario.yaml")?;
+let spec = parse_yaml(&yaml)?;
+let scenario = generate_single_scenario(&yaml)?;
+
+// Export to XODR
+let xodr_xml = export_scenario_to_xodr(&scenario, &spec)?;
+std::fs::write("scenario.xodr", xodr_xml)?;
 ```
 
 ### SVG Visualization Format (.svg)
