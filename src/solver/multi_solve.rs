@@ -51,7 +51,7 @@ pub fn generate_scenarios(
             encoder.encode_lateral_velocity_bounds();
             encoder.encode_ltl(ltl_formula);
             encoder.encode_scenario_specific_constraints(&*scenario_model)?;
-            encoder.encode_safety();
+            // Note: Safety constraints now handled via LTL propositions only
 
             // Add blocking clauses for all previous scenarios
             for prev_scenario in &scenarios {

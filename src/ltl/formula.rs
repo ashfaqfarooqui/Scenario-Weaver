@@ -49,6 +49,22 @@ pub enum Proposition {
 
     /// Pedestrian is actively crossing the road
     CrossingRoad { actor: String },
+
+    /// 2D Euclidean distance between actors > threshold
+    /// For pedestrian-vehicle scenarios where same-lane assumption doesn't apply
+    Distance2DGT {
+        actor1: String,
+        actor2: String,
+        distance: f64,
+    },
+
+    /// Time-to-collision for perpendicular crossing
+    /// Checks if ego will reach pedestrian's crossing point before pedestrian clears
+    PedestrianTTCGT {
+        ego: String,
+        pedestrian: String,
+        ttc: f64,
+    },
 }
 
 // Builder methods for ergonomic formula construction

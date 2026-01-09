@@ -88,8 +88,8 @@ fn generate_with_solver(
         // Call scenario-specific Z3 constraints (if any)
         encoder.encode_scenario_specific_constraints(scenario_model)?;
 
-        // Encode safety constraints
-        encoder.encode_safety();
+        // Note: Safety constraints are now handled via LTL propositions in generate_safety()
+        // No need for direct encode_safety() call - avoids redundant constraints
 
         // Solve and extract scenario
         match encoder.check() {

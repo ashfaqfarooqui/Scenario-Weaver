@@ -38,18 +38,99 @@ impl ScenarioModel for PedestrianCrossingModel {
         Ok(())
     }
 
+    fn generate_safety(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
+        use crate::dsl::types::{ActorRole, ConstraintMode};
+
+        let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
+        let npcs = spec.npcs();
+        let pedestrian = npcs.iter()
+            .find(|a| a.role == ActorRole::Pedestrian)
+            .ok_or_else(|| anyhow::anyhow!("No pedestrian found"))?;
+
+        let mut constraints = Vec::new();
+
+        // 2D Euclidean distance constraint (not lane-based)
+        if spec.constraint_modes.min_distance() == ConstraintMode::Enforce {
+            let dist = LTLFormula::Atom(Proposition::Distance2DGT {
+                actor1: ego.id.clone(),
+                actor2: pedestrian.id.clone(),
+                distance: spec.min_distance,
+            }).always();
+            constraints.push(dist);
+        }
+
+        // Pedestrian-specific TTC (perpendicular crossing)
+        if spec.constraint_modes.min_ttc() == ConstraintMode::Enforce {
+            let ttc = LTLFormula::Atom(Proposition::PedestrianTTCGT {
+                ego: ego.id.clone(),
+                pedestrian: pedestrian.id.clone(),
+                ttc: spec.min_ttc,
+            }).always();
+            constraints.push(ttc);
+        }
+
+        if constraints.is_empty() {
+            // Return tautology
+            Ok(LTLFormula::Atom(Proposition::InLane {
+                actor: ego.id.clone(),
+                lane: ego.lane,
+            }).or(LTLFormula::Atom(Proposition::InLane {
+                actor: ego.id.clone(),
+                lane: ego.lane,
+            }).negate()))
+        } else {
+            Ok(constraints.into_iter().reduce(|acc, c| acc.and(c)).unwrap())
+        }
+    }
+
     fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
+        use crate::dsl::types::ActorRole;
+
         let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
         let ego_id = ego.id.as_str();
 
-        // Simple LTL: Ego stays in its lane
+        // Ego stays in its lane
         let ego_in_lane = LTLFormula::Atom(Proposition::InLane {
             actor: ego_id.to_string(),
             lane: ego.lane,
         });
 
-        // That's it - just keep ego in lane, let physics handle the rest
-        Ok(ego_in_lane)
+        // Get pedestrian
+        let npcs = spec.npcs();
+        let pedestrian = npcs
+            .iter()
+            .find(|a| a.role == ActorRole::Pedestrian)
+            .ok_or_else(|| anyhow::anyhow!("No pedestrian found in spec"))?;
+        let ped_id = &pedestrian.id;
+
+        // Determine crossing direction from lane field (0=left, 1=right)
+        let opposite_side = if pedestrian.lane == 0 {
+            "right"
+        } else {
+            "left"
+        };
+
+        // Multi-stage crossing using sequential implications
+        // Stage 1: Eventually starts crossing (enters road)
+        let crossing_road = LTLFormula::Atom(Proposition::CrossingRoad {
+            actor: ped_id.clone(),
+        });
+
+        // Stage 2: Eventually reaches opposite sidewalk
+        let on_opposite_sidewalk = LTLFormula::Atom(Proposition::OnSidewalk {
+            actor: ped_id.clone(),
+            side: opposite_side.to_string(),
+        });
+
+        // Combine: Eventually cross road AND eventually reach opposite side
+        // This allows: start on initial → move to road → move to opposite
+        let enters_road = crossing_road.clone().eventually();
+        let reaches_opposite = on_opposite_sidewalk.eventually();
+
+        let full_crossing = enters_road.and(reaches_opposite);
+
+        // Combine ego constraint with pedestrian crossing behavior
+        Ok(ego_in_lane.and(full_crossing))
     }
 
     fn add_z3_constraints(
@@ -62,40 +143,50 @@ impl ScenarioModel for PedestrianCrossingModel {
         use crate::dsl::ActorRole;
         use z3::ast::Real;
 
+        // Check if pedestrian has "hesitate" walking mode
         let npcs = spec.npcs();
         let pedestrian = npcs
             .iter()
             .find(|a| a.role == ActorRole::Pedestrian)
             .ok_or_else(|| anyhow::anyhow!("No pedestrian actor found"))?;
-        let pedestrian_id = &pedestrian.id;
 
-        let lane_width = spec.get_lane_width();
-        let num_lanes = spec.get_num_lanes();
-        let road_width = lane_width * num_lanes as f64;
+        if let Some(walking_mode) = pedestrian.behavior.get("walking_mode") {
+            if walking_mode == "hesitate" {
+                let pedestrian_id = &pedestrian.id;
 
-        // Determine crossing direction based on lane field (0=left, 1=right)
-        let (start_y, end_y) = if pedestrian.lane == 0 {
-            // Start left of road, end right of road
-            (-1.0, road_width + 1.0)
-        } else {
-            // Start right of road, end left of road
-            (road_width + 1.0, -1.0)
-        };
+                // For hesitate mode: Force pedestrian to slow down significantly
+                // at some point during the middle of the scenario (e.g., 40%-60% through)
+                let start_hesitate = (horizon as f64 * 0.4) as usize;
+                let end_hesitate = (horizon as f64 * 0.6) as usize;
 
-        // Constraint: Pedestrian must cross from start to end
-        // Initial position: near start_y
-        let py_0 = &encoder.positions_y[pedestrian_id][0];
-        let start_y_real = Real::from_rational((start_y * 10.0) as i64, 10_i64);
-        let start_margin = Real::from_rational(5_i64, 10_i64); // 0.5m margin
-        backend.assert(&py_0.ge(&(&start_y_real - &start_margin)));
-        backend.assert(&py_0.le(&(&start_y_real + &start_margin)));
+                // At least one time step in this range should have very low speed
+                // Create a disjunction: at least one time step has speed < 0.2 m/s
+                let slow_threshold_sq = 0.04; // (0.2 m/s)^2
+                let threshold_real =
+                    Real::from_rational((slow_threshold_sq * 100.0) as i64, 100_i64);
 
-        // Final position: near end_y
-        let py_final = &encoder.positions_y[pedestrian_id][horizon];
-        let end_y_real = Real::from_rational((end_y * 10.0) as i64, 10_i64);
-        let end_margin = Real::from_rational(5_i64, 10_i64); // 0.5m margin
-        backend.assert(&py_final.ge(&(&end_y_real - &end_margin)));
-        backend.assert(&py_final.le(&(&end_y_real + &end_margin)));
+                let mut slow_constraints = vec![];
+                for t in start_hesitate..end_hesitate {
+                    let vx_t = &encoder.velocities_x[pedestrian_id][t];
+                    let vy_t = &encoder.velocities_y[pedestrian_id][t];
+                    let vx_sq = vx_t * vx_t;
+                    let vy_sq = vy_t * vy_t;
+                    let speed_sq = &vx_sq + &vy_sq;
+                    // speed^2 < threshold
+                    slow_constraints.push(speed_sq.lt(&threshold_real));
+                }
+
+                // At least one of these must be true (OR them together)
+                if !slow_constraints.is_empty() {
+                    let slow_constraint_refs: Vec<_> =
+                        slow_constraints.iter().collect();
+                    let hesitate_constraint = z3::ast::Bool::or(
+                        &slow_constraint_refs,
+                    );
+                    backend.assert(&hesitate_constraint);
+                }
+            }
+        }
 
         Ok(())
     }

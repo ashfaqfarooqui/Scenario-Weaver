@@ -30,9 +30,13 @@ pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
         .with_header(&description, "CARLA Scenario Generator")
         .with_entities();
 
-    // Add vehicle entity for each actor
-    // Note: Pedestrians are treated as vehicles in OpenSCENARIO export
-    // due to library limitations. This can be improved in the future.
+    // Add entities for each actor
+    // TODO: openscenario-rs library limitation - no direct add_pedestrian() method
+    // The library only supports add_catalog_pedestrian() which requires external catalog files.
+    // To properly support pedestrians, the openscenario-rs library needs to add:
+    //   - pub fn add_pedestrian<F>(name: &str, config: F) -> Self
+    //   - PedestrianBuilder with methods like .adult(), .child(), etc.
+    // For now, we export all actors (including pedestrians) as vehicles.
     for actor in &scenario.actors {
         builder = builder.add_vehicle(&actor.id, |vehicle| vehicle.car());
     }

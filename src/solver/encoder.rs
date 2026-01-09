@@ -335,7 +335,8 @@ impl<B: Z3Backend> GenericEncoder<B> {
 
     /// Encode kinematic constraints with acceleration support
     pub fn encode_kinematics(&mut self) {
-        use crate::dsl::types::ActorRole;
+        use crate::dsl::types::{ActorRole, PEDESTRIAN_MAX_ACCELERATION, PEDESTRIAN_MAX_DECELERATION,
+                                PEDESTRIAN_WALK_MAX_SPEED, PEDESTRIAN_RUN_MAX_SPEED};
 
         let dt = self.spec.time_step;
         let dt_real = Real::from_rational((dt * 10.0) as i64, 10_i64);
@@ -345,9 +346,17 @@ impl<B: Z3Backend> GenericEncoder<B> {
             let actor_id = &actor.id;
 
             // Get acceleration bounds from actor spec
-            // Note: Pedestrian-specific physics will be added in future phase
-            let ax_min = actor.acceleration.min();
-            let ax_max = actor.acceleration.max();
+            // For pedestrians, clamp to pedestrian-specific physics limits
+            let (ax_min, ax_max) = if actor.role == ActorRole::Pedestrian {
+                let spec_min = actor.acceleration.min();
+                let spec_max = actor.acceleration.max();
+                (
+                    spec_min.max(PEDESTRIAN_MAX_DECELERATION),
+                    spec_max.min(PEDESTRIAN_MAX_ACCELERATION),
+                )
+            } else {
+                (actor.acceleration.min(), actor.acceleration.max())
+            };
             let ax_min_real = Real::from_rational((ax_min * 10.0) as i64, 10_i64);
             let ax_max_real = Real::from_rational((ax_max * 10.0) as i64, 10_i64);
 
@@ -376,6 +385,19 @@ impl<B: Z3Backend> GenericEncoder<B> {
 
                 // ========== LATERAL DYNAMICS ==========
 
+                // Lateral acceleration bounds (for pedestrians)
+                if actor.role == ActorRole::Pedestrian {
+                    let ay_t = &self.accelerations_y[actor_id][t];
+                    self.backend.assert(&ay_t.ge(&ax_min_real));
+                    self.backend.assert(&ay_t.le(&ax_max_real));
+
+                    // Lateral velocity update for pedestrians: vy[t+1] = vy[t] + ay[t] * dt
+                    let vy_t = &self.velocities_y[actor_id][t];
+                    let vy_t1 = &self.velocities_y[actor_id][t + 1];
+                    let expected_vy = vy_t + &(ay_t * &dt_real);
+                    self.backend.assert(&vy_t1.eq(&expected_vy));
+                }
+
                 // Lateral position update: py[t+1] = py[t] + vy[t] * dt
                 let py_t = &self.positions_y[actor_id][t];
                 let py_t1 = &self.positions_y[actor_id][t + 1];
@@ -386,6 +408,30 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 // Ego never changes lanes (vy = 0)
                 if actor.role == ActorRole::Ego {
                     self.backend.assert(&vy_t.eq(&zero));
+                }
+
+                // Pedestrian speed magnitude constraints
+                // Constrain velocity magnitude: vx^2 + vy^2 <= max_speed^2
+                if actor.role == ActorRole::Pedestrian {
+                    // Determine max speed from walking_mode behavior parameter
+                    let max_speed = actor
+                        .behavior
+                        .get("walking_mode")
+                        .map(|mode| match mode.as_str() {
+                            Some("run") => PEDESTRIAN_RUN_MAX_SPEED,
+                            _ => PEDESTRIAN_WALK_MAX_SPEED,
+                        })
+                        .unwrap_or(PEDESTRIAN_WALK_MAX_SPEED);
+
+                    let max_speed_sq = max_speed * max_speed;
+                    let max_speed_sq_real =
+                        Real::from_rational((max_speed_sq * 100.0) as i64, 100_i64);
+
+                    // vx^2 + vy^2 <= max_speed^2
+                    let vx_sq = vx_t * vx_t;
+                    let vy_sq = vy_t * vy_t;
+                    let speed_sq = &vx_sq + &vy_sq;
+                    self.backend.assert(&speed_sq.le(&max_speed_sq_real));
                 }
             }
 
@@ -746,6 +792,64 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 let on_road_end = py.le(&road_width_real);
                 z3::ast::Bool::and(&[&on_road_start, &on_road_end])
             }
+
+            // Distance2DGT: 2D Euclidean distance between actors > threshold
+            Proposition::Distance2DGT {
+                actor1,
+                actor2,
+                distance,
+            } => {
+                let px1 = &self.positions_x[actor1][time];
+                let py1 = &self.positions_y[actor1][time];
+                let px2 = &self.positions_x[actor2][time];
+                let py2 = &self.positions_y[actor2][time];
+
+                // Euclidean distance: sqrt((px1-px2)^2 + (py1-py2)^2) > threshold
+                // Z3 encoding: (px1-px2)^2 + (py1-py2)^2 > threshold^2
+                let dx = px1 - px2;
+                let dy = py1 - py2;
+                let dist_sq = &(&dx * &dx) + &(&dy * &dy);
+                let threshold_sq = Real::from_rational((distance * distance * 100.0) as i64, 100_i64);
+                dist_sq.gt(&threshold_sq)
+            }
+
+            // PedestrianTTCGT: Time-to-collision for perpendicular crossing
+            Proposition::PedestrianTTCGT {
+                ego,
+                pedestrian,
+                ttc,
+            } => {
+                let ego_px = &self.positions_x[ego][time];
+                let ego_vx = &self.velocities_x[ego][time];
+                let ped_px = &self.positions_x[pedestrian][time];
+                let ped_py = &self.positions_y[pedestrian][time];
+
+                let lane_width = self.spec.get_lane_width();
+                let num_lanes = self.spec.get_num_lanes();
+                let road_width = lane_width * num_lanes as f64;
+                let road_width_real = Real::from_rational((road_width * 10.0) as i64, 10_i64);
+                let zero = Real::from_rational(0_i64, 1_i64);
+
+                // Pedestrian on road: 0 <= py <= road_width
+                let ped_on_road = z3::ast::Bool::and(&[
+                    &ped_py.ge(&zero),
+                    &ped_py.le(&road_width_real),
+                ]);
+
+                // Ego approaching pedestrian's position
+                let ego_behind = ego_px.lt(ped_px);
+                let ego_moving_forward = ego_vx.gt(&zero);
+                let approaching = z3::ast::Bool::and(&[&ego_behind, &ego_moving_forward]);
+
+                // TTC = (ped_px - ego_px) / ego_vx
+                // Safe if: (ped_px - ego_px) > ttc * ego_vx
+                let distance = ped_px - ego_px;
+                let ttc_val = Real::from_rational((ttc * 10.0) as i64, 10_i64);
+                let ttc_safe = distance.gt(&(&ttc_val * ego_vx));
+
+                // Overall: NOT (ped_on_road AND approaching) OR ttc_safe
+                z3::ast::Bool::and(&[&ped_on_road, &approaching]).implies(&ttc_safe)
+            }
         }
     }
 
@@ -816,79 +920,6 @@ impl<B: Z3Backend> GenericEncoder<B> {
         let case2 = z3::ast::Bool::and(&[&same_lane, &collision_possible_2]).implies(&ttc_safe_2);
 
         z3::ast::Bool::and(&[&case1, &case2])
-    }
-
-    /// Encode all safety constraints
-    ///
-    /// When constraints are "enforced", we add direct Z3 assertions at each timestep.
-    /// When "violated" or "ignored", we rely on LTL encoding only.
-    ///
-    /// Generates pairwise safety constraints for all actor combinations.
-    pub fn encode_safety(&mut self) {
-        let min_ttc = self.spec.min_ttc;
-        let min_distance = self.spec.min_distance;
-
-        // Generate pairwise safety constraints for all actor combinations
-        for (i, actor1) in self.spec.actors.iter().enumerate() {
-            for actor2 in self.spec.actors.iter().skip(i + 1) {
-                let id1 = &actor1.id;
-                let id2 = &actor2.id;
-
-                // Only add direct safety assertions if constraints are enforced
-                // For violate/ignore modes, the LTL formula handles it
-
-                if self.spec.constraint_modes.min_ttc() == ConstraintMode::Enforce {
-                    for t in 0..=self.horizon {
-                        let ttc_constraint = self.encode_ttc_constraint(id1, id2, min_ttc, t);
-                        self.backend.assert(&ttc_constraint);
-                    }
-                }
-
-                if self.spec.constraint_modes.min_distance() == ConstraintMode::Enforce {
-                    for t in 0..=self.horizon {
-                        let distance_constraint =
-                            self.encode_min_distance_constraint(id1, id2, min_distance, t);
-                        self.backend.assert(&distance_constraint);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Encode minimum distance constraint between two actors
-    ///
-    /// When actors are in the same lane, they must maintain minimum distance.
-    fn encode_min_distance_constraint(
-        &self,
-        actor1: &str,
-        actor2: &str,
-        min_distance: f64,
-        time: usize,
-    ) -> z3::ast::Bool {
-        let lane1 = &self.lanes[actor1][time];
-        let lane2 = &self.lanes[actor2][time];
-
-        let px1 = &self.positions_x[actor1][time];
-        let px2 = &self.positions_x[actor2][time];
-
-        let min_dist_val = Real::from_rational((min_distance * 10.0) as i64, 10_i64);
-
-        // Same lane condition
-        let same_lane = lane1.eq(lane2);
-
-        // Distance: |px1 - px2|
-        // We need: |px1 - px2| > min_distance
-        // This is: (px1 - px2 > min_distance) OR (px2 - px1 > min_distance)
-        let diff_1 = px1 - px2;
-        let diff_2 = px2 - px1;
-
-        let dist_case_1 = diff_1.gt(&min_dist_val);
-        let dist_case_2 = diff_2.gt(&min_dist_val);
-
-        let distance_ok = z3::ast::Bool::or(&[&dist_case_1, &dist_case_2]);
-
-        // If same lane, then distance must be OK
-        same_lane.implies(&distance_ok)
     }
 
     /// Encode global max acceleration constraints (if specified)
