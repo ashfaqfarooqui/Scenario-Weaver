@@ -15,6 +15,7 @@ use openscenario_rs::ScenarioBuilder;
 ///
 /// Generates a complete OpenSCENARIO file with:
 /// - File header with scenario metadata
+/// - Road network reference to OpenDRIVE file
 /// - Vehicle entities for all actors
 /// - Init actions setting initial positions and velocities
 /// - Storyboard with trajectory following actions for all actors
@@ -22,13 +23,42 @@ use openscenario_rs::ScenarioBuilder;
 /// This implementation uses the full openscenario-rs builder API to create
 /// proper trajectory-based scenarios that can be executed by simulators.
 pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
+    export_to_xosc_with_road_file(scenario, None)
+}
+
+/// Export a scenario to OpenSCENARIO XML format with optional road file reference
+///
+/// Generates a complete OpenSCENARIO file with:
+/// - File header with scenario metadata
+/// - Road network reference to OpenDRIVE file (if provided)
+/// - Vehicle entities for all actors
+/// - Init actions setting initial positions and velocities
+/// - Storyboard with trajectory following actions for all actors
+///
+/// # Arguments
+/// * `scenario` - The scenario to export
+/// * `xodr_file_path` - Optional path to the OpenDRIVE (.xodr) file to reference
+///
+/// This implementation uses the full openscenario-rs builder API to create
+/// proper trajectory-based scenarios that can be executed by simulators.
+pub fn export_to_xosc_with_road_file(
+    scenario: &Scenario,
+    xodr_file_path: Option<&str>,
+) -> Result<String> {
     // Build scenario description for the header
     let description = build_scenario_description(scenario);
 
-    // Create basic scenario structure with entities
+    // Create basic scenario structure with road network (if provided) and entities
     let mut builder = ScenarioBuilder::new()
-        .with_header(&description, "CARLA Scenario Generator")
-        .with_entities();
+        .with_header(&description, "CARLA Scenario Generator");
+
+    // Add road network reference if provided
+    if let Some(road_file) = xodr_file_path {
+        builder = builder.with_road_file(road_file);
+    }
+
+    // Add entities
+    let mut builder = builder.with_entities();
 
     // Add vehicle entity for each actor
     for actor in &scenario.actors {
@@ -375,5 +405,85 @@ mod tests {
         assert!(desc.contains("ego"));
         assert!(desc.contains("Start:"));
         assert!(desc.contains("End:"));
+    }
+
+    #[test]
+    fn test_export_to_xosc_with_road_file() {
+        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.5, 2.0);
+
+        // Create simple ego trajectory with 3 states
+        let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
+        ego.add_state(State::new(
+            0.0,
+            Position::new(0.0, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        ));
+        ego.add_state(State::new(
+            0.5,
+            Position::new(7.5, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        ));
+        ego.add_state(State::new(
+            1.0,
+            Position::new(15.0, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        ));
+
+        scenario.add_actor(ego);
+
+        let xml = export_to_xosc_with_road_file(&scenario, Some("test_road.xodr"))
+            .expect("Export should succeed");
+
+        // Basic validation
+        assert!(xml.contains("<?xml"));
+        assert!(xml.contains("OpenSCENARIO"));
+        assert!(xml.contains("CARLA Scenario Generator"));
+        assert!(xml.contains("cut_in_left"));
+
+        // Verify RoadNetwork reference
+        assert!(xml.contains("<RoadNetwork"));
+        assert!(xml.contains("<LogicFile"));
+        assert!(xml.contains("test_road.xodr"));
+
+        // Verify entities
+        assert!(xml.contains("<Entities"));
+        assert!(xml.contains("ego"));
+
+        // Verify storyboard structure
+        assert!(xml.contains("<Storyboard"));
+        assert!(xml.contains("<Story"));
+    }
+
+    #[test]
+    fn test_export_to_xosc_without_road_file() {
+        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.5, 2.0);
+
+        // Create simple ego trajectory with 3 states
+        let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
+        ego.add_state(State::new(
+            0.0,
+            Position::new(0.0, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        ));
+
+        scenario.add_actor(ego);
+
+        let xml = export_to_xosc_with_road_file(&scenario, None).expect("Export should succeed");
+
+        // Basic validation
+        assert!(xml.contains("<?xml"));
+        assert!(xml.contains("OpenSCENARIO"));
+
+        // Should NOT contain RoadNetwork when no file provided
+        assert!(!xml.contains("<RoadNetwork"));
+        assert!(!xml.contains("<LogicFile"));
     }
 }

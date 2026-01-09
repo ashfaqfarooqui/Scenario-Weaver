@@ -153,18 +153,22 @@ fn write_scenarios(
         std::fs::write(&json_path, json)?;
         tracing::debug!("Wrote JSON to: {:?}", json_path);
 
-        // Write XOSC
-        let xosc_path = output_dir.join(format!("{}.xosc", base));
-        let xosc_xml = carla_scenario_generator::scenario::export_to_xosc(scenario)?;
-        std::fs::write(&xosc_path, xosc_xml)?;
-        tracing::debug!("Wrote XOSC to: {:?}", xosc_path);
-
-        // Write XODR (OpenDRIVE road network)
+        // Write XODR (OpenDRIVE road network) first, so we can reference it in XOSC
         let xodr_path = output_dir.join(format!("{}.xodr", base));
+        let xodr_filename = format!("{}.xodr", base);
         let xodr_xml =
             carla_scenario_generator::scenario::xodr_exporter::export_to_xodr(scenario, spec)?;
         std::fs::write(&xodr_path, xodr_xml)?;
         tracing::debug!("Wrote XODR to: {:?}", xodr_path);
+
+        // Write XOSC with reference to XODR file
+        let xosc_path = output_dir.join(format!("{}.xosc", base));
+        let xosc_xml = carla_scenario_generator::scenario::export_to_xosc_with_road_file(
+            scenario,
+            Some(&xodr_filename),
+        )?;
+        std::fs::write(&xosc_path, xosc_xml)?;
+        tracing::debug!("Wrote XOSC to: {:?}", xosc_path);
 
         // Write SVG
         let svg_path = output_dir.join(format!("{}.svg", base));

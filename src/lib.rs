@@ -162,6 +162,37 @@ pub fn export_scenario_to_xosc(scenario: &Scenario) -> Result<String> {
     scenario::export_to_xosc(scenario)
 }
 
+/// Export a scenario to OpenSCENARIO XML format with road file reference
+///
+/// Converts an internally generated scenario to OpenSCENARIO (.xosc) format
+/// with a reference to an OpenDRIVE (.xodr) road network file.
+///
+/// # Arguments
+/// * `scenario` - The scenario to export
+/// * `xodr_file_path` - Path to the OpenDRIVE (.xodr) file to reference
+///
+/// # Returns
+/// XML string in OpenSCENARIO format
+///
+/// # Errors
+/// Returns error if XML serialization fails
+///
+/// # Example
+/// ```no_run
+/// use carla_scenario_generator::{generate_single_scenario, export_scenario_to_xosc_with_road_file};
+///
+/// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
+/// let scenario = generate_single_scenario(&yaml).unwrap();
+/// let xosc_xml = export_scenario_to_xosc_with_road_file(&scenario, "scenario.xodr").unwrap();
+/// std::fs::write("scenario.xosc", xosc_xml).unwrap();
+/// ```
+pub fn export_scenario_to_xosc_with_road_file(
+    scenario: &Scenario,
+    xodr_file_path: &str,
+) -> Result<String> {
+    scenario::export_to_xosc_with_road_file(scenario, Some(xodr_file_path))
+}
+
 /// Export a scenario to SVG format for visualization
 ///
 /// Generates an SVG file showing vehicle trajectories, lane layout, and safety metrics.

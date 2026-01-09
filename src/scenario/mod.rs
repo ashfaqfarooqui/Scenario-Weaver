@@ -13,4 +13,4 @@ pub use gif_animator::export_to_gif;
 pub use model::{ActorTrajectory, Position, Scenario, State, ValidationInfo, Velocity};
 pub use svg_visualizer::export_to_svg;
 pub use xodr_exporter::export_to_xodr;
-pub use xosc_exporter::export_to_xosc;
+pub use xosc_exporter::{export_to_xosc, export_to_xosc_with_road_file};
