@@ -1,0 +1,84 @@
+# Crossroads (4-way Intersection) Scenario Example
+# Four roads meet at a crossroads intersection
+#
+# Road layout:
+#   North-south road: 300m, 2 lanes (bidirectional)
+#   East-west road: 300m, 2 lanes (bidirectional)
+#   Junction at center (150m on each road)
+
+scenario_type: cut_in_left
+
+# Time configuration
+time_step: 0.5
+duration: 10.0
+
+# Multi-road network with crossroads junction
+roads:
+  roads:
+    - id: north_south_road
+      num_lanes: 2
+      lane_width: 3.5
+      lane_directions: [1, -1]  # Bidirectional
+      length: 300.0
+      origin:
+        x: 150.0
+        y: 0.0
+      heading: 1.5708  # North (pi/2)
+
+    - id: east_west_road
+      num_lanes: 2
+      lane_width: 3.5
+      lane_directions: [1, -1]  # Bidirectional
+      length: 300.0
+      origin:
+        x: 0.0
+        y: 150.0
+      heading: 0.0  # East
+
+    - id: diagonal_road
+      num_lanes: 2
+      lane_width: 3.0
+      lane_directions: [1, -1]  # Bidirectional
+      length: 200.0
+      origin:
+        x: 100.0
+        y: 100.0
+      heading: 0.7854  # Northeast (pi/4)
+
+  junctions:
+    - id: main_crossroads
+      junction_type: crossroads
+      incoming_roads:
+        - north_south_road
+        - east_west_road
+        - diagonal_road
+      center:
+        x: 150.0
+        y: 150.0
+
+# Actors - both on east-west road approaching the crossroads
+actors:
+  - id: ego
+    role: ego
+    road_id: east_west_road
+    lane: 0  # Eastbound lane (forward direction)
+    position: [30.0, 80.0]
+    speed: [10.0, 14.0]
+    acceleration: [-2.0, 2.0]
+
+  - id: npc
+    role: npc
+    road_id: east_west_road
+    lane: 1  # Westbound lane (backward direction)
+    position: [80.0, 120.0]
+    speed: [8.0, 12.0]
+    acceleration: [-2.0, 2.0]
+    behavior:
+      cut_in_time: [2.0, 6.0]  # Cut in between 2-6 seconds
+
+# Safety constraints
+min_ttc: 3.0
+min_distance: 5.0
+
+# Generation settings
+num_scenarios: 1

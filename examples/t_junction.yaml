@@ -1,0 +1,72 @@
+# T-Junction Scenario Example
+# Vehicle approaches a T-junction and turns onto the main road
+#
+# Road layout:
+#   Main road (east-west): 400m, 4 lanes (2 each direction)
+#   Side road (north-south): 150m, 2 lanes (bidirectional)
+#   Junction at 200m along main road, side road joins from right
+
+scenario_type: cut_in_left
+
+# Time configuration
+time_step: 0.5
+duration: 10.0
+
+# Multi-road network with junction
+roads:
+  roads:
+    - id: main_road
+      num_lanes: 4
+      lane_width: 3.5
+      lane_directions: [1, 1, -1, -1]  # 2 forward, 2 backward
+      length: 400.0
+      origin:
+        x: 0.0
+        y: 0.0
+      heading: 0.0  # East
+
+    - id: side_road
+      num_lanes: 2
+      lane_width: 3.0
+      lane_directions: [1, -1]  # Bidirectional
+      length: 150.0
+      origin:
+        x: 200.0
+        y: -50.0
+      heading: 1.5708  # North (pi/2)
+
+  junctions:
+    - id: t_junction_1
+      junction_type: t_junction
+      main_road: main_road
+      incoming_roads:
+        - side_road
+      position: 200.0  # Junction at 200m along main road
+      side: right
+
+# Actors - ego on main road, NPC approaching from side road
+actors:
+  - id: ego
+    role: ego
+    road_id: main_road
+    lane: 0  # Rightmost forward lane
+    position: [50.0, 100.0]
+    speed: [12.0, 15.0]
+    acceleration: [-3.0, 2.0]
+
+  - id: npc
+    role: npc
+    road_id: main_road
+    lane: 1  # Second forward lane
+    position: [150.0, 200.0]
+    speed: [10.0, 14.0]
+    acceleration: [-2.0, 2.0]
+    behavior:
+      cut_in_time: [2.0, 6.0]  # Cut in between 2-6 seconds
+
+# Safety constraints
+min_ttc: 3.0
+min_distance: 5.0
+
+# Generation settings
+num_scenarios: 1
