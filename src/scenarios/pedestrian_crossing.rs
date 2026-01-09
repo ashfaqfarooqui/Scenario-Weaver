@@ -1,11 +1,10 @@
 //! Pedestrian crossing scenario model
 //!
-//! In this scenario, a pedestrian starts on one side of the road (sidewalk)
-//! and crosses perpendicular to the ego vehicle's path. The pedestrian
-//! starts on the sidewalk (lateral position outside road boundaries),
-//! waits, then crosses to the opposite sidewalk.
+//! Simplified model: A pedestrian crosses perpendicular to the ego vehicle's path.
+//! The pedestrian starts at an initial lateral position and moves to cross the road.
+//! No complex sidewalk or timing constraints - just basic crossing behavior.
 
-use crate::dsl::types::{ScenarioSpec, ValueOrRange};
+use crate::dsl::types::ScenarioSpec;
 use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;
 use anyhow::Result;
@@ -36,28 +35,21 @@ impl ScenarioModel for PedestrianCrossingModel {
             );
         }
 
-        // Validate behavior parameters exist
-        if !pedestrian.behavior.contains_key("crossing_time") {
-            anyhow::bail!("Pedestrian missing 'crossing_time' in behavior map");
-        }
-
         Ok(())
     }
 
     fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
         let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
-        let pedestrian = &spec.npcs()[0];
-
         let ego_id = ego.id.as_str();
-        let pedestrian_id = pedestrian.id.as_str();
 
-        // Initial conditions
-        let init = self.initial_conditions(spec, ego_id, pedestrian_id);
+        // Simple LTL: Ego stays in its lane
+        let ego_in_lane = LTLFormula::Atom(Proposition::InLane {
+            actor: ego_id.to_string(),
+            lane: ego.lane,
+        });
 
-        // Crossing behavior
-        let behavior = self.crossing_behavior(spec, ego_id, pedestrian_id);
-
-        Ok(init.and(behavior))
+        // That's it - just keep ego in lane, let physics handle the rest
+        Ok(ego_in_lane)
     }
 
     fn add_z3_constraints(
@@ -76,125 +68,36 @@ impl ScenarioModel for PedestrianCrossingModel {
             .find(|a| a.role == ActorRole::Pedestrian)
             .ok_or_else(|| anyhow::anyhow!("No pedestrian actor found"))?;
         let pedestrian_id = &pedestrian.id;
-        let initial_side = if pedestrian.lane == 0 {
-            "left"
-        } else {
-            "right"
-        };
-
-        // Parse crossing_time from behavior
-        let crossing_time_json = pedestrian
-            .behavior
-            .get("crossing_time")
-            .ok_or_else(|| anyhow::anyhow!("Pedestrian missing 'crossing_time' in behavior"))?;
-
-        let crossing_time: ValueOrRange = serde_json::from_value(crossing_time_json.clone())
-            .map_err(|e| anyhow::anyhow!("Failed to parse crossing_time: {}", e))?;
-
-        let time_step = spec.time_step;
-        let (min_time, max_time) = match crossing_time {
-            ValueOrRange::Value(t) => (t, t),
-            ValueOrRange::Range([min, max]) => (min, max),
-        };
-
-        // Convert time to time step indices
-        let min_step = (min_time / time_step).ceil() as usize;
-        let max_step = (max_time / time_step).floor() as usize;
 
         let lane_width = spec.get_lane_width();
         let num_lanes = spec.get_num_lanes();
         let road_width = lane_width * num_lanes as f64;
 
-        // Constraint: pedestrian on initial sidewalk before crossing_time_min
-        let road_width_real = Real::from_rational((road_width * 10.0) as i64, 10_i64);
-
-        for t in 0..min_step.saturating_sub(1) {
-            let py_t = &encoder.positions_y[pedestrian_id][t];
-
-            if initial_side == "left" {
-                // Left sidewalk: py <= -0.4 (allow small margin)
-                let sidewalk_limit = Real::from_rational(-4_i64, 10_i64); // -0.4
-                let on_sidewalk_left = py_t.le(&sidewalk_limit);
-                backend.assert(&on_sidewalk_left);
-            } else {
-                // Right sidewalk: py >= road_width + 0.4
-                let sidewalk_limit = &road_width_real + &Real::from_rational(4_i64, 10_i64); // road_width + 0.4
-                let on_sidewalk_right = py_t.ge(&sidewalk_limit);
-                backend.assert(&on_sidewalk_right);
-            }
-        }
-
-        // Constraint: pedestrian on opposite sidewalk after crossing_time_max
-        for t in max_step..=horizon {
-            let py_t = &encoder.positions_y[pedestrian_id][t];
-
-            if initial_side == "left" {
-                // Crossed to right: py >= road_width + 0.4
-                let sidewalk_limit = &road_width_real + &Real::from_rational(4_i64, 10_i64);
-                let on_opposite = py_t.ge(&sidewalk_limit);
-                backend.assert(&on_opposite);
-            } else {
-                // Crossed to left: py <= -0.4
-                let sidewalk_limit = Real::from_rational(-4_i64, 10_i64);
-                let on_opposite = py_t.le(&sidewalk_limit);
-                backend.assert(&on_opposite);
-            }
-        }
-
-        Ok(())
-    }
-}
-
-impl PedestrianCrossingModel {
-    fn initial_conditions(
-        &self,
-        spec: &ScenarioSpec,
-        ego_id: &str,
-        pedestrian_id: &str,
-    ) -> LTLFormula {
-        let ego = spec.ego().unwrap();
-        let pedestrian = spec.npcs()[0];
-
-        let initial_side = if pedestrian.lane == 0 {
-            "left"
+        // Determine crossing direction based on lane field (0=left, 1=right)
+        let (start_y, end_y) = if pedestrian.lane == 0 {
+            // Start left of road, end right of road
+            (-1.0, road_width + 1.0)
         } else {
-            "right"
+            // Start right of road, end left of road
+            (road_width + 1.0, -1.0)
         };
 
-        // Ego in lane
-        let ego_in_lane = LTLFormula::Atom(Proposition::InLane {
-            actor: ego_id.to_string(),
-            lane: ego.lane,
-        });
+        // Constraint: Pedestrian must cross from start to end
+        // Initial position: near start_y
+        let py_0 = &encoder.positions_y[pedestrian_id][0];
+        let start_y_real = Real::from_rational((start_y * 10.0) as i64, 10_i64);
+        let start_margin = Real::from_rational(5_i64, 10_i64); // 0.5m margin
+        backend.assert(&py_0.ge(&(&start_y_real - &start_margin)));
+        backend.assert(&py_0.le(&(&start_y_real + &start_margin)));
 
-        // Pedestrian on initial sidewalk
-        let pedestrian_on_sidewalk = LTLFormula::Atom(Proposition::OnSidewalk {
-            actor: pedestrian_id.to_string(),
-            side: initial_side.to_string(),
-        });
+        // Final position: near end_y
+        let py_final = &encoder.positions_y[pedestrian_id][horizon];
+        let end_y_real = Real::from_rational((end_y * 10.0) as i64, 10_i64);
+        let end_margin = Real::from_rational(5_i64, 10_i64); // 0.5m margin
+        backend.assert(&py_final.ge(&(&end_y_real - &end_margin)));
+        backend.assert(&py_final.le(&(&end_y_real + &end_margin)));
 
-        ego_in_lane.and(pedestrian_on_sidewalk)
-    }
-
-    fn crossing_behavior(
-        &self,
-        _spec: &ScenarioSpec,
-        _ego_id: &str,
-        pedestrian_id: &str,
-    ) -> LTLFormula {
-        let initial_side = "left";
-        let opposite_side = "right";
-
-        // Pedestrian stays on initial sidewalk UNTIL crossing to opposite sidewalk
-        // Note: Sidewalk persistence after crossing is enforced by direct Z3 constraints
-        LTLFormula::Atom(Proposition::OnSidewalk {
-            actor: pedestrian_id.to_string(),
-            side: initial_side.to_string(),
-        })
-        .until(LTLFormula::Atom(Proposition::OnSidewalk {
-            actor: pedestrian_id.to_string(),
-            side: opposite_side.to_string(),
-        }))
+        Ok(())
     }
 }
 
@@ -208,12 +111,11 @@ mod tests {
 
     fn create_test_spec() -> ScenarioSpec {
         let ego_behavior = HashMap::new();
-        let mut pedestrian_behavior = HashMap::new();
-        pedestrian_behavior.insert("crossing_time".to_string(), serde_json::json!([2.5, 5.5]));
+        let pedestrian_behavior = HashMap::new();
 
         ScenarioSpec {
             scenario_type: crate::dsl::types::ScenarioType::PedestrianCrossing,
-            time_step: 0.1,
+            time_step: 0.5,
             duration: 10.0,
             actors: vec![
                 ActorSpec {
@@ -231,7 +133,7 @@ mod tests {
                     lane: 0,
                     position: ValueOrRange::Value(50.0),
                     speed: ValueOrRange::Range([0.8, 1.5]),
-                    acceleration: ValueOrRange::Range([-0.5, 0.5]),
+                    acceleration: ValueOrRange::Range([-1.0, 1.0]),
                     behavior: pedestrian_behavior,
                 },
             ],
@@ -255,10 +157,10 @@ mod tests {
     }
 
     #[test]
-    fn test_pedestrian_validate_missing_crossing_time() {
+    fn test_pedestrian_validate_wrong_role() {
         let model = PedestrianCrossingModel;
         let mut spec = create_test_spec();
-        spec.actors[1].behavior.clear(); // Remove crossing_time
+        spec.actors[1].role = ActorRole::Npc; // Change pedestrian to NPC
         assert!(model.validate(&spec).is_err());
     }
 
@@ -271,6 +173,5 @@ mod tests {
 
         let formula_str = format!("{}", formula.unwrap());
         assert!(formula_str.contains("InLane"));
-        assert!(formula_str.contains("OnSidewalk"));
     }
 }

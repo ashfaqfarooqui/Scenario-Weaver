@@ -1,6 +1,6 @@
 scenario_type: pedestrian_crossing
 
-time_step: 0.1
+time_step: 0.5
 duration: 10.0
 
 road:
@@ -12,20 +12,17 @@ actors:
   - id: ego
     role: ego
     lane: 0
-    position: [0.0, 40.0]
-    speed: [10.0, 12.0]
+    position: [0.0, 30.0]
+    speed: [8.0, 12.0]
     acceleration: [-3.0, 2.0]
 
   - id: pedestrian
     role: pedestrian
-    lane: 0
-    position: [45.0, 55.0]
+    lane: 0  # 0 = cross from left to right
+    position: [40.0, 60.0]
     speed: [0.8, 1.5]
     acceleration: [-1.0, 1.0]
-    behavior:
-      crossing_time: [1.0, 8.0]  # Wider window for walking speed
-      walking_mode: walk  # Options: "walk" (0.5-2.0 m/s) or "run" (2.0-5.0 m/s)
 
-min_ttc: 2.0
-min_distance: 2.0
+min_ttc: 1.5
+min_distance: 1.5
 num_scenarios: 1
