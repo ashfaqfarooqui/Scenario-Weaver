@@ -292,29 +292,15 @@ impl<'a> SvgVisualizer<'a> {
     fn add_lane_markings(&self, document: Document) -> Document {
         let mut group = Group::new().set("id", "lane_markings");
 
-        // Get unique lane Y positions from all actor states
-        let mut lane_ys = std::collections::HashSet::new();
-        for actor in &self.scenario.actors {
-            for state in &actor.states {
-                // Round to avoid floating point issues
-                let y_rounded = (state.position.y * 10.0).round() / 10.0;
-                lane_ys.insert((y_rounded * 1000.0) as i64);
-            }
-        }
-
-        let mut lane_y_sorted: Vec<f64> = lane_ys.iter().map(|&y| y as f64 / 1000.0).collect();
-        lane_y_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        // Estimate lane width from spacing
-        let lane_width = if lane_y_sorted.len() > 1 {
-            (lane_y_sorted[1] - lane_y_sorted[0]).abs()
-        } else {
-            3.5 // Default lane width
-        };
+        // Use static road geometry from road spec
+        let num_lanes = self.scenario.road.num_lanes;
+        let lane_width = self.scenario.road.lane_width;
+        let road_width = num_lanes as f64 * lane_width;
 
         // Draw lane dividers between lanes (dashed lines)
-        for i in 1..lane_y_sorted.len() {
-            let lane_y = (lane_y_sorted[i] + lane_y_sorted[i - 1]) / 2.0;
+        // Lane dividers are at y = lane_width * i for i in 1..num_lanes
+        for i in 1..num_lanes {
+            let lane_y = lane_width * i as f64;
             let svg_y = self.get_lane_center_y(lane_y);
 
             let line = Line::new()
@@ -330,28 +316,26 @@ impl<'a> SvgVisualizer<'a> {
         }
 
         // Draw road edges (solid lines)
-        if !lane_y_sorted.is_empty() {
-            let top_edge = lane_y_sorted.last().unwrap() + lane_width / 2.0;
-            let bottom_edge = lane_y_sorted.first().unwrap() - lane_width / 2.0;
+        let top_edge = road_width;  // y = road_width is the top edge
+        let bottom_edge = 0.0;      // y = 0 is the bottom edge
 
-            let top_line = Line::new()
-                .set("x1", self.config.margin)
-                .set("y1", self.get_lane_center_y(top_edge))
-                .set("x2", self.config.canvas_width - self.config.margin)
-                .set("y2", self.get_lane_center_y(top_edge))
-                .set("stroke", COLOR_LANE_MARKING)
-                .set("stroke-width", 3);
-            group = group.add(top_line);
+        let top_line = Line::new()
+            .set("x1", self.config.margin)
+            .set("y1", self.get_lane_center_y(top_edge))
+            .set("x2", self.config.canvas_width - self.config.margin)
+            .set("y2", self.get_lane_center_y(top_edge))
+            .set("stroke", COLOR_LANE_MARKING)
+            .set("stroke-width", 3);
+        group = group.add(top_line);
 
-            let bottom_line = Line::new()
-                .set("x1", self.config.margin)
-                .set("y1", self.get_lane_center_y(bottom_edge))
-                .set("x2", self.config.canvas_width - self.config.margin)
-                .set("y2", self.get_lane_center_y(bottom_edge))
-                .set("stroke", COLOR_LANE_MARKING)
-                .set("stroke-width", 3);
-            group = group.add(bottom_line);
-        }
+        let bottom_line = Line::new()
+            .set("x1", self.config.margin)
+            .set("y1", self.get_lane_center_y(bottom_edge))
+            .set("x2", self.config.canvas_width - self.config.margin)
+            .set("y2", self.get_lane_center_y(bottom_edge))
+            .set("stroke", COLOR_LANE_MARKING)
+            .set("stroke-width", 3);
+        group = group.add(bottom_line);
 
         document.add(group)
     }
@@ -705,6 +689,11 @@ mod tests {
             scenario_type: "cut_in_left".to_string(),
             time_step: 1.0,
             duration: 1.0,
+            road: crate::dsl::types::RoadSpec {
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, 1],
+            },
             actors: vec![
                 ActorTrajectory {
                     id: "ego".to_string(),
