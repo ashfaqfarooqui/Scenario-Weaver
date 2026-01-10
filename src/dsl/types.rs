@@ -353,6 +353,11 @@ impl ScenarioSpec {
 
     /// Validate the specification
     pub fn validate(&self) -> Result<(), String> {
+        // Ensure road specification is present
+        if self.road.is_none() {
+            return Err("road specification is required".to_string());
+        }
+
         // Time parameters
         if self.time_step <= 0.0 {
             return Err("time_step must be positive".to_string());
@@ -372,14 +377,9 @@ impl ScenarioSpec {
             return Err("min_distance must be positive".to_string());
         }
 
-        // Validate road specification if present
+        // Validate road specification
         if let Some(road) = &self.road {
             road.validate()?;
-        } else {
-            // Backward compatibility: validate lane_width
-            if self.lane_width <= 0.0 {
-                return Err("lane_width must be positive".to_string());
-            }
         }
 
         // Generation parameters
