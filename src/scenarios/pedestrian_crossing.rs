@@ -35,7 +35,20 @@ impl ScenarioModel for PedestrianCrossingModel {
             );
         }
 
-        Ok(())
+        // Validate direction field exists and is valid
+        let direction = pedestrian
+            .behavior
+            .get("direction")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Pedestrian missing 'direction' in behavior"))?;
+
+        match direction {
+            "left_to_right" | "right_to_left" => Ok(()),
+            _ => anyhow::bail!(
+                "Invalid direction '{}': must be 'left_to_right' or 'right_to_left'",
+                direction
+            ),
+        }
     }
 
     fn generate_safety(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
@@ -103,11 +116,20 @@ impl ScenarioModel for PedestrianCrossingModel {
             .ok_or_else(|| anyhow::anyhow!("No pedestrian found in spec"))?;
         let ped_id = &pedestrian.id;
 
-        // Determine crossing direction from lane field (0=left, 1=right)
-        let opposite_side = if pedestrian.lane == 0 {
-            "right"
-        } else {
-            "left"
+        // Determine crossing direction from behavior field
+        let direction = pedestrian
+            .behavior
+            .get("direction")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Pedestrian missing 'direction' in behavior"))?;
+
+        let opposite_side = match direction {
+            "left_to_right" => "right",
+            "right_to_left" => "left",
+            _ => anyhow::bail!(
+                "Invalid direction '{}': must be 'left_to_right' or 'right_to_left'",
+                direction
+            ),
         };
 
         // Multi-stage crossing using sequential implications
@@ -141,14 +163,28 @@ impl ScenarioModel for PedestrianCrossingModel {
         horizon: usize,
     ) -> Result<()> {
         use crate::dsl::ActorRole;
-        use z3::ast::Real;
+        use z3::ast::{Int, Real};
 
-        // Check if pedestrian has "hesitate" walking mode
+        // Get pedestrian actor
         let npcs = spec.npcs();
         let pedestrian = npcs
             .iter()
             .find(|a| a.role == ActorRole::Pedestrian)
             .ok_or_else(|| anyhow::anyhow!("No pedestrian actor found"))?;
+
+        let pedestrian_id = &pedestrian.id;
+
+        // Fix pedestrian lane to 0 throughout the scenario
+        // The lane field has no semantic meaning for pedestrians - only lateral
+        // position (py) matters for crossing detection. Fixing it to 0 prevents
+        // Z3 from generating spurious lane values (e.g., 2, 3, 4).
+        let zero_lane = Int::from_i64(0_i64);
+        for t in 0..=horizon {
+            let lane_t = &encoder.lanes[pedestrian_id][t];
+            backend.assert(&lane_t.eq(&zero_lane));
+        }
+
+        // Check if pedestrian has "hesitate" walking mode
 
         if let Some(walking_mode) = pedestrian.behavior.get("walking_mode") {
             if walking_mode == "hesitate" {

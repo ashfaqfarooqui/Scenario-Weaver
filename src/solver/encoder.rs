@@ -170,11 +170,12 @@ impl<B: Z3Backend> GenericEncoder<B> {
                     actor.acceleration.min(),
                     actor.acceleration.max(),
                     actor.role,
+                    actor.behavior.clone(),
                 )
             })
             .collect();
 
-        for (actor_id, lane, pos_min, pos_max, speed_min, speed_max, acc_min, acc_max, role) in
+        for (actor_id, lane, pos_min, pos_max, speed_min, speed_max, acc_min, acc_max, role, behavior) in
             actor_data
         {
             // Call existing encoding method
@@ -184,7 +185,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
 
             // Handle lateral position constraints
             if role == ActorRole::Pedestrian {
-                // Pedestrians start on sidewalk (based on lane field)
+                // Pedestrians start on sidewalk (based on direction field in behavior)
                 // Use range to allow Z3 to choose specific position that works
                 let lane_width = self.spec.get_lane_width();
                 let num_lanes = self.spec.get_num_lanes();
@@ -193,19 +194,50 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 let py_0 = &self.positions_y[&actor_id][0];
                 let road_width_real = Real::from_rational((road_width * 10.0) as i64, 10_i64);
 
-                if lane == 0 {
-                    // Left sidewalk: py between -0.6 and -0.4
-                    let sidewalk_min = Real::from_rational(-6_i64, 10_i64); // -0.6m
-                    let sidewalk_max = Real::from_rational(-4_i64, 10_i64); // -0.4m
-                    self.backend.assert(&py_0.ge(&sidewalk_min));
-                    self.backend.assert(&py_0.le(&sidewalk_max));
+                // Get crossing direction from behavior
+                let direction = behavior
+                    .get("direction")
+                    .and_then(|v| v.as_str());
+
+                // Set initial sidewalk position based on direction
+                if let Some(dir) = direction {
+                    match dir {
+                        "left_to_right" => {
+                            // Left sidewalk: py between -0.6 and -0.4
+                            let sidewalk_min = Real::from_rational(-6_i64, 10_i64);
+                            let sidewalk_max = Real::from_rational(-4_i64, 10_i64);
+                            self.backend.assert(&py_0.ge(&sidewalk_min));
+                            self.backend.assert(&py_0.le(&sidewalk_max));
+                        }
+                        "right_to_left" => {
+                            // Right sidewalk: py between road_width + 0.4 and road_width + 0.6
+                            let sidewalk_min = &road_width_real + &Real::from_rational(4_i64, 10_i64);
+                            let sidewalk_max = &road_width_real + &Real::from_rational(6_i64, 10_i64);
+                            self.backend.assert(&py_0.ge(&sidewalk_min));
+                            self.backend.assert(&py_0.le(&sidewalk_max));
+                        }
+                        _ => {
+                            tracing::error!("Invalid direction '{}' for pedestrian {}", dir, actor_id);
+                            // Fall back to left sidewalk
+                            let sidewalk_min = Real::from_rational(-6_i64, 10_i64);
+                            let sidewalk_max = Real::from_rational(-4_i64, 10_i64);
+                            self.backend.assert(&py_0.ge(&sidewalk_min));
+                            self.backend.assert(&py_0.le(&sidewalk_max));
+                        }
+                    }
                 } else {
-                    // Right sidewalk: py between road_width + 0.4 and road_width + 0.6
-                    let sidewalk_min = &road_width_real + &Real::from_rational(4_i64, 10_i64);
-                    let sidewalk_max = &road_width_real + &Real::from_rational(6_i64, 10_i64);
+                    tracing::error!("Pedestrian {} missing 'direction' in behavior", actor_id);
+                    // Fall back to left sidewalk
+                    let sidewalk_min = Real::from_rational(-6_i64, 10_i64);
+                    let sidewalk_max = Real::from_rational(-4_i64, 10_i64);
                     self.backend.assert(&py_0.ge(&sidewalk_min));
                     self.backend.assert(&py_0.le(&sidewalk_max));
                 }
+
+                // Set initial lane to 0 for all pedestrians (value doesn't matter semantically)
+                let lane_0 = &self.lanes[&actor_id][0];
+                let zero_lane = Int::from_i64(0_i64);
+                self.backend.assert(&lane_0.eq(&zero_lane));
             } else {
                 // Vehicles: initial lateral position matches lane center
                 self.encode_lane_position_coupling_at_time(&actor_id, 0);
