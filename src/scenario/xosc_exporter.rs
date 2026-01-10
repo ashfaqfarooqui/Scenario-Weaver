@@ -307,7 +307,12 @@ mod tests {
 
     #[test]
     fn test_export_to_xosc() {
-        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.5, 2.0);
+        let road = crate::dsl::types::RoadSpec {
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+        };
+        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.5, 2.0, road);
 
         // Create simple ego trajectory with 3 states
         let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
@@ -354,7 +359,12 @@ mod tests {
 
     #[test]
     fn test_scenario_description() {
-        let mut scenario = Scenario::new("test_scenario".to_string(), 0.5, 10.0);
+        let road = crate::dsl::types::RoadSpec {
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+        };
+        let mut scenario = Scenario::new("test_scenario".to_string(), 0.5, 10.0, road);
 
         let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
         ego.add_state(State::new(

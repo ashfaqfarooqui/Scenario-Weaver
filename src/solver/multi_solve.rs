@@ -158,7 +158,7 @@ impl Z3Encoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorRole, ActorSpec, ScenarioType, ValueOrRange};
+    use crate::dsl::types::{ActorRole, ActorSpec, RoadSpec, ScenarioType, ValueOrRange};
     use crate::ltl::generator::LTLGenerator;
     use std::collections::HashMap;
 
@@ -192,7 +192,11 @@ mod tests {
             ],
             min_ttc: 3.0,
             min_distance: 5.0,
-            road: None,
+            road: Some(RoadSpec {
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, 1],
+            }),
             lane_width: 3.5,
             num_scenarios: 5,
             constraint_modes: crate::dsl::types::ConstraintModes::default(),
@@ -267,7 +271,7 @@ mod tests {
             encoder.encode_lane_velocity_constraints();
             encoder.encode_lateral_velocity_bounds();
             encoder.encode_ltl(&ltl_formula);
-            encoder.encode_safety();
+            // Safety constraints are now included in LTL formula via generate_safety() 
 
             let result = encoder.check();
             assert_eq!(result, SatResult::Sat);
@@ -285,7 +289,7 @@ mod tests {
                 enc.encode_lane_velocity_constraints();
                 enc.encode_lateral_velocity_bounds();
                 enc.encode_ltl(&ltl_formula);
-                enc.encode_safety();
+                // Safety constraints are now included in LTL formula via generate_safety()
 
                 // Add blocking clause
                 let blocking = create_blocking_clause(&enc, &scenario1);

@@ -19,7 +19,7 @@ pub fn extract_scenario_from_model(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorRole, ActorSpec, ScenarioSpec, ScenarioType, ValueOrRange};
+    use crate::dsl::types::{ActorRole, ActorSpec, RoadSpec, ScenarioSpec, ScenarioType, ValueOrRange};
     use crate::ltl::generator::LTLGenerator;
     use crate::solver::encoder::Z3Encoder;
     use std::collections::HashMap;
@@ -55,7 +55,11 @@ mod tests {
             ],
             min_ttc: 3.0,
             min_distance: 5.0,
-            road: None,
+            road: Some(RoadSpec {
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, 1],
+            }),
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: crate::dsl::types::ConstraintModes::default(),
@@ -80,7 +84,7 @@ mod tests {
 
             let ltl_formula = LTLGenerator::generate(&spec);
             encoder.encode_ltl(&ltl_formula);
-            encoder.encode_safety();
+            // Safety constraints are now included in LTL formula via generate_safety()
 
             let result = encoder.check();
             assert_eq!(result, SatResult::Sat);

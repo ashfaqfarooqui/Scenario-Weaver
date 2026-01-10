@@ -115,6 +115,11 @@ scenario_type: cut_in_left
 time_step: 0.5
 duration: 10.0
 
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, 1]
+
 actors:
   - id: ego
     role: ego
@@ -155,6 +160,10 @@ num_scenarios: 1
 scenario_type: cut_in_left
 time_step: -0.5
 duration: 10.0
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, 1]
 actors:
   - id: ego
     role: ego
@@ -191,6 +200,10 @@ num_scenarios: 1
 scenario_type: cut_in_left
 time_step: 0.5
 duration: 10.0
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, 1]
 actors:
   - id: ego
     role: ego
