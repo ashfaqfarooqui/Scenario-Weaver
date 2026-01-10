@@ -62,12 +62,15 @@ impl ScenarioModel for PedestrianCrossingModel {
 
         let mut constraints = Vec::new();
 
-        // 2D Euclidean distance constraint (not lane-based)
+        // Rectangular safety box (simplest linear constraint, very fast Z3 solving)
+        // For perpendicular crossing: lateral distance is more critical than longitudinal
+        // Using threshold/1.5 gives conservative safety (~1.3m for 2m threshold)
         if spec.constraint_modes.min_distance() == ConstraintMode::Enforce {
-            let dist = LTLFormula::Atom(Proposition::Distance2DGT {
+            let dist = LTLFormula::Atom(Proposition::RectangularDistanceGT {
                 actor1: ego.id.clone(),
                 actor2: pedestrian.id.clone(),
-                distance: spec.min_distance,
+                threshold_x: spec.min_distance / 2.0,  // Longitudinal: half the threshold
+                threshold_y: spec.min_distance / 1.5,  // Lateral: slightly more conservative
             }).always();
             constraints.push(dist);
         }
@@ -238,7 +241,8 @@ mod tests {
 
     fn create_test_spec() -> ScenarioSpec {
         let ego_behavior = HashMap::new();
-        let pedestrian_behavior = HashMap::new();
+        let mut pedestrian_behavior = HashMap::new();
+        pedestrian_behavior.insert("direction".to_string(), serde_json::json!("left_to_right"));
 
         ScenarioSpec {
             scenario_type: crate::dsl::types::ScenarioType::PedestrianCrossing,

@@ -52,10 +52,30 @@ pub enum Proposition {
 
     /// 2D Euclidean distance between actors > threshold
     /// For pedestrian-vehicle scenarios where same-lane assumption doesn't apply
+    /// WARNING: Creates nonlinear (quadratic) constraints - use ManhattanDistanceGT for linear alternative
     Distance2DGT {
         actor1: String,
         actor2: String,
         distance: f64,
+    },
+
+    /// Manhattan distance between actors > threshold
+    /// Linear alternative to Distance2DGT: |dx| + |dy| > threshold
+    /// For pedestrian-vehicle scenarios needing fast Z3 solving
+    ManhattanDistanceGT {
+        actor1: String,
+        actor2: String,
+        distance: f64,
+    },
+
+    /// Rectangular safety box: |dx| > threshold_x OR |dy| > threshold_y
+    /// Simplest linear distance constraint - at least one dimension must exceed threshold
+    /// Very fast Z3 solving, conservative safety
+    RectangularDistanceGT {
+        actor1: String,
+        actor2: String,
+        threshold_x: f64,
+        threshold_y: f64,
     },
 
     /// Time-to-collision for perpendicular crossing

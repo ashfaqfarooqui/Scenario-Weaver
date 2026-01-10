@@ -29,7 +29,7 @@ actors:
 # NOTE: Using 'ignore' mode due to performance issues with 'enforce' mode
 # TODO: Investigate why enforce mode times out (likely related to 2D safety constraints)
 constraint_modes:
-  min_ttc: ignore
+  min_ttc: enforce
   min_distance: ignore
 
 # Reasonable safety thresholds for pedestrian crossing
