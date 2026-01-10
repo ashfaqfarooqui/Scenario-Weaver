@@ -1,6 +1,7 @@
 //! Scenario output data structures
 
 use serde::{Deserialize, Serialize};
+use crate::dsl::types::RoadSpec;
 
 /// Complete scenario with all actor trajectories
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,6 +17,9 @@ pub struct Scenario {
 
     /// Total duration (seconds)
     pub duration: f64,
+
+    /// Road specification
+    pub road: RoadSpec,
 
     /// All actors and their trajectories
     pub actors: Vec<ActorTrajectory>,
@@ -117,12 +121,13 @@ pub struct ValidationInfo {
 
 impl Scenario {
     /// Create a new scenario with basic metadata
-    pub fn new(scenario_type: String, time_step: f64, duration: f64) -> Self {
+    pub fn new(scenario_type: String, time_step: f64, duration: f64, road: RoadSpec) -> Self {
         Self {
             scenario_id: uuid::Uuid::new_v4().to_string(),
             scenario_type,
             time_step,
             duration,
+            road,
             actors: Vec::new(),
             validation: ValidationInfo {
                 min_ttc: 999.0, // Using large value instead of INFINITY for JSON compatibility
@@ -251,11 +256,18 @@ mod tests {
 
     #[test]
     fn test_scenario_creation() {
-        let scenario = Scenario::new("cut_in_left".to_string(), 0.5, 10.0);
+        let road = RoadSpec {
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+        };
+        let scenario = Scenario::new("cut_in_left".to_string(), 0.5, 10.0, road);
 
         assert_eq!(scenario.scenario_type, "cut_in_left");
         assert_eq!(scenario.time_step, 0.5);
         assert_eq!(scenario.duration, 10.0);
+        assert_eq!(scenario.road.num_lanes, 2);
+        assert_eq!(scenario.road.lane_width, 3.5);
         assert!(!scenario.scenario_id.is_empty());
     }
 
@@ -294,7 +306,12 @@ mod tests {
 
     #[test]
     fn test_json_serialization() {
-        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.5, 10.0);
+        let road = RoadSpec {
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+        };
+        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.5, 10.0, road);
 
         let mut ego_traj = ActorTrajectory::new("ego".to_string(), "ego".to_string());
         ego_traj.add_state(State::new(
@@ -315,5 +332,7 @@ mod tests {
         let deserialized: Scenario = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.scenario_type, "cut_in_left");
         assert_eq!(deserialized.actors.len(), 1);
+        assert_eq!(deserialized.road.num_lanes, 2);
+        assert_eq!(deserialized.road.lane_width, 3.5);
     }
 }
