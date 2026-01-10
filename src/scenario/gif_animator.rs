@@ -259,29 +259,15 @@ impl<'a> GifAnimator<'a> {
 
     /// Add lane markings
     fn draw_lane_markings(&self, image: &mut RgbImage) {
-        // Get unique lane Y positions from all actor states
-        let mut lane_ys = std::collections::HashSet::new();
-        for actor in &self.scenario.actors {
-            for state in &actor.states {
-                // Round to avoid floating point issues
-                let y_rounded = (state.position.y * 10.0).round() / 10.0;
-                lane_ys.insert((y_rounded * 1000.0) as i64);
-            }
-        }
-
-        let mut lane_y_sorted: Vec<f64> = lane_ys.iter().map(|&y| y as f64 / 1000.0).collect();
-        lane_y_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        // Estimate lane width from spacing
-        let lane_width = if lane_y_sorted.len() > 1 {
-            (lane_y_sorted[1] - lane_y_sorted[0]).abs()
-        } else {
-            3.5 // Default lane width
-        };
+        // Use static road geometry from road spec
+        let num_lanes = self.scenario.road.num_lanes;
+        let lane_width = self.scenario.road.lane_width;
+        let road_width = num_lanes as f64 * lane_width;
 
         // Draw lane dividers between lanes (dashed lines)
-        for i in 1..lane_y_sorted.len() {
-            let lane_y = (lane_y_sorted[i] + lane_y_sorted[i - 1]) / 2.0;
+        // Lane dividers are at y = lane_width * i for i in 1..num_lanes
+        for i in 1..num_lanes {
+            let lane_y = lane_width * i as f64;
             let (_, py) = self.transform_coords(0.0, lane_y);
 
             // Draw dashed line
@@ -291,32 +277,30 @@ impl<'a> GifAnimator<'a> {
         }
 
         // Draw road edges (solid lines)
-        if !lane_y_sorted.is_empty() {
-            let top_edge = lane_y_sorted.last().unwrap() + lane_width / 2.0;
-            let bottom_edge = lane_y_sorted.first().unwrap() - lane_width / 2.0;
+        let top_edge = road_width;  // y = road_width is the top edge
+        let bottom_edge = 0.0;      // y = 0 is the bottom edge
 
-            let (_, top_py) = self.transform_coords(0.0, top_edge);
-            let (_, bottom_py) = self.transform_coords(0.0, bottom_edge);
+        let (_, top_py) = self.transform_coords(0.0, top_edge);
+        let (_, bottom_py) = self.transform_coords(0.0, bottom_edge);
 
-            let x_start = self.config.margin as f32;
-            let x_end = (self.config.canvas_width - self.config.margin) as f32;
+        let x_start = self.config.margin as f32;
+        let x_end = (self.config.canvas_width - self.config.margin) as f32;
 
-            // Top edge
-            draw_line_segment_mut(
-                image,
-                (x_start, top_py as f32),
-                (x_end, top_py as f32),
-                COLOR_LANE_MARKING,
-            );
+        // Top edge
+        draw_line_segment_mut(
+            image,
+            (x_start, top_py as f32),
+            (x_end, top_py as f32),
+            COLOR_LANE_MARKING,
+        );
 
-            // Bottom edge
-            draw_line_segment_mut(
-                image,
-                (x_start, bottom_py as f32),
-                (x_end, bottom_py as f32),
-                COLOR_LANE_MARKING,
-            );
-        }
+        // Bottom edge
+        draw_line_segment_mut(
+            image,
+            (x_start, bottom_py as f32),
+            (x_end, bottom_py as f32),
+            COLOR_LANE_MARKING,
+        );
     }
 
     /// Draw dashed line
@@ -642,6 +626,11 @@ mod tests {
             scenario_type: "cut_in_left".to_string(),
             time_step: 1.0,
             duration: 1.0,
+            road: crate::dsl::types::RoadSpec {
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, 1],
+            },
             actors: vec![
                 ActorTrajectory {
                     id: "ego".to_string(),
