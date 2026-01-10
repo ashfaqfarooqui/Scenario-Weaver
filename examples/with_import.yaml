@@ -8,6 +8,12 @@ scenario_type: cut_in_left
 time_step: 0.5
 duration: 10.0
 
+# Road specification (fallback if imports don't work)
+road:
+  num_lanes: 4
+  lane_width: 3.5
+  lane_directions: [1, 1, -1, -1]  # 2 forward, 2 backward
+
 # Actors
 actors:
   - id: ego

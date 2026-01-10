@@ -4,6 +4,12 @@ scenario_type: cut_in_right
 time_step: 0.1        # 0.5 second discretization
 duration: 10.0        # 10 second scenario
 
+# Road specification
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, 1]  # Both lanes forward
+
 # Actor specifications (generic actor system)
 actors:
   # Ego vehicle (controlled by AV under test) in LEFT lane
