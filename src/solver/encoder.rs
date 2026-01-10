@@ -845,6 +845,74 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 dist_sq.gt(&threshold_sq)
             }
 
+            // ManhattanDistanceGT: Manhattan distance between actors > threshold
+            // Linear encoding: |dx| + |dy| > threshold
+            // Implemented as disjunction over four cases (one per quadrant)
+            Proposition::ManhattanDistanceGT {
+                actor1,
+                actor2,
+                distance,
+            } => {
+                let px1 = &self.positions_x[actor1][time];
+                let py1 = &self.positions_y[actor1][time];
+                let px2 = &self.positions_x[actor2][time];
+                let py2 = &self.positions_y[actor2][time];
+
+                let dx = px1 - px2;
+                let dy = py1 - py2;
+                let threshold_real = Real::from_rational((distance * 10.0) as i64, 10_i64);
+                let zero = Real::from_rational(0_i64, 1_i64);
+
+                // Manhattan distance: |dx| + |dy| > threshold
+                // We check all four combinations of signs:
+                // Case 1: dx ≥ 0, dy ≥ 0 → dx + dy > threshold
+                // Case 2: dx ≥ 0, dy < 0 → dx - dy > threshold
+                // Case 3: dx < 0, dy ≥ 0 → -dx + dy > threshold
+                // Case 4: dx < 0, dy < 0 → -dx - dy > threshold
+                //
+                // Disjunction: at least one case must hold
+                let case1 = (&dx + &dy).gt(&threshold_real);
+                let case2 = (&dx - &dy).gt(&threshold_real);
+                let case3 = (&dy - &dx).gt(&threshold_real); // -dx + dy = dy - dx
+                let case4 = (&zero - &(&dx + &dy)).gt(&threshold_real); // -(dx + dy)
+
+                z3::ast::Bool::or(&[&case1, &case2, &case3, &case4])
+            }
+
+            // RectangularDistanceGT: Rectangular safety box
+            // Simplest linear encoding: |dx| > threshold_x OR |dy| > threshold_y
+            Proposition::RectangularDistanceGT {
+                actor1,
+                actor2,
+                threshold_x,
+                threshold_y,
+            } => {
+                let px1 = &self.positions_x[actor1][time];
+                let py1 = &self.positions_y[actor1][time];
+                let px2 = &self.positions_x[actor2][time];
+                let py2 = &self.positions_y[actor2][time];
+
+                let dx = px1 - px2;
+                let dy = py1 - py2;
+                let threshold_x_real = Real::from_rational((threshold_x * 10.0) as i64, 10_i64);
+                let threshold_y_real = Real::from_rational((threshold_y * 10.0) as i64, 10_i64);
+
+                // |dx| > threshold_x: dx > threshold_x OR dx < -threshold_x
+                let dx_positive = dx.gt(&threshold_x_real);
+                let neg_threshold_x = Real::from_rational((-threshold_x * 10.0) as i64, 10_i64);
+                let dx_negative = dx.lt(&neg_threshold_x);
+                let dx_outside = z3::ast::Bool::or(&[&dx_positive, &dx_negative]);
+
+                // |dy| > threshold_y: dy > threshold_y OR dy < -threshold_y
+                let dy_positive = dy.gt(&threshold_y_real);
+                let neg_threshold_y = Real::from_rational((-threshold_y * 10.0) as i64, 10_i64);
+                let dy_negative = dy.lt(&neg_threshold_y);
+                let dy_outside = z3::ast::Bool::or(&[&dy_positive, &dy_negative]);
+
+                // At least one dimension must be outside the box
+                z3::ast::Bool::or(&[&dx_outside, &dy_outside])
+            }
+
             // PedestrianTTCGT: Time-to-collision for perpendicular crossing
             Proposition::PedestrianTTCGT {
                 ego,
@@ -997,10 +1065,16 @@ impl<B: Z3Backend> GenericEncoder<B> {
     pub fn extract_scenario(&self, model: &z3::Model) -> crate::scenario::model::Scenario {
         use crate::dsl::types::ActorRole;
 
+        // Get RoadSpec from ScenarioSpec (required, should always exist after validation)
+        let road = self.spec.road.as_ref()
+            .expect("RoadSpec is required - should be validated during spec parsing")
+            .clone();
+
         let mut scenario = crate::scenario::model::Scenario::new(
             self.spec.scenario_type.to_string(),
             self.spec.time_step,
             self.spec.duration,
+            road,
         );
 
         // Extract trajectory for each actor
@@ -1277,7 +1351,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorRole, ActorSpec, ScenarioType, ValueOrRange};
+    use crate::dsl::types::{ActorRole, ActorSpec, RoadSpec, ScenarioType, ValueOrRange};
     use std::collections::HashMap;
     use z3::Config;
 
@@ -1311,7 +1385,11 @@ mod tests {
             ],
             min_ttc: 3.0,
             min_distance: 5.0,
-            road: None,
+            road: Some(RoadSpec {
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, 1],
+            }),
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: crate::dsl::types::ConstraintModes::default(),
@@ -1599,7 +1677,7 @@ mod tests {
             encoder.encode_kinematics();
             encoder.encode_lane_velocity_constraints();
             encoder.encode_lateral_velocity_bounds();
-            encoder.encode_safety();
+            // Safety constraints are now included in LTL formula via generate_safety()
 
             // Safety constraints should be satisfiable
             assert_eq!(encoder.check(), SatResult::Sat);
@@ -1625,7 +1703,7 @@ mod tests {
             encoder.encode_ltl(&ltl_formula);
 
             // Add safety constraints
-            encoder.encode_safety();
+            // Safety constraints are now included in LTL formula via generate_safety()
 
             // Check satisfiability
             let result = encoder.check();
@@ -1678,7 +1756,7 @@ mod tests {
             // Generate and encode full cut-in LTL formula
             let ltl_formula = LTLGenerator::generate(&spec);
             encoder.encode_ltl(&ltl_formula);
-            encoder.encode_safety();
+            // Safety constraints are now included in LTL formula via generate_safety()
 
             // Check satisfiability
             let result = encoder.check();
