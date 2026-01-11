@@ -255,7 +255,11 @@ min_distance: 5.0
 num_scenarios: 3
 "#;
 
-    let result = generate_multiple_scenarios(yaml, 3);
+    let result = generate_multiple_scenarios(
+        yaml,
+        3,
+        None::<fn(usize, &carla_scenario_generator::scenario::model::Scenario) -> carla_scenario_generator::error::Result<()>>,
+    );
     assert!(
         result.is_ok(),
         "Failed to generate scenarios: {:?}",

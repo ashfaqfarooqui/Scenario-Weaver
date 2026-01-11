@@ -21,17 +21,22 @@ use z3::{Config, SatResult};
 /// * `spec` - Scenario specification
 /// * `ltl_formula` - Generated LTL formula (same for all scenarios)
 /// * `num_scenarios` - Number of scenarios to generate
+/// * `callback` - Optional callback invoked after each scenario is generated
 ///
 /// # Returns
 /// A vector of unique scenarios
 ///
 /// # Errors
 /// Returns error if specification is invalid or initial setup fails
-pub fn generate_scenarios(
+pub fn generate_scenarios<F>(
     spec: &ScenarioSpec,
     ltl_formula: &LTLFormula,
     num_scenarios: usize,
-) -> Result<Vec<Scenario>> {
+    mut callback: Option<F>,
+) -> Result<Vec<Scenario>>
+where
+    F: FnMut(usize, &Scenario) -> Result<()>,
+{
     let mut scenarios = Vec::new();
 
     for i in 0..num_scenarios {
@@ -40,7 +45,7 @@ pub fn generate_scenarios(
 
         // Create fresh Z3 context for each scenario
         let cfg = Config::new();
-        z3::with_z3_config(&cfg, || {
+        let result = z3::with_z3_config(&cfg, || {
             let mut encoder = Z3Encoder::new(spec.clone());
 
             // Setup encoder (same as single scenario)
@@ -82,11 +87,18 @@ pub fn generate_scenarios(
                     Ok::<(), ScenarioGenError>(())
                 }
             }
-        })?;
+        });
+
+        result?;
 
         // Break if no more unique scenarios found
         if scenarios.len() < i + 1 {
             break;
+        }
+
+        // Call callback if provided (after Z3 context is released)
+        if let Some(ref mut cb) = callback {
+            cb(i, &scenarios[i])?;
         }
     }
 
@@ -130,10 +142,10 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
         let actor_vx0 = encoder.get_velocity_x(&actor.id, 0);
 
         // Create real values from previous scenario
-        // We use a tolerance to handle floating point precision
+        // Use truncation (not rounding) to match encoder's precision handling
         // Convert to Z3 rational: multiply by 10 to get 1 decimal precision (matches encoder)
-        let prev_px0_z3 = Real::from_rational((prev_px0 * 10.0).round() as i64, 10_i64);
-        let prev_vx0_z3 = Real::from_rational((prev_vx0 * 10.0).round() as i64, 10_i64);
+        let prev_px0_z3 = Real::from_rational((prev_px0 * 10.0) as i64, 10_i64);
+        let prev_vx0_z3 = Real::from_rational((prev_vx0 * 10.0) as i64, 10_i64);
 
         // Create equality constraints
         let px_eq = actor_px0.eq(&prev_px0_z3);
@@ -224,6 +236,10 @@ mod tests {
             optimization_target: crate::dsl::types::OptimizationTarget::None,
             max_acceleration: None,
             max_deceleration: None,
+            max_velocity: None,
+            min_velocity: None,
+            min_lateral_distance: None,
+            max_relative_velocity: None,
         }
     }
 
@@ -233,7 +249,13 @@ mod tests {
         let ltl_formula = LTLGenerator::generate(&spec);
 
         // Generate 3 scenarios
-        let scenarios = generate_scenarios(&spec, &ltl_formula, 3).unwrap();
+        let scenarios = generate_scenarios(
+            &spec,
+            &ltl_formula,
+            3,
+            None::<fn(usize, &Scenario) -> Result<()>>,
+        )
+        .unwrap();
 
         // Should have 3 scenarios
         assert!(!scenarios.is_empty());

@@ -138,8 +138,12 @@ fn test_generate_multiple_scenarios_integration() {
         .expect("Should read example YAML file");
 
     // Generate 3 scenarios
-    let scenarios = carla_scenario_generator::generate_multiple_scenarios(&yaml_content, 3)
-        .expect("Should generate multiple scenarios successfully");
+    let scenarios = carla_scenario_generator::generate_multiple_scenarios(
+        &yaml_content,
+        3,
+        None::<fn(usize, &carla_scenario_generator::scenario::model::Scenario) -> carla_scenario_generator::error::Result<()>>,
+    )
+    .expect("Should generate multiple scenarios successfully");
 
     // Should have at least 1 scenario (might be less than 3 if solution space is limited)
     assert!(!scenarios.is_empty());
@@ -287,8 +291,12 @@ fn test_xosc_export_multiple() {
     let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
         .expect("Should read example YAML file");
 
-    let scenarios = carla_scenario_generator::generate_multiple_scenarios(&yaml_content, 3)
-        .expect("Should generate multiple scenarios successfully");
+    let scenarios = carla_scenario_generator::generate_multiple_scenarios(
+        &yaml_content,
+        3,
+        None::<fn(usize, &carla_scenario_generator::scenario::model::Scenario) -> carla_scenario_generator::error::Result<()>>,
+    )
+    .expect("Should generate multiple scenarios successfully");
 
     assert!(
         !scenarios.is_empty(),
