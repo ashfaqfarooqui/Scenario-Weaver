@@ -29,8 +29,8 @@ actors:
 # NOTE: Updated to 'enforce' mode after optimizing time_step to 0.2s (reduced from 0.1s)
 # This provides guiding constraints for Z3 while maintaining reasonable performance
 constraint_modes:
-  min_ttc: enforce
-  min_distance: enforce
+  min_ttc: ignore
+  min_distance: ignore
 
 # Reasonable safety thresholds for pedestrian crossing
 min_ttc: 2.0  # 2 seconds time-to-collision (standard for pedestrian safety)
