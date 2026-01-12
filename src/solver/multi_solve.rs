@@ -151,11 +151,33 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
         let px_eq = actor_px0.eq(&prev_px0_z3);
         let vx_eq = actor_vx0.eq(&prev_vx0_z3);
 
-        // Both equal: px0 == prev_px0 AND vx0 == prev_vx0
-        let both_equal = Bool::and(&[&px_eq, &vx_eq]);
+        // For pedestrians, also block lateral (y-axis) initial conditions
+        // This ensures genuinely different 2D trajectories in multi-solve
+        let blocking_clause = if actor.role == ActorRole::Pedestrian {
+            let prev_py0 = actor_initial.position.y;
+            let prev_vy0 = actor_initial.velocity.vy;
 
-        // Blocking clause: NOT(both equal)
-        all_blocking_clauses.push(both_equal.not());
+            let actor_py0 = encoder.get_position_y(&actor.id, 0);
+            let actor_vy0 = encoder.get_velocity_y(&actor.id, 0);
+
+            let prev_py0_z3 = Real::from_rational((prev_py0 * 10.0) as i64, 10_i64);
+            let prev_vy0_z3 = Real::from_rational((prev_vy0 * 10.0) as i64, 10_i64);
+
+            let py_eq = actor_py0.eq(&prev_py0_z3);
+            let vy_eq = actor_vy0.eq(&prev_vy0_z3);
+
+            // All four must match: px0 == prev AND vx0 == prev AND py0 == prev AND vy0 == prev
+            let all_equal = Bool::and(&[&px_eq, &vx_eq, &py_eq, &vy_eq]);
+
+            // Blocking clause: NOT(all equal)
+            all_equal.not()
+        } else {
+            // For vehicles, only block longitudinal (x-axis) initial conditions
+            let both_equal = Bool::and(&[&px_eq, &vx_eq]);
+            both_equal.not()
+        };
+
+        all_blocking_clauses.push(blocking_clause);
     }
 
     // Combine with OR: at least one actor must differ
@@ -180,6 +202,16 @@ impl Z3Encoder {
     /// Get velocity_x variable for an actor at a specific time
     pub fn get_velocity_x(&self, actor_id: &str, time: usize) -> &Real {
         &self.velocities_x[actor_id][time]
+    }
+
+    /// Get position_y variable for an actor at a specific time
+    pub fn get_position_y(&self, actor_id: &str, time: usize) -> &Real {
+        &self.positions_y[actor_id][time]
+    }
+
+    /// Get velocity_y variable for an actor at a specific time
+    pub fn get_velocity_y(&self, actor_id: &str, time: usize) -> &Real {
+        &self.velocities_y[actor_id][time]
     }
 
     /// Assert a constraint to the solver
