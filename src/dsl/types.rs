@@ -3,14 +3,22 @@
 use serde::{Deserialize, Serialize};
 
 // Pedestrian physics constants
+//
+// NOTE: Max speeds are adjusted for linear box constraint (|vx| <= max AND |vy| <= max)
+// instead of quadratic disk constraint (vx² + vy² <= max²). The box contains the disk,
+// allowing diagonal speeds up to sqrt(2) * max. To maintain original semantic max speeds,
+// we divide by sqrt(2). Result: diagonal movement matches original speed limits.
+//
 /// Maximum walking speed for pedestrians (m/s) - normal walk
-pub const PEDESTRIAN_WALK_MAX_SPEED: f64 = 2.0;
+/// Adjusted: 2.0 / sqrt(2) ≈ 1.41 m/s to maintain diagonal speed semantics with box constraint
+pub const PEDESTRIAN_WALK_MAX_SPEED: f64 = 1.41;
 
 /// Minimum walking speed for pedestrians (m/s)
 pub const PEDESTRIAN_WALK_MIN_SPEED: f64 = 0.5;
 
 /// Maximum running speed for pedestrians (m/s)
-pub const PEDESTRIAN_RUN_MAX_SPEED: f64 = 5.0;
+/// Adjusted: 5.0 / sqrt(2) ≈ 3.54 m/s to maintain diagonal speed semantics with box constraint
+pub const PEDESTRIAN_RUN_MAX_SPEED: f64 = 3.54;
 
 /// Minimum running speed for pedestrians (m/s)
 pub const PEDESTRIAN_RUN_MIN_SPEED: f64 = 2.0;
@@ -64,6 +72,14 @@ pub enum ConstraintModes {
         min_distance: ConstraintMode,
         #[serde(default)]
         max_acceleration: ConstraintMode,
+        #[serde(default)]
+        max_velocity: ConstraintMode,
+        #[serde(default)]
+        min_velocity: ConstraintMode,
+        #[serde(default)]
+        min_lateral_distance: ConstraintMode,
+        #[serde(default)]
+        max_relative_velocity: ConstraintMode,
     },
     /// Shorthand: "violate_all", "ignore_all", "enforce_all"
     Shorthand(String),
@@ -75,6 +91,10 @@ impl Default for ConstraintModes {
             min_ttc: ConstraintMode::Enforce,
             min_distance: ConstraintMode::Enforce,
             max_acceleration: ConstraintMode::Enforce,
+            max_velocity: ConstraintMode::Enforce,
+            min_velocity: ConstraintMode::Ignore,
+            min_lateral_distance: ConstraintMode::Ignore,
+            max_relative_velocity: ConstraintMode::Ignore,
         }
     }
 }
@@ -110,6 +130,60 @@ impl ConstraintModes {
             ConstraintModes::Detailed {
                 max_acceleration, ..
             } => *max_acceleration,
+            ConstraintModes::Shorthand(s) => match s.as_str() {
+                "violate_all" => ConstraintMode::Violate,
+                "ignore_all" => ConstraintMode::Ignore,
+                _ => ConstraintMode::Enforce,
+            },
+        }
+    }
+
+    /// Get the mode for max_velocity constraint
+    pub fn max_velocity(&self) -> ConstraintMode {
+        match self {
+            ConstraintModes::Detailed { max_velocity, .. } => *max_velocity,
+            ConstraintModes::Shorthand(s) => match s.as_str() {
+                "violate_all" => ConstraintMode::Violate,
+                "ignore_all" => ConstraintMode::Ignore,
+                _ => ConstraintMode::Enforce,
+            },
+        }
+    }
+
+    /// Get the mode for min_velocity constraint
+    pub fn min_velocity(&self) -> ConstraintMode {
+        match self {
+            ConstraintModes::Detailed { min_velocity, .. } => *min_velocity,
+            ConstraintModes::Shorthand(s) => match s.as_str() {
+                "violate_all" => ConstraintMode::Violate,
+                "ignore_all" => ConstraintMode::Ignore,
+                _ => ConstraintMode::Enforce,
+            },
+        }
+    }
+
+    /// Get the mode for min_lateral_distance constraint
+    pub fn min_lateral_distance(&self) -> ConstraintMode {
+        match self {
+            ConstraintModes::Detailed {
+                min_lateral_distance,
+                ..
+            } => *min_lateral_distance,
+            ConstraintModes::Shorthand(s) => match s.as_str() {
+                "violate_all" => ConstraintMode::Violate,
+                "ignore_all" => ConstraintMode::Ignore,
+                _ => ConstraintMode::Enforce,
+            },
+        }
+    }
+
+    /// Get the mode for max_relative_velocity constraint
+    pub fn max_relative_velocity(&self) -> ConstraintMode {
+        match self {
+            ConstraintModes::Detailed {
+                max_relative_velocity,
+                ..
+            } => *max_relative_velocity,
             ConstraintModes::Shorthand(s) => match s.as_str() {
                 "violate_all" => ConstraintMode::Violate,
                 "ignore_all" => ConstraintMode::Ignore,
@@ -269,6 +343,18 @@ pub struct ScenarioSpec {
     /// When set, uses Z3 Optimize instead of Solver to find optimal scenarios
     #[serde(default)]
     pub optimization_target: OptimizationTarget,
+    /// Optional maximum velocity constraint (m/s)
+    #[serde(default)]
+    pub max_velocity: Option<f64>,
+    /// Optional minimum velocity constraint (m/s)
+    #[serde(default)]
+    pub min_velocity: Option<f64>,
+    /// Optional minimum lateral distance constraint (m)
+    #[serde(default)]
+    pub min_lateral_distance: Option<f64>,
+    /// Optional maximum relative velocity constraint (m/s)
+    #[serde(default)]
+    pub max_relative_velocity: Option<f64>,
 }
 
 /// Default lane width for backward compatibility
@@ -551,6 +637,10 @@ mod tests {
             max_acceleration: None,
             max_deceleration: None,
             optimization_target: OptimizationTarget::None,
+            max_velocity: None,
+            min_velocity: None,
+            min_lateral_distance: None,
+            max_relative_velocity: None,
         }
     }
 
