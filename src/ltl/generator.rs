@@ -77,6 +77,10 @@ mod tests {
             optimization_target: OptimizationTarget::None,
             max_acceleration: None,
             max_deceleration: None,
+            max_velocity: None,
+            min_velocity: None,
+            min_lateral_distance: None,
+            max_relative_velocity: None,
         }
     }
 

@@ -52,6 +52,7 @@ pub trait ScenarioModel: Send + Sync {
 ///
 /// This function generates pairwise TTC and distance constraints based on
 /// the constraint modes (Enforce/Violate/Ignore) specified in the scenario.
+/// Also includes velocity and lateral distance constraints.
 fn generate_default_safety(spec: &ScenarioSpec) -> LTLFormula {
     let mut constraints = Vec::new();
 
@@ -102,6 +103,111 @@ fn generate_default_safety(spec: &ScenarioSpec) -> LTLFormula {
                     .negate()
                     .eventually();
                     constraints.push(dist_violation);
+                }
+                ConstraintMode::Ignore => {}
+            }
+
+            // Lateral distance constraint
+            if let Some(min_lat_dist) = spec.min_lateral_distance {
+                match spec.constraint_modes.min_lateral_distance() {
+                    ConstraintMode::Enforce => {
+                        let lat_dist = LTLFormula::Atom(Proposition::LateralDistanceGT {
+                            actor1: actor1.id.clone(),
+                            actor2: actor2.id.clone(),
+                            distance: min_lat_dist,
+                        })
+                        .always();
+                        constraints.push(lat_dist);
+                    }
+                    ConstraintMode::Violate => {
+                        let lat_dist_violation = LTLFormula::Atom(Proposition::LateralDistanceGT {
+                            actor1: actor1.id.clone(),
+                            actor2: actor2.id.clone(),
+                            distance: min_lat_dist,
+                        })
+                        .negate()
+                        .eventually();
+                        constraints.push(lat_dist_violation);
+                    }
+                    ConstraintMode::Ignore => {}
+                }
+            }
+
+            // Relative velocity constraint (note: we negate it for "enforce" mode)
+            // Enforce means: |vx1 - vx2| <= max_relative_velocity
+            // Which is: NOT (|vx1 - vx2| > max_relative_velocity)
+            if let Some(max_rel_vel) = spec.max_relative_velocity {
+                match spec.constraint_modes.max_relative_velocity() {
+                    ConstraintMode::Enforce => {
+                        let rel_vel = LTLFormula::Atom(Proposition::RelativeVelocityGT {
+                            actor1: actor1.id.clone(),
+                            actor2: actor2.id.clone(),
+                            velocity: max_rel_vel,
+                        })
+                        .negate()
+                        .always();
+                        constraints.push(rel_vel);
+                    }
+                    ConstraintMode::Violate => {
+                        let rel_vel_violation = LTLFormula::Atom(Proposition::RelativeVelocityGT {
+                            actor1: actor1.id.clone(),
+                            actor2: actor2.id.clone(),
+                            velocity: max_rel_vel,
+                        })
+                        .eventually();
+                        constraints.push(rel_vel_violation);
+                    }
+                    ConstraintMode::Ignore => {}
+                }
+            }
+        }
+    }
+
+    // Generate per-actor velocity constraints
+    for actor in &spec.actors {
+        // Max velocity constraint
+        if let Some(max_vel) = spec.max_velocity {
+            match spec.constraint_modes.max_velocity() {
+                ConstraintMode::Enforce => {
+                    let vel = LTLFormula::Atom(Proposition::VelocityLT {
+                        actor: actor.id.clone(),
+                        velocity: max_vel,
+                    })
+                    .always();
+                    constraints.push(vel);
+                }
+                ConstraintMode::Violate => {
+                    let vel_violation = LTLFormula::Atom(Proposition::VelocityLT {
+                        actor: actor.id.clone(),
+                        velocity: max_vel,
+                    })
+                    .negate()
+                    .eventually();
+                    constraints.push(vel_violation);
+                }
+                ConstraintMode::Ignore => {}
+            }
+        }
+
+        // Min velocity constraint
+        if let Some(min_vel) = spec.min_velocity {
+            match spec.constraint_modes.min_velocity() {
+                ConstraintMode::Enforce => {
+                    let vel = LTLFormula::Atom(Proposition::VelocityGT {
+                        actor: actor.id.clone(),
+                        velocity: min_vel,
+                    })
+                    .always();
+                    constraints.push(vel);
+                }
+                ConstraintMode::Violate => {
+                    let vel_violation = LTLFormula::Atom(Proposition::VelocityGT {
+                        actor: actor.id.clone(),
+                        velocity: min_vel,
+                    })
+                    .negate()
+                    .eventually();
+                    constraints.push(vel_violation);
                 }
                 ConstraintMode::Ignore => {}
             }
