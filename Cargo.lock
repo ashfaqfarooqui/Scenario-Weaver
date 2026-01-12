@@ -288,31 +288,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b35204fbdc0b3f4446b89fc1ac2cf84a8a68971995d0bf2e925ec7cd960f9cb3"
 
 [[package]]
-name = "carla-scenario-generator"
-version = "0.1.0"
-dependencies = [
- "ab_glyph",
- "anyhow",
- "chrono",
- "clap",
- "gif",
- "image",
- "imageproc",
- "openscenario-rs",
- "pretty_assertions",
- "serde",
- "serde_json",
- "serde_yml",
- "svg",
- "tempfile",
- "thiserror",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "z3",
-]
-
-[[package]]
 name = "cc"
 version = "1.2.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2089,6 +2064,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96b02de82ddbe1b636e6170c21be622223aea188ef2e139be0a5b219ec215323"
 dependencies = [
  "bytemuck",
+]
+
+[[package]]
+name = "scenario-generator"
+version = "0.1.0"
+dependencies = [
+ "ab_glyph",
+ "anyhow",
+ "chrono",
+ "clap",
+ "gif",
+ "image",
+ "imageproc",
+ "openscenario-rs",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "serde_yml",
+ "svg",
+ "tempfile",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "z3",
 ]
 
 [[package]]

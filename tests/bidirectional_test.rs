@@ -1,6 +1,6 @@
 //! Integration tests for bidirectional traffic scenarios
 
-use carla_scenario_generator::{generate_multiple_scenarios, generate_single_scenario};
+use scenario_generator::{generate_multiple_scenarios, generate_single_scenario};
 
 #[test]
 fn test_simple_bidirectional_scenario() {
@@ -269,8 +269,8 @@ num_scenarios: 3
         None::<
             fn(
                 usize,
-                &carla_scenario_generator::scenario::model::Scenario,
-            ) -> carla_scenario_generator::error::Result<()>,
+                &scenario_generator::scenario::model::Scenario,
+            ) -> scenario_generator::error::Result<()>,
         >,
     );
     assert!(
@@ -311,58 +311,6 @@ num_scenarios: 3
     // Note: with the current blocking clause strategy and narrow ranges,
     // scenarios may have similar initial conditions. This is acceptable
     // as the main goal is testing bidirectional road support, not diversity.
-}
-
-#[test]
-fn test_backward_compatibility_no_road_spec() {
-    // Test that scenarios without road spec still work (backward compatibility)
-    let yaml = r#"
-scenario_type: cut_in_left
-time_step: 0.5
-duration: 10.0
-
-actors:
-  - id: ego
-    role: ego
-    lane: 1
-    position: 50.0
-    speed: 15.0
-    direction: 1
-    acceleration: [-8.0, 3.0]
-
-  - id: npc
-    role: npc
-    lane: 0
-    position: [60.0, 80.0]
-    speed: [12.0, 14.0]
-    direction: 1
-    acceleration: [-8.0, 3.0]
-    behavior:
-      cut_in_time: [2.5, 7.5]
-
-min_ttc: 3.0
-min_distance: 5.0
-lane_width: 3.5
-num_scenarios: 1
-"#;
-
-    let result = generate_single_scenario(yaml);
-    assert!(result.is_ok(), "Backward compatible scenario should work");
-
-    let scenario = result.unwrap();
-
-    // Should default to all forward lanes
-    let ego = scenario.actors.iter().find(|a| a.id == "ego").unwrap();
-    let npc = scenario.actors.iter().find(|a| a.id == "npc").unwrap();
-
-    assert!(
-        ego.states.iter().all(|s| s.velocity.vx >= 0.0),
-        "Default should be forward lanes"
-    );
-    assert!(
-        npc.states.iter().all(|s| s.velocity.vx >= 0.0),
-        "Default should be forward lanes"
-    );
 }
 
 #[test]

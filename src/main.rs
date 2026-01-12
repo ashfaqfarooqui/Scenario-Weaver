@@ -1,4 +1,4 @@
-//! CLI for CARLA Scenario Generator
+//! CLI for  Scenario Generator
 
 use anyhow::Result;
 use clap::Parser;
@@ -19,8 +19,8 @@ enum OptimizeTarget {
 }
 
 #[derive(Parser)]
-#[command(name = "carla-scenario-gen")]
-#[command(about = "Generate CARLA driving scenarios using LTL + Z3", long_about = None)]
+#[command(name = "scenario-gen")]
+#[command(about = "Generate  driving scenarios using LTL + Z3", long_about = None)]
 #[command(version)]
 struct Cli {
     /// Input YAML specification file
@@ -63,25 +63,25 @@ fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    tracing::info!("CARLA Scenario Generator");
+    tracing::info!(" Scenario Generator");
     tracing::info!("Loading specification from: {:?}", cli.input);
 
     // Read YAML file
     let yaml_content = std::fs::read_to_string(&cli.input)?;
 
     // Parse specification
-    let mut spec = carla_scenario_generator::dsl::parser::parse_yaml(&yaml_content)?;
+    let mut spec = scenario_generator::dsl::parser::parse_yaml(&yaml_content)?;
 
     // Apply CLI override for adversarial mode
     if cli.adversarial {
-        use carla_scenario_generator::dsl::types::ConstraintModes;
+        use scenario_generator::dsl::types::ConstraintModes;
         tracing::warn!("CLI override: Setting all constraints to VIOLATE mode");
         spec.constraint_modes = ConstraintModes::Shorthand("violate_all".to_string());
     }
 
     // Apply CLI override for optimization target
     if let Some(optimize) = &cli.optimize {
-        use carla_scenario_generator::dsl::types::OptimizationTarget;
+        use scenario_generator::dsl::types::OptimizationTarget;
         let target = match optimize {
             OptimizeTarget::MinTtc => OptimizationTarget::MinimizeTtc,
             OptimizeTarget::MinDistance => OptimizationTarget::MinimizeDistance,
@@ -105,24 +105,18 @@ fn main() -> Result<()> {
 
     // Generate scenarios
     let scenarios = if num_scenarios == 1 {
-        vec![carla_scenario_generator::generate_single_scenario(
-            &final_yaml,
-        )?]
+        vec![scenario_generator::generate_single_scenario(&final_yaml)?]
     } else {
         // Create callback to write each scenario immediately after generation
         let output_dir = cli.output.clone();
         let callback = |i: usize,
-                        scenario: &carla_scenario_generator::scenario::model::Scenario|
-         -> carla_scenario_generator::error::Result<()> {
+                        scenario: &scenario_generator::scenario::model::Scenario|
+         -> scenario_generator::error::Result<()> {
             write_scenario(scenario, &output_dir, i, num_scenarios).map_err(|e| {
-                carla_scenario_generator::error::ScenarioGenError::ExtractionFailed(e.to_string())
+                scenario_generator::error::ScenarioGenError::ExtractionFailed(e.to_string())
             })
         };
-        carla_scenario_generator::generate_multiple_scenarios(
-            &final_yaml,
-            num_scenarios,
-            Some(callback),
-        )?
+        scenario_generator::generate_multiple_scenarios(&final_yaml, num_scenarios, Some(callback))?
     };
 
     tracing::info!("Successfully generated {} scenario(s)", scenarios.len());
@@ -154,7 +148,7 @@ fn main() -> Result<()> {
 
 /// Write a single scenario to a directory
 fn write_scenario(
-    scenario: &carla_scenario_generator::scenario::model::Scenario,
+    scenario: &scenario_generator::scenario::model::Scenario,
     output_dir: &PathBuf,
     index: usize,
     total_scenarios: usize,
@@ -177,19 +171,19 @@ fn write_scenario(
 
     // Write XOSC
     let xosc_path = output_dir.join(format!("{}.xosc", base));
-    let xosc_xml = carla_scenario_generator::scenario::export_to_xosc(scenario)?;
+    let xosc_xml = scenario_generator::scenario::export_to_xosc(scenario)?;
     std::fs::write(&xosc_path, xosc_xml)?;
     tracing::debug!("Wrote XOSC to: {:?}", xosc_path);
 
     // Write SVG
     let svg_path = output_dir.join(format!("{}.svg", base));
-    let svg = carla_scenario_generator::scenario::export_to_svg(scenario)?;
+    let svg = scenario_generator::scenario::export_to_svg(scenario)?;
     std::fs::write(&svg_path, svg)?;
     tracing::debug!("Wrote SVG to: {:?}", svg_path);
 
     // Write GIF
     let gif_path = output_dir.join(format!("{}.gif", base));
-    let gif_bytes = carla_scenario_generator::scenario::export_to_gif(scenario)?;
+    let gif_bytes = scenario_generator::scenario::export_to_gif(scenario)?;
     std::fs::write(&gif_path, gif_bytes)?;
     tracing::debug!("Wrote GIF to: {:?}", gif_path);
 
@@ -198,7 +192,7 @@ fn write_scenario(
 
 /// Write scenarios to a directory (handles both single and multiple scenarios)
 fn write_scenarios(
-    scenarios: &[carla_scenario_generator::scenario::model::Scenario],
+    scenarios: &[scenario_generator::scenario::model::Scenario],
     output_dir: &PathBuf,
 ) -> Result<()> {
     for (i, scenario) in scenarios.iter().enumerate() {
@@ -215,7 +209,7 @@ fn write_scenarios(
 }
 
 /// Print a summary of the scenario
-fn print_scenario_summary(scenario: &carla_scenario_generator::scenario::model::Scenario) {
+fn print_scenario_summary(scenario: &scenario_generator::scenario::model::Scenario) {
     println!("Scenario ID: {}", scenario.scenario_id);
     println!("Type: {}", scenario.scenario_type);
     println!("Duration: {:.1}s", scenario.duration);

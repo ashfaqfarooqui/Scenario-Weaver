@@ -1,4 +1,4 @@
-You are implementing the CARLA Scenario Generator - a Rust tool that generates driving test scenarios using LTL (Linear Temporal Logic) + Z3 SMT solver.
+You are implementing the  Scenario Generator - a Rust tool that generates driving test scenarios using LTL (Linear Temporal Logic) + Z3 SMT solver.
 
 LOCATION: /home/ashfaqf/playground/synergies/test-4/
 

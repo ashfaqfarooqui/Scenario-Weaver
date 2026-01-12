@@ -27,7 +27,7 @@ pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
 
     // Create basic scenario structure with entities
     let mut builder = ScenarioBuilder::new()
-        .with_header(&description, "CARLA Scenario Generator")
+        .with_header(&description, " Scenario Generator")
         .with_entities();
 
     // Add entities for each actor
@@ -156,40 +156,14 @@ fn build_trajectory(
 /// - Actor count and roles
 /// - Trajectory summary (initial/final positions and speeds)
 fn build_scenario_description(scenario: &Scenario) -> String {
-    let mut desc = format!(
-        "Scenario: {} (ID: {})\nType: {}\nDuration: {}s, Time step: {}s\n\nActors: {}",
+    let desc = format!(
+        "Scenario: {} (ID: {})\nType: {}\nDuration: {}s, Time step: {}s",
         scenario.scenario_id,
         scenario.scenario_id,
         scenario.scenario_type,
         scenario.duration,
         scenario.time_step,
-        scenario.actors.len()
     );
-
-    // Add trajectory summary for each actor
-    for actor in &scenario.actors {
-        if let (Some(first), Some(last)) = (actor.states.first(), actor.states.last()) {
-            desc.push_str(&format!(
-                "\n\n{} ({}):\n  Start: pos=({:.1}, {:.1}) vel=({:.1}, {:.1}) lane={}\n  End: pos=({:.1}, {:.1}) vel=({:.1}, {:.1}) lane={}",
-                actor.id,
-                actor.role,
-                first.position.x, first.position.y,
-                first.velocity.vx, first.velocity.vy,
-                first.lane,
-                last.position.x, last.position.y,
-                last.velocity.vx, last.velocity.vy,
-                last.lane
-            ));
-        }
-    }
-
-    // Add validation info
-    desc.push_str(&format!(
-        "\n\nValidation:\n  Min TTC: {:.2}s\n  Min distance: {:.2}m\n  Constraints satisfied: {}",
-        scenario.validation.min_ttc,
-        scenario.validation.min_distance,
-        scenario.validation.all_constraints_satisfied
-    ));
 
     desc
 }
@@ -345,7 +319,7 @@ mod tests {
         // Basic validation
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("OpenSCENARIO"));
-        assert!(xml.contains("CARLA Scenario Generator"));
+        assert!(xml.contains(" Scenario Generator"));
         assert!(xml.contains("cut_in_left"));
 
         // Verify entities

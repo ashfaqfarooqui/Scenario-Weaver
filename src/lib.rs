@@ -1,4 +1,4 @@
-//! CARLA Scenario Generator
+//!  Scenario Generator
 //!
 //! Generate driving test scenarios from high-level specifications using
 //! Linear Temporal Logic (LTL) + Z3 SMT solver.
@@ -143,7 +143,7 @@ where
 /// Export a scenario to OpenSCENARIO XML format
 ///
 /// Converts an internally generated scenario to OpenSCENARIO (.xosc) format
-/// for use with simulation platforms like CARLA.
+/// for use with simulation platforms like .
 ///
 /// # Arguments
 /// * `scenario` - The scenario to export
@@ -156,7 +156,7 @@ where
 ///
 /// # Example
 /// ```no_run
-/// use carla_scenario_generator::{generate_single_scenario, export_scenario_to_xosc};
+/// use scenario_generator::{generate_single_scenario, export_scenario_to_xosc};
 ///
 /// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
 /// let scenario = generate_single_scenario(&yaml).unwrap();
@@ -173,7 +173,7 @@ pub fn export_scenario_to_xosc(scenario: &Scenario) -> Result<String> {
 ///
 /// # Example
 /// ```no_run
-/// use carla_scenario_generator::{generate_single_scenario, export_scenario_to_svg};
+/// use scenario_generator::{generate_single_scenario, export_scenario_to_svg};
 ///
 /// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
 /// let scenario = generate_single_scenario(&yaml).unwrap();
@@ -191,7 +191,7 @@ pub fn export_scenario_to_svg(scenario: &Scenario) -> Result<String> {
 ///
 /// # Example
 /// ```no_run
-/// use carla_scenario_generator::{generate_single_scenario, export_scenario_to_gif};
+/// use scenario_generator::{generate_single_scenario, export_scenario_to_gif};
 ///
 /// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
 /// let scenario = generate_single_scenario(&yaml).unwrap();

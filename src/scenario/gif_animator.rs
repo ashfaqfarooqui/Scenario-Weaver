@@ -49,7 +49,7 @@ const VEHICLE_WIDTH: u32 = 6;
 ///
 /// # Example
 /// ```no_run
-/// use carla_scenario_generator::{generate_single_scenario, export_scenario_to_gif};
+/// use scenario_generator::{generate_single_scenario, export_scenario_to_gif};
 ///
 /// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
 /// let scenario = generate_single_scenario(&yaml).unwrap();
@@ -88,6 +88,10 @@ impl AnimatorConfig {
                 y_max = y_max.max(state.position.y);
             }
         }
+
+        // Include road extent in bounds to ensure all lanes are visible
+        y_min = y_min.min(0.0);
+        y_max = y_max.max(scenario.road.num_lanes as f64 * scenario.road.lane_width);
 
         // Add padding (10% on each side)
         let x_range = x_max - x_min;
