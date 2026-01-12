@@ -85,6 +85,50 @@ pub enum Proposition {
         pedestrian: String,
         ttc: f64,
     },
+
+    /// Actor's longitudinal speed exceeds threshold (linear constraint: |vx| > velocity)
+    /// Uses absolute value of longitudinal velocity (vx), not vector magnitude.
+    /// Matches YAML "speed" semantics which sets vx (signed by lane direction).
+    VelocityGT {
+        actor: String,
+        velocity: f64,
+    },
+
+    /// Actor's longitudinal speed is below threshold (linear constraint: |vx| < velocity)
+    /// Uses absolute value of longitudinal velocity (vx), not vector magnitude.
+    /// Matches YAML "speed" semantics which sets vx (signed by lane direction).
+    VelocityLT {
+        actor: String,
+        velocity: f64,
+    },
+
+    /// Lateral (perpendicular) distance between actors exceeds threshold
+    /// Linear constraint: |py1 - py2| > distance
+    LateralDistanceGT {
+        actor1: String,
+        actor2: String,
+        distance: f64,
+    },
+
+    /// Actor1 is laterally left of Actor2 (py1 > py2)
+    OnLeftOf {
+        actor1: String,
+        actor2: String,
+    },
+
+    /// Actor1 is laterally right of Actor2 (py1 < py2)
+    OnRightOf {
+        actor1: String,
+        actor2: String,
+    },
+
+    /// Relative longitudinal velocity exceeds threshold
+    /// Linear constraint: |vx1 - vx2| > velocity
+    RelativeVelocityGT {
+        actor1: String,
+        actor2: String,
+        velocity: f64,
+    },
 }
 
 // Builder methods for ergonomic formula construction

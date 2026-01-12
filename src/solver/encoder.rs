@@ -950,6 +950,94 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 // Overall: NOT (ped_on_road AND approaching) OR ttc_safe
                 z3::ast::Bool::and(&[&ped_on_road, &approaching]).implies(&ttc_safe)
             }
+
+            // VelocityGT: Actor's longitudinal speed exceeds threshold
+            // Linear constraint: |vx| > threshold
+            // Z3 encoding: (vx > threshold) OR (vx < -threshold)
+            Proposition::VelocityGT { actor, velocity } => {
+                let vx = &self.velocities_x[actor][time];
+                let threshold_val = Real::from_rational((velocity * 10.0) as i64, 10_i64);
+
+                // |vx| > threshold is equivalent to: (vx > threshold) OR (vx < -threshold)
+                let pos_case = vx.gt(&threshold_val);
+                let neg_threshold = Real::from_rational((-velocity * 10.0) as i64, 10_i64);
+                let neg_case = vx.lt(&neg_threshold);
+
+                z3::ast::Bool::or(&[&pos_case, &neg_case])
+            }
+
+            // VelocityLT: Actor's longitudinal speed is below threshold
+            // Linear constraint: |vx| < threshold
+            // Z3 encoding: (vx < threshold) AND (vx > -threshold)
+            Proposition::VelocityLT { actor, velocity } => {
+                let vx = &self.velocities_x[actor][time];
+                let threshold_val = Real::from_rational((velocity * 10.0) as i64, 10_i64);
+                let neg_threshold = Real::from_rational((-velocity * 10.0) as i64, 10_i64);
+
+                // |vx| < threshold is equivalent to: -threshold < vx < threshold
+                let upper_bound = vx.lt(&threshold_val);
+                let lower_bound = vx.gt(&neg_threshold);
+
+                z3::ast::Bool::and(&[&upper_bound, &lower_bound])
+            }
+
+            // LateralDistanceGT: Lateral distance between actors exceeds threshold
+            // Linear constraint: |py1 - py2| > distance
+            Proposition::LateralDistanceGT {
+                actor1,
+                actor2,
+                distance,
+            } => {
+                let py1 = &self.positions_y[actor1][time];
+                let py2 = &self.positions_y[actor2][time];
+                let dist_val = Real::from_rational((*distance * 10.0) as i64, 10_i64);
+
+                // |py1 - py2| > d is equivalent to: (py1 - py2 > d) OR (py2 - py1 > d)
+                let diff_pos = py1 - py2;
+                let diff_neg = py2 - py1;
+
+                let pos_case = diff_pos.gt(&dist_val);
+                let neg_case = diff_neg.gt(&dist_val);
+
+                z3::ast::Bool::or(&[&pos_case, &neg_case])
+            }
+
+            // OnLeftOf: Actor1 is laterally left of Actor2
+            // Simple comparison: py1 > py2
+            Proposition::OnLeftOf { actor1, actor2 } => {
+                let py1 = &self.positions_y[actor1][time];
+                let py2 = &self.positions_y[actor2][time];
+                py1.gt(py2)
+            }
+
+            // OnRightOf: Actor1 is laterally right of Actor2
+            // Simple comparison: py1 < py2
+            Proposition::OnRightOf { actor1, actor2 } => {
+                let py1 = &self.positions_y[actor1][time];
+                let py2 = &self.positions_y[actor2][time];
+                py1.lt(py2)
+            }
+
+            // RelativeVelocityGT: Relative longitudinal velocity exceeds threshold
+            // Linear constraint: |vx1 - vx2| > velocity
+            Proposition::RelativeVelocityGT {
+                actor1,
+                actor2,
+                velocity,
+            } => {
+                let vx1 = &self.velocities_x[actor1][time];
+                let vx2 = &self.velocities_x[actor2][time];
+                let vel_val = Real::from_rational((*velocity * 10.0) as i64, 10_i64);
+
+                // |vx1 - vx2| > v is equivalent to: (vx1 - vx2 > v) OR (vx2 - vx1 > v)
+                let diff_pos = vx1 - vx2;
+                let diff_neg = vx2 - vx1;
+
+                let pos_case = diff_pos.gt(&vel_val);
+                let neg_case = diff_neg.gt(&vel_val);
+
+                z3::ast::Bool::or(&[&pos_case, &neg_case])
+            }
         }
     }
 
@@ -1396,6 +1484,10 @@ mod tests {
             optimization_target: crate::dsl::types::OptimizationTarget::None,
             max_acceleration: None,
             max_deceleration: None,
+            max_velocity: None,
+            min_velocity: None,
+            min_lateral_distance: None,
+            max_relative_velocity: None,
         }
     }
 
@@ -1808,6 +1900,64 @@ mod tests {
 
                 println!("Scenario extraction test passed!");
             }
+        });
+    }
+
+    #[test]
+    fn test_velocity_propositions_linear() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::Proposition;
+
+            let spec = ScenarioSpec {
+                scenario_type: ScenarioType::CutInLeft,
+                time_step: 0.5,
+                duration: 5.0,
+                actors: vec![ActorSpec {
+                    id: "ego".to_string(),
+                    role: ActorRole::Ego,
+                    lane: 0,
+                    position: ValueOrRange::Value(0.0),
+                    speed: ValueOrRange::Value(20.0),
+                    acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    behavior: HashMap::new(),
+                }],
+                min_ttc: 3.0,
+                min_distance: 5.0,
+                road: None,
+                lane_width: 3.5,
+                num_scenarios: 1,
+                constraint_modes: crate::dsl::types::ConstraintModes::default(),
+                optimization_target: crate::dsl::types::OptimizationTarget::None,
+                max_acceleration: None,
+                max_deceleration: None,
+                max_velocity: Some(25.0),
+                min_velocity: Some(10.0),
+                min_lateral_distance: None,
+                max_relative_velocity: None,
+            };
+
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            // Test VelocityGT (linear constraint)
+            let prop_gt = Proposition::VelocityGT {
+                actor: "ego".to_string(),
+                velocity: 15.0,
+            };
+            let _constraint_gt = encoder.encode_proposition(&prop_gt, 0);
+            // If we get here, encoding succeeded without panicking
+
+            // Test VelocityLT (linear constraint)
+            let prop_lt = Proposition::VelocityLT {
+                actor: "ego".to_string(),
+                velocity: 30.0,
+            };
+            let _constraint_lt = encoder.encode_proposition(&prop_lt, 0);
+            // If we get here, encoding succeeded without panicking
+
+            println!("VelocityGT/LT use linear constraints (no quadratic operations)");
         });
     }
 }
