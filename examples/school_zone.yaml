@@ -13,6 +13,7 @@ actors:
     lane: 1
     position: [0.0, 50.0]
     speed: [10.0, 18.0]  # Z3 will choose values that satisfy constraints
+    direction: 1
     acceleration: [-8.0, 2.0]
 
   - id: npc
@@ -20,6 +21,7 @@ actors:
     lane: 0
     position: [10.0, 60.0]
     speed: [10.0, 18.0]
+    direction: 1
     acceleration: [-8.0, 2.0]
     behavior:
       cut_in_time: [1.5, 7.5]

@@ -13,6 +13,7 @@ actors:
     lane: 1
     position: [0.0, 20.0]
     speed: [25.0, 30.0]  # Speeding - above the 22 m/s limit
+    direction: 1
     acceleration: [-5.0, 3.0]
 
   - id: npc
@@ -20,6 +21,7 @@ actors:
     lane: 0
     position: [40.0, 60.0]
     speed: [15.0, 20.0]  # Within limit
+    direction: 1
     acceleration: [-4.0, 2.0]
     behavior:
       cut_in_time: [3.0, 6.0]

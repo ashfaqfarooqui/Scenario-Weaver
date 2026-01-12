@@ -14,6 +14,7 @@ actors:
     lane: 0
     position: [0.0, 40.0]
     speed: [8.0, 12.0]
+    direction: 1
     acceleration: [-5.0, 2.0]
 
   - id: pedestrian
@@ -21,6 +22,7 @@ actors:
     lane: 0  # Ignored for pedestrians (fixed to 0 internally)
     position: [10.0, 60.0]  # Range allows Z3 to find safe crossing point
     speed: [0.8, 1.5]  # Normal walking speed range
+    direction: 1
     acceleration: [-1.0, 1.0]
     behavior:
       walking_mode: walk  # Options: "walk" (max 2.0 m/s), "run" (max 5.0 m/s), "hesitate" (pauses during crossing)

@@ -296,6 +296,7 @@ mod tests {
                     position: ValueOrRange::Value(50.0),
                     speed: ValueOrRange::Value(15.0),
                     acceleration: ValueOrRange::Range([-3.0, 2.0]),
+                    direction: 1,
                     behavior: ego_behavior,
                 },
                 ActorSpec {
@@ -305,6 +306,7 @@ mod tests {
                     position: ValueOrRange::Range([30.0, 40.0]), // Behind ego
                     speed: ValueOrRange::Range([18.0, 22.0]), // Faster than ego
                     acceleration: ValueOrRange::Range([-3.0, 4.0]),
+                    direction: 1,
                     behavior: npc_behavior,
                 },
             ],

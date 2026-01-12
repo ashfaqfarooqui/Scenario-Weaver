@@ -27,6 +27,7 @@ actors:
     lane: 1            # Middle lane
     position: 50.0     # Fixed starting position
     speed: [14.0, 16.0]  # 14-16 m/s (~50-58 km/h)
+    direction: 1
     acceleration: [-2.0, 1.0]  # Mild acceleration range
 
   # NPC vehicle - starts behind, overtakes
@@ -35,6 +36,7 @@ actors:
     lane: 1            # Same lane as ego (starts behind)
     position: [25.0, 35.0]  # 15-25m behind ego
     speed: [18.0, 22.0]     # Faster than ego (to catch up)
+    direction: 1
     acceleration: [-3.0, 4.0]  # Can accelerate to pass
     behavior:
       overtake_start_time: [2.0, 4.0]  # Enter passing lane between 2-4s

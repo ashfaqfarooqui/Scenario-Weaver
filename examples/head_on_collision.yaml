@@ -17,6 +17,7 @@ actors:
     lane: 0                     # Forward lane (rightmost)
     position: 50.0              # Starting at x=50m
     speed: 20.0                 # 20 m/s forward
+    direction: 1               # Forward (+x)
     acceleration: [-8.0, 3.0]
 
   - id: npc
@@ -24,6 +25,7 @@ actors:
     lane: 2                     # Backward lane (comes toward ego)
     position: 150.0             # Starts at x=150m (ahead of ego)
     speed: 20.0                 # 20 m/s backward (toward ego)
+    direction: -1              # Backward (-x) - oncoming traffic!
     acceleration: [-2.0, 0.0]
     behavior:
       cut_in_time: [2.5, 7.5]

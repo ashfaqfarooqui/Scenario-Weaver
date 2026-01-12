@@ -1,7 +1,7 @@
 //! Scenario output data structures
 
-use serde::{Deserialize, Serialize};
 use crate::dsl::types::RoadSpec;
+use serde::{Deserialize, Serialize};
 
 /// Complete scenario with all actor trajectories
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -277,8 +277,8 @@ impl<'a> GifAnimator<'a> {
         }
 
         // Draw road edges (solid lines)
-        let top_edge = road_width;  // y = road_width is the top edge
-        let bottom_edge = 0.0;      // y = 0 is the bottom edge
+        let top_edge = road_width; // y = road_width is the top edge
+        let bottom_edge = 0.0; // y = 0 is the bottom edge
 
         let (_, top_py) = self.transform_coords(0.0, top_edge);
         let (_, bottom_py) = self.transform_coords(0.0, bottom_edge);

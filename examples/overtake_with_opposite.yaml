@@ -4,25 +4,25 @@ scenario_type: cut_in_left
 time_step: 0.5
 duration: 10.0
 
-# Road specification
+# Road specification: 3 lanes
 road:
-  num_lanes: 4
+  num_lanes: 3
   lane_width: 3.5
-  lane_directions: [1, 1, -1, -1]
+  lane_directions: [1, 1, -1]  # Lane 2 is backward (for visualization)
 
-# Simple 2-actor scenario
+# Two-actor scenario: ego and npc
 actors:
   - id: ego
     role: ego
-    lane: 1                    # Forward lane
+    lane: 0
     position: 50.0
-    speed: 15.0                # 15 m/s forward
+    speed: 15.0
     direction: 1               # Forward (+x)
-    acceleration: [-8.0, 3.0]
+    acceleration: [-3.0, 2.0]
 
   - id: npc
     role: npc
-    lane: 0                    # Also forward lane (same direction as ego)
+    lane: 1
     position: [60.0, 80.0]
     speed: [12.0, 14.0]
     direction: 1               # Forward (+x)

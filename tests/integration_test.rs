@@ -141,7 +141,12 @@ fn test_generate_multiple_scenarios_integration() {
     let scenarios = carla_scenario_generator::generate_multiple_scenarios(
         &yaml_content,
         3,
-        None::<fn(usize, &carla_scenario_generator::scenario::model::Scenario) -> carla_scenario_generator::error::Result<()>>,
+        None::<
+            fn(
+                usize,
+                &carla_scenario_generator::scenario::model::Scenario,
+            ) -> carla_scenario_generator::error::Result<()>,
+        >,
     )
     .expect("Should generate multiple scenarios successfully");
 
@@ -294,7 +299,12 @@ fn test_xosc_export_multiple() {
     let scenarios = carla_scenario_generator::generate_multiple_scenarios(
         &yaml_content,
         3,
-        None::<fn(usize, &carla_scenario_generator::scenario::model::Scenario) -> carla_scenario_generator::error::Result<()>>,
+        None::<
+            fn(
+                usize,
+                &carla_scenario_generator::scenario::model::Scenario,
+            ) -> carla_scenario_generator::error::Result<()>,
+        >,
     )
     .expect("Should generate multiple scenarios successfully");
 

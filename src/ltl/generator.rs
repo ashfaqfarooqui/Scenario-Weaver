@@ -52,6 +52,7 @@ mod tests {
                     position: ValueOrRange::Value(50.0),
                     speed: ValueOrRange::Value(15.0),
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: 1,
                     behavior: HashMap::new(),
                 },
                 ActorSpec {
@@ -61,6 +62,7 @@ mod tests {
                     position: ValueOrRange::Range([60.0, 80.0]),
                     speed: ValueOrRange::Range([12.0, 14.0]),
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: 1,
                     behavior: {
                         let mut map = HashMap::new();
                         map.insert("cut_in_time".to_string(), serde_json::json!([2.5, 7.5]));

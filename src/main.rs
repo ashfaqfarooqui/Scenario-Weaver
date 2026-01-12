@@ -111,11 +111,18 @@ fn main() -> Result<()> {
     } else {
         // Create callback to write each scenario immediately after generation
         let output_dir = cli.output.clone();
-        let callback = |i: usize, scenario: &carla_scenario_generator::scenario::model::Scenario| -> carla_scenario_generator::error::Result<()> {
-            write_scenario(scenario, &output_dir, i, num_scenarios)
-                .map_err(|e| carla_scenario_generator::error::ScenarioGenError::ExtractionFailed(e.to_string()))
+        let callback = |i: usize,
+                        scenario: &carla_scenario_generator::scenario::model::Scenario|
+         -> carla_scenario_generator::error::Result<()> {
+            write_scenario(scenario, &output_dir, i, num_scenarios).map_err(|e| {
+                carla_scenario_generator::error::ScenarioGenError::ExtractionFailed(e.to_string())
+            })
         };
-        carla_scenario_generator::generate_multiple_scenarios(&final_yaml, num_scenarios, Some(callback))?
+        carla_scenario_generator::generate_multiple_scenarios(
+            &final_yaml,
+            num_scenarios,
+            Some(callback),
+        )?
     };
 
     tracing::info!("Successfully generated {} scenario(s)", scenarios.len());

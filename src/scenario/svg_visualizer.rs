@@ -316,8 +316,8 @@ impl<'a> SvgVisualizer<'a> {
         }
 
         // Draw road edges (solid lines)
-        let top_edge = road_width;  // y = road_width is the top edge
-        let bottom_edge = 0.0;      // y = 0 is the bottom edge
+        let top_edge = road_width; // y = road_width is the top edge
+        let bottom_edge = 0.0; // y = 0 is the bottom edge
 
         let top_line = Line::new()
             .set("x1", self.config.margin)

@@ -56,7 +56,8 @@ impl ScenarioModel for PedestrianCrossingModel {
 
         let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
         let npcs = spec.npcs();
-        let pedestrian = npcs.iter()
+        let pedestrian = npcs
+            .iter()
             .find(|a| a.role == ActorRole::Pedestrian)
             .ok_or_else(|| anyhow::anyhow!("No pedestrian found"))?;
 
@@ -69,9 +70,10 @@ impl ScenarioModel for PedestrianCrossingModel {
             let dist = LTLFormula::Atom(Proposition::RectangularDistanceGT {
                 actor1: ego.id.clone(),
                 actor2: pedestrian.id.clone(),
-                threshold_x: spec.min_distance / 2.0,  // Longitudinal: half the threshold
-                threshold_y: spec.min_distance / 1.5,  // Lateral: slightly more conservative
-            }).always();
+                threshold_x: spec.min_distance / 2.0, // Longitudinal: half the threshold
+                threshold_y: spec.min_distance / 1.5, // Lateral: slightly more conservative
+            })
+            .always();
             constraints.push(dist);
         }
 
@@ -81,7 +83,8 @@ impl ScenarioModel for PedestrianCrossingModel {
                 ego: ego.id.clone(),
                 pedestrian: pedestrian.id.clone(),
                 ttc: spec.min_ttc,
-            }).always();
+            })
+            .always();
             constraints.push(ttc);
         }
 
@@ -90,10 +93,12 @@ impl ScenarioModel for PedestrianCrossingModel {
             Ok(LTLFormula::Atom(Proposition::InLane {
                 actor: ego.id.clone(),
                 lane: ego.lane,
-            }).or(LTLFormula::Atom(Proposition::InLane {
+            })
+            .or(LTLFormula::Atom(Proposition::InLane {
                 actor: ego.id.clone(),
                 lane: ego.lane,
-            }).negate()))
+            })
+            .negate()))
         } else {
             Ok(constraints.into_iter().reduce(|acc, c| acc.and(c)).unwrap())
         }
@@ -217,11 +222,8 @@ impl ScenarioModel for PedestrianCrossingModel {
 
                 // At least one of these must be true (OR them together)
                 if !slow_constraints.is_empty() {
-                    let slow_constraint_refs: Vec<_> =
-                        slow_constraints.iter().collect();
-                    let hesitate_constraint = z3::ast::Bool::or(
-                        &slow_constraint_refs,
-                    );
+                    let slow_constraint_refs: Vec<_> = slow_constraints.iter().collect();
+                    let hesitate_constraint = z3::ast::Bool::or(&slow_constraint_refs);
                     backend.assert(&hesitate_constraint);
                 }
             }
@@ -256,6 +258,7 @@ mod tests {
                     position: ValueOrRange::Value(0.0),
                     speed: ValueOrRange::Value(10.0),
                     acceleration: ValueOrRange::Range([-3.0, 2.0]),
+                    direction: 1,
                     behavior: ego_behavior,
                 },
                 ActorSpec {
@@ -265,6 +268,7 @@ mod tests {
                     position: ValueOrRange::Value(50.0),
                     speed: ValueOrRange::Range([0.8, 1.5]),
                     acceleration: ValueOrRange::Range([-1.0, 1.0]),
+                    direction: 1,
                     behavior: pedestrian_behavior,
                 },
             ],

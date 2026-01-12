@@ -17,6 +17,7 @@ actors:
     lane: 0
     position: 50.0
     speed: 15.0
+    direction: 1
     acceleration: [-8.0, 3.0]
 
   - id: npc1
@@ -24,6 +25,7 @@ actors:
     lane: 1
     position: 30.0
     speed: 18.0
+    direction: 1
     acceleration: [-8.0, 3.0]
     behavior:
       cut_in_time: [2.5, 7.5]

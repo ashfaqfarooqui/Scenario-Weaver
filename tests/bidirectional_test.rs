@@ -21,6 +21,7 @@ actors:
     lane: 1
     position: 50.0
     speed: 15.0
+    direction: 1
     acceleration: [-8.0, 3.0]
 
   - id: npc
@@ -28,6 +29,7 @@ actors:
     lane: 0
     position: [60.0, 80.0]
     speed: [12.0, 14.0]
+    direction: 1
     acceleration: [-8.0, 3.0]
     behavior:
       cut_in_time: [2.5, 7.5]
@@ -107,6 +109,7 @@ actors:
     lane: 0
     position: 50.0
     speed: 15.0
+    direction: 1
     acceleration: [-8.0, 3.0]
 
   - id: npc
@@ -114,6 +117,7 @@ actors:
     lane: 2
     position: 150.0
     speed: 16.0
+    direction: 1
     acceleration: [-2.0, 0.0]
     behavior:
       cut_in_time: [2.5, 7.5]
@@ -178,6 +182,7 @@ actors:
     lane: 0
     position: 50.0
     speed: 20.0
+    direction: 1
     acceleration: [-8.0, 3.0]
 
   - id: npc
@@ -185,6 +190,7 @@ actors:
     lane: 1
     position: 150.0
     speed: 18.0
+    direction: 1
     acceleration: [-2.0, 0.0]
     behavior:
       cut_in_time: [2.5, 7.5]
@@ -239,6 +245,7 @@ actors:
     lane: 1
     position: [45.0, 55.0]
     speed: [14.0, 16.0]
+    direction: 1
     acceleration: [-8.0, 3.0]
 
   - id: npc
@@ -246,6 +253,7 @@ actors:
     lane: 0
     position: [60.0, 80.0]
     speed: [12.0, 14.0]
+    direction: 1
     acceleration: [-8.0, 3.0]
     behavior:
       cut_in_time: [2.5, 7.5]
@@ -258,7 +266,12 @@ num_scenarios: 3
     let result = generate_multiple_scenarios(
         yaml,
         3,
-        None::<fn(usize, &carla_scenario_generator::scenario::model::Scenario) -> carla_scenario_generator::error::Result<()>>,
+        None::<
+            fn(
+                usize,
+                &carla_scenario_generator::scenario::model::Scenario,
+            ) -> carla_scenario_generator::error::Result<()>,
+        >,
     );
     assert!(
         result.is_ok(),
@@ -314,6 +327,7 @@ actors:
     lane: 1
     position: 50.0
     speed: 15.0
+    direction: 1
     acceleration: [-8.0, 3.0]
 
   - id: npc
@@ -321,6 +335,7 @@ actors:
     lane: 0
     position: [60.0, 80.0]
     speed: [12.0, 14.0]
+    direction: 1
     acceleration: [-8.0, 3.0]
     behavior:
       cut_in_time: [2.5, 7.5]
@@ -369,6 +384,7 @@ actors:
     lane: 1
     position: 50.0
     speed: 20.0
+    direction: 1
     acceleration: [-8.0, 3.0]
 
   - id: npc
@@ -376,6 +392,7 @@ actors:
     lane: 0
     position: [60.0, 80.0]
     speed: [18.0, 22.0]
+    direction: 1
     acceleration: [-8.0, 3.0]
     behavior:
       cut_in_time: [2.5, 7.5]
@@ -423,6 +440,7 @@ actors:
     lane: 0
     position: 50.0
     speed: 15.0
+    direction: 1
     acceleration: [-8.0, 3.0]
 
   - id: npc
@@ -430,6 +448,7 @@ actors:
     lane: 1
     position: 120.0
     speed: 14.0
+    direction: 1
     acceleration: [-2.0, 0.0]
     behavior:
       cut_in_time: [2.5, 7.5]

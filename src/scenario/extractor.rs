@@ -19,7 +19,9 @@ pub fn extract_scenario_from_model(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorRole, ActorSpec, RoadSpec, ScenarioSpec, ScenarioType, ValueOrRange};
+    use crate::dsl::types::{
+        ActorRole, ActorSpec, RoadSpec, ScenarioSpec, ScenarioType, ValueOrRange,
+    };
     use crate::ltl::generator::LTLGenerator;
     use crate::solver::encoder::Z3Encoder;
     use std::collections::HashMap;
@@ -41,6 +43,7 @@ mod tests {
                     position: ValueOrRange::Value(50.0),
                     speed: ValueOrRange::Value(15.0),
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: 1,
                     behavior: HashMap::new(),
                 },
                 ActorSpec {
@@ -50,6 +53,7 @@ mod tests {
                     position: ValueOrRange::Range([60.0, 80.0]),
                     speed: ValueOrRange::Range([12.0, 14.0]),
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: 1,
                     behavior: npc_behavior,
                 },
             ],

@@ -309,6 +309,8 @@ pub struct ActorSpec {
     pub position: ValueOrRange,
     pub speed: ValueOrRange,
     pub acceleration: ValueOrRange,
+    /// Direction of travel: +1 for forward (+x), -1 for backward (-x)
+    pub direction: i32,
     /// Scenario-specific behavior parameters
     #[serde(default)]
     pub behavior: std::collections::HashMap<String, serde_json::Value>,
@@ -527,6 +529,13 @@ impl ScenarioSpec {
                     actor.id, actor.lane, num_lanes
                 ));
             }
+            // Validate direction
+            if actor.direction != 1 && actor.direction != -1 {
+                return Err(format!(
+                    "Actor {} direction must be +1 (forward) or -1 (backward), got {}",
+                    actor.id, actor.direction
+                ));
+            }
         }
 
         // Validate acceleration ranges
@@ -612,6 +621,7 @@ mod tests {
                     position: ValueOrRange::Value(50.0),
                     speed: ValueOrRange::Value(15.0),
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: 1,
                     behavior: HashMap::new(),
                 },
                 ActorSpec {
@@ -621,6 +631,7 @@ mod tests {
                     position: ValueOrRange::Range([60.0, 80.0]),
                     speed: ValueOrRange::Range([12.0, 14.0]),
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: 1,
                     behavior: {
                         let mut map = HashMap::new();
                         map.insert("cut_in_time".to_string(), serde_json::json!([2.5, 7.5]));
@@ -687,28 +698,30 @@ mod tests {
     #[test]
     fn test_scenario_spec_backward_compat() {
         let yaml = r#"
-scenario_type: cut_in_left
-time_step: 0.5
-duration: 10.0
-actors:
-  - id: ego
-    role: ego
-    lane: 0
-    position: 50.0
-    speed: 15.0
-    acceleration: [-8.0, 3.0]
-  - id: npc
-    role: npc
-    lane: 1
-    position: 60.0
-    speed: 13.0
-    acceleration: [-8.0, 3.0]
-    behavior:
-      cut_in_time: 5.0
-min_ttc: 3.0
-min_distance: 5.0
-lane_width: 3.5
-num_scenarios: 1
+    scenario_type: cut_in_left
+    time_step: 0.5
+    duration: 10.0
+    actors:
+      - id: ego
+        role: ego
+        lane: 0
+        position: 50.0
+        speed: 15.0
+        direction: 1
+        acceleration: [-8.0, 3.0]
+      - id: npc
+        role: npc
+        lane: 1
+        position: 60.0
+        speed: 13.0
+        direction: 1
+        acceleration: [-8.0, 3.0]
+        behavior:
+          cut_in_time: 5.0
+    min_ttc: 3.0
+    min_distance: 5.0
+    lane_width: 3.5
+    num_scenarios: 1
 "#;
 
         let spec: ScenarioSpec = serde_yml::from_str(yaml).unwrap();
@@ -733,12 +746,14 @@ actors:
     lane: 0
     position: 50.0
     speed: 20.0
+    direction: 1
     acceleration: [-8.0, 3.0]
   - id: npc
     role: npc
     lane: 2
     position: 150.0
     speed: 20.0
+    direction: 1
     acceleration: [-8.0, 3.0]
 min_ttc: 3.0
 min_distance: 5.0

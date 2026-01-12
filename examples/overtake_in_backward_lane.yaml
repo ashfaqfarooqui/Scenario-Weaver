@@ -1,0 +1,41 @@
+scenario_type: cut_in_left
+
+# Time configuration
+time_step: 0.5
+duration: 10.0
+
+# Road specification: 3 lanes (0-1 forward, 2 backward)
+road:
+  num_lanes: 3
+  lane_width: 3.5
+  lane_directions: [1, 1, -1]  # Lane 2 is backward (for visualization)
+
+# Two-actor scenario: ego and overtaking vehicle
+# Demonstrates that actors can travel in ANY lane, regardless of lane direction
+actors:
+  - id: ego
+    role: ego
+    lane: 1                    # Middle lane (forward lane)
+    position: 50.0
+    speed: 15.0                # 54 km/h
+    direction: 1               # Forward (+x)
+    acceleration: [-3.0, 2.0]
+
+  - id: overtaking
+    role: npc
+    lane: 2                    # Backward lane (normally for opposite traffic)
+    position: [30.0, 40.0]    # Behind ego in backward lane
+    speed: [18.0, 20.0]         # 65-72 km/h (faster than ego)
+    direction: 1               # Forward (+x) - going RIGHT WAY in backward lane!
+    acceleration: [-4.0, 3.0]
+    behavior:
+      cut_in_time: [2.0, 5.0]  # Will cut into ego's lane
+
+# Safety constraints
+min_ttc: 3.0
+min_distance: 5.0
+num_scenarios: 1
+
+constraint_modes:
+  min_ttc: enforce
+  min_distance: enforce
