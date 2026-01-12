@@ -109,13 +109,28 @@ fn main() -> Result<()> {
             &final_yaml,
         )?]
     } else {
-        carla_scenario_generator::generate_multiple_scenarios(&final_yaml, num_scenarios)?
+        // Create callback to write each scenario immediately after generation
+        let output_dir = cli.output.clone();
+        let callback = |i: usize, scenario: &carla_scenario_generator::scenario::model::Scenario| -> carla_scenario_generator::error::Result<()> {
+            write_scenario(scenario, &output_dir, i, num_scenarios)
+                .map_err(|e| carla_scenario_generator::error::ScenarioGenError::ExtractionFailed(e.to_string()))
+        };
+        carla_scenario_generator::generate_multiple_scenarios(&final_yaml, num_scenarios, Some(callback))?
     };
 
     tracing::info!("Successfully generated {} scenario(s)", scenarios.len());
 
-    // Write output - always to a directory
-    write_scenarios(&scenarios, &cli.output)?;
+    // Write output for single scenario (multiple scenarios written via callback)
+    if num_scenarios == 1 {
+        write_scenarios(&scenarios, &cli.output)?;
+    } else {
+        // For multiple scenarios, print summary since files already written
+        tracing::info!(
+            "Wrote {} scenario quadruplet(s) (JSON+XOSC+SVG+GIF) to directory: {:?}",
+            scenarios.len(),
+            cli.output
+        );
+    }
 
     if scenarios.len() == 1 {
         print_scenario_summary(&scenarios[0]);
@@ -130,45 +145,57 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Write a single scenario to a directory
+fn write_scenario(
+    scenario: &carla_scenario_generator::scenario::model::Scenario,
+    output_dir: &PathBuf,
+    index: usize,
+    total_scenarios: usize,
+) -> Result<()> {
+    std::fs::create_dir_all(output_dir)?;
+
+    // For single scenario, use "scenario" as base name
+    // For multiple scenarios, use "scenario_0", "scenario_1", etc.
+    let base = if total_scenarios == 1 {
+        "scenario".to_string()
+    } else {
+        format!("scenario_{}", index)
+    };
+
+    // Write JSON
+    let json_path = output_dir.join(format!("{}.json", base));
+    let json = serde_json::to_string_pretty(scenario)?;
+    std::fs::write(&json_path, json)?;
+    tracing::debug!("Wrote JSON to: {:?}", json_path);
+
+    // Write XOSC
+    let xosc_path = output_dir.join(format!("{}.xosc", base));
+    let xosc_xml = carla_scenario_generator::scenario::export_to_xosc(scenario)?;
+    std::fs::write(&xosc_path, xosc_xml)?;
+    tracing::debug!("Wrote XOSC to: {:?}", xosc_path);
+
+    // Write SVG
+    let svg_path = output_dir.join(format!("{}.svg", base));
+    let svg = carla_scenario_generator::scenario::export_to_svg(scenario)?;
+    std::fs::write(&svg_path, svg)?;
+    tracing::debug!("Wrote SVG to: {:?}", svg_path);
+
+    // Write GIF
+    let gif_path = output_dir.join(format!("{}.gif", base));
+    let gif_bytes = carla_scenario_generator::scenario::export_to_gif(scenario)?;
+    std::fs::write(&gif_path, gif_bytes)?;
+    tracing::debug!("Wrote GIF to: {:?}", gif_path);
+
+    Ok(())
+}
+
 /// Write scenarios to a directory (handles both single and multiple scenarios)
 fn write_scenarios(
     scenarios: &[carla_scenario_generator::scenario::model::Scenario],
     output_dir: &PathBuf,
 ) -> Result<()> {
-    std::fs::create_dir_all(output_dir)?;
-
     for (i, scenario) in scenarios.iter().enumerate() {
-        // For single scenario, use "scenario" as base name
-        // For multiple scenarios, use "scenario_0", "scenario_1", etc.
-        let base = if scenarios.len() == 1 {
-            "scenario".to_string()
-        } else {
-            format!("scenario_{}", i)
-        };
-
-        // Write JSON
-        let json_path = output_dir.join(format!("{}.json", base));
-        let json = serde_json::to_string_pretty(scenario)?;
-        std::fs::write(&json_path, json)?;
-        tracing::debug!("Wrote JSON to: {:?}", json_path);
-
-        // Write XOSC
-        let xosc_path = output_dir.join(format!("{}.xosc", base));
-        let xosc_xml = carla_scenario_generator::scenario::export_to_xosc(scenario)?;
-        std::fs::write(&xosc_path, xosc_xml)?;
-        tracing::debug!("Wrote XOSC to: {:?}", xosc_path);
-
-        // Write SVG
-        let svg_path = output_dir.join(format!("{}.svg", base));
-        let svg = carla_scenario_generator::scenario::export_to_svg(scenario)?;
-        std::fs::write(&svg_path, svg)?;
-        tracing::debug!("Wrote SVG to: {:?}", svg_path);
-
-        // Write GIF
-        let gif_path = output_dir.join(format!("{}.gif", base));
-        let gif_bytes = carla_scenario_generator::scenario::export_to_gif(scenario)?;
-        std::fs::write(&gif_path, gif_bytes)?;
-        tracing::debug!("Wrote GIF to: {:?}", gif_path);
+        write_scenario(scenario, output_dir, i, scenarios.len())?;
     }
 
     tracing::info!(

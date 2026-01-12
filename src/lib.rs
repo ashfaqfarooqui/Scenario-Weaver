@@ -115,16 +115,21 @@ fn generate_with_solver(
 /// # Arguments
 /// * `yaml_content` - YAML specification string
 /// * `num_scenarios` - Number of scenarios to generate
+/// * `callback` - Optional callback invoked after each scenario is generated
 ///
 /// # Returns
 /// A vector of generated scenarios
 ///
 /// # Errors
 /// Returns error if YAML parsing or specification validation fails
-pub fn generate_multiple_scenarios(
+pub fn generate_multiple_scenarios<F>(
     yaml_content: &str,
     num_scenarios: usize,
-) -> Result<Vec<Scenario>> {
+    callback: Option<F>,
+) -> Result<Vec<Scenario>>
+where
+    F: FnMut(usize, &Scenario) -> Result<()>,
+{
     // Parse specification
     let spec = dsl::parser::parse_yaml(yaml_content)?;
 
@@ -132,7 +137,7 @@ pub fn generate_multiple_scenarios(
     let ltl_formula = ltl::generator::LTLGenerator::generate(&spec);
 
     // Use multi-solve module to generate multiple scenarios
-    solver::multi_solve::generate_scenarios(&spec, &ltl_formula, num_scenarios)
+    solver::multi_solve::generate_scenarios(&spec, &ltl_formula, num_scenarios, callback)
 }
 
 /// Export a scenario to OpenSCENARIO XML format
