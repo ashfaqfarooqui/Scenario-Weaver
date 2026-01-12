@@ -1,0 +1,42 @@
+# School zone scenario
+# Demonstrates enforcing max velocity for school zone safety
+# All vehicles must stay below 15 m/s (approximately 35 mph)
+
+scenario_type: cut_in_left
+time_step: 0.1
+duration: 10.0
+num_scenarios: 1
+
+actors:
+  - id: ego
+    role: ego
+    lane: 1
+    position: [0.0, 50.0]
+    speed: [10.0, 18.0]  # Z3 will choose values that satisfy constraints
+    acceleration: [-8.0, 2.0]
+
+  - id: npc
+    role: npc
+    lane: 0
+    position: [10.0, 60.0]
+    speed: [10.0, 18.0]
+    acceleration: [-8.0, 2.0]
+    behavior:
+      cut_in_time: [1.5, 7.5]
+
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, 1]
+
+min_ttc: 5.0
+min_distance: 5.0
+
+# School zone speed limit: 15 m/s (approximately 35 mph)
+max_velocity: 15.0
+
+# Constraint modes: enforce max_velocity (safe - all vehicles under limit)
+constraint_modes:
+  min_ttc: enforce
+  min_distance: enforce
+  max_velocity: ignore    # All vehicles must stay under 15 m/s

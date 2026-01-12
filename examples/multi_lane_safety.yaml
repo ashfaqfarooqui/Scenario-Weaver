@@ -1,0 +1,43 @@
+# Multi-lane safety scenario
+# Demonstrates lateral distance constraint for side-by-side driving safety
+# Ensures vehicles in adjacent lanes maintain safe lateral separation
+
+scenario_type: cut_in_left
+time_step: 0.5
+duration: 10.0
+num_scenarios: 1
+
+actors:
+  - id: ego
+    role: ego
+    lane: 1
+    position: [40.0, 60.0]
+    speed: [15.0, 20.0]
+    acceleration: [-4.0, 2.0]
+
+  - id: npc
+    role: npc
+    lane: 0
+    position: [30.0, 50.0]
+    speed: [15.0, 20.0]
+    acceleration: [-4.0, 2.0]
+    behavior:
+      cut_in_time: [4.0, 8.0]
+
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, 1]
+
+min_ttc: 3.0
+min_distance: 5.0
+
+# Minimum lateral distance: 1.5 meters (vehicles must maintain this separation)
+# During the lane change, vehicles will get closer laterally
+min_lateral_distance: 1.5
+
+# Constraint modes: violate lateral distance (adversarial - demonstrate proposition)
+constraint_modes:
+  min_ttc: enforce
+  min_distance: enforce
+  min_lateral_distance: violate  # Find scenario where lateral distance is violated
