@@ -114,11 +114,15 @@ where
 /// We block based on all non-ego actors' initial conditions (position and velocity at t=0).
 /// This ensures diversity in the generated scenarios across different actor types.
 ///
+/// For Cartesian scenarios: uses position_x and velocity_x
+/// For Frenet scenarios: uses frenet_s (longitudinal position) and frenet_vs (longitudinal velocity)
+///
 /// The blocking clause is: !(actor1_equal AND actor2_equal AND ...)
 /// Which is equivalent to: (actor1_differs OR actor2_differs OR ...)
 /// At least one non-ego actor must have different initial conditions from previous scenarios.
 fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool {
     let mut all_blocking_clauses = Vec::new();
+    let use_frenet = encoder.spec.coordinate_system == crate::dsl::types::CoordinateSystem::Frenet;
 
     // Get all non-ego actors from the spec
     for actor in encoder
@@ -134,47 +138,61 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
 
         // Get actor initial state (t=0)
         let actor_initial = &actor_traj.states[0];
-        let prev_px0 = actor_initial.position().x;
-        let prev_vx0 = actor_initial.velocity().vx;
 
-        // Get Z3 variables for this actor's initial conditions
-        let actor_px0 = encoder.get_position_x(&actor.id, 0);
-        let actor_vx0 = encoder.get_velocity_x(&actor.id, 0);
+        let blocking_clause = if use_frenet {
+            // For Frenet: block based on longitudinal position and velocity (s, vs)
+            let prev_s0 = actor_initial.frenet.as_ref().map(|f| f.s).unwrap_or(0.0);
+            let prev_vs0 = actor_initial.frenet.as_ref().map(|f| f.vs).unwrap_or(0.0);
 
-        // Create real values from previous scenario
-        // Use truncation (not rounding) to match encoder's precision handling
-        // Convert to Z3 rational: multiply by 10 to get 1 decimal precision (matches encoder)
-        let prev_px0_z3 = Real::from_rational((prev_px0 * 10.0) as i64, 10_i64);
-        let prev_vx0_z3 = Real::from_rational((prev_vx0 * 10.0) as i64, 10_i64);
+            // Get Frenet variables
+            let actor_s0 = encoder.get_frenet_s(&actor.id, 0);
+            let actor_vs0 = encoder.get_frenet_vs(&actor.id, 0);
 
-        // Create equality constraints
-        let px_eq = actor_px0.eq(&prev_px0_z3);
-        let vx_eq = actor_vx0.eq(&prev_vx0_z3);
+            let prev_s0_z3 = Real::from_rational((prev_s0 * 10.0) as i64, 10_i64);
+            let prev_vs0_z3 = Real::from_rational((prev_vs0 * 10.0) as i64, 10_i64);
 
-        // For pedestrians, also block lateral (y-axis) initial conditions
-        // This ensures genuinely different 2D trajectories in multi-solve
-        let blocking_clause = if actor.role == ActorRole::Pedestrian {
-            let prev_py0 = actor_initial.position().y;
-            let prev_vy0 = actor_initial.velocity().vy;
+            let s_eq = actor_s0.eq(&prev_s0_z3);
+            let vs_eq = actor_vs0.eq(&prev_vs0_z3);
 
-            let actor_py0 = encoder.get_position_y(&actor.id, 0);
-            let actor_vy0 = encoder.get_velocity_y(&actor.id, 0);
-
-            let prev_py0_z3 = Real::from_rational((prev_py0 * 10.0) as i64, 10_i64);
-            let prev_vy0_z3 = Real::from_rational((prev_vy0 * 10.0) as i64, 10_i64);
-
-            let py_eq = actor_py0.eq(&prev_py0_z3);
-            let vy_eq = actor_vy0.eq(&prev_vy0_z3);
-
-            // All four must match: px0 == prev AND vx0 == prev AND py0 == prev AND vy0 == prev
-            let all_equal = Bool::and(&[&px_eq, &vx_eq, &py_eq, &vy_eq]);
-
-            // Blocking clause: NOT(all equal)
-            all_equal.not()
-        } else {
-            // For vehicles, only block longitudinal (x-axis) initial conditions
-            let both_equal = Bool::and(&[&px_eq, &vx_eq]);
+            // Block if both s and vs match
+            let both_equal = Bool::and(&[&s_eq, &vs_eq]);
             both_equal.not()
+        } else {
+            // For Cartesian: block based on position_x and velocity_x
+            let prev_px0 = actor_initial.position().x;
+            let prev_vx0 = actor_initial.velocity().vx;
+
+            let actor_px0 = encoder.get_position_x(&actor.id, 0);
+            let actor_vx0 = encoder.get_velocity_x(&actor.id, 0);
+
+            let prev_px0_z3 = Real::from_rational((prev_px0 * 10.0) as i64, 10_i64);
+            let prev_vx0_z3 = Real::from_rational((prev_vx0 * 10.0) as i64, 10_i64);
+
+            let px_eq = actor_px0.eq(&prev_px0_z3);
+            let vx_eq = actor_vx0.eq(&prev_vx0_z3);
+
+            // For pedestrians, also block lateral (y-axis) initial conditions
+            if actor.role == ActorRole::Pedestrian {
+                let prev_py0 = actor_initial.position().y;
+                let prev_vy0 = actor_initial.velocity().vy;
+
+                let actor_py0 = encoder.get_position_y(&actor.id, 0);
+                let actor_vy0 = encoder.get_velocity_y(&actor.id, 0);
+
+                let prev_py0_z3 = Real::from_rational((prev_py0 * 10.0) as i64, 10_i64);
+                let prev_vy0_z3 = Real::from_rational((prev_vy0 * 10.0) as i64, 10_i64);
+
+                let py_eq = actor_py0.eq(&prev_py0_z3);
+                let vy_eq = actor_vy0.eq(&prev_vy0_z3);
+
+                // All four must match: px0 == prev AND vx0 == prev AND py0 == prev AND vy0 == prev
+                let all_equal = Bool::and(&[&px_eq, &vx_eq, &py_eq, &vy_eq]);
+                all_equal.not()
+            } else {
+                // For vehicles, only block longitudinal (x-axis) initial conditions
+                let both_equal = Bool::and(&[&px_eq, &vx_eq]);
+                both_equal.not()
+            }
         };
 
         all_blocking_clauses.push(blocking_clause);
@@ -212,6 +230,16 @@ impl Z3Encoder {
     /// Get velocity_y variable for an actor at a specific time
     pub fn get_velocity_y(&self, actor_id: &str, time: usize) -> &Real {
         &self.velocities_y[actor_id][time]
+    }
+
+    /// Get frenet_s variable for an actor at a specific time (Frenet coordinates)
+    pub fn get_frenet_s(&self, actor_id: &str, time: usize) -> &Real {
+        &self.frenet_s[actor_id][time]
+    }
+
+    /// Get frenet_vs variable for an actor at a specific time (Frenet coordinates)
+    pub fn get_frenet_vs(&self, actor_id: &str, time: usize) -> &Real {
+        &self.frenet_vs[actor_id][time]
     }
 
     /// Assert a constraint to the solver
