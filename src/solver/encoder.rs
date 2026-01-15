@@ -1354,8 +1354,33 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 let t_t1 = &self.frenet_t[actor_id][t + 1];
 
                 if has_poly_lc {
-                    // During polynomial lane change, t and vt are fixed by polynomial
-                    // (Already constrained in encode_polynomial_lane_change)
+                    // For actors with polynomial lane changes, we need to handle three phases:
+                    // 1. Before lane change: allow small lateral movement but prevent drifting to edges
+                    // 2. During lane change: t and vt fixed by polynomial (handled in encode_polynomial_lane_change)
+                    // 3. After lane change: allow small lateral movement but prevent drifting to edges
+
+                    let lc_config = actor.lane_change.as_ref().unwrap();
+                    let start_step = (lc_config.start_time / self.spec.time_step) as usize;
+                    let end_step = start_step + (lc_config.duration / self.spec.time_step) as usize;
+
+                    // Add kinematic update only for timesteps outside lane change period
+                    if t < start_step || t >= end_step {
+                        let expected_t = t_t + &(vt_t * &dt_real);
+                        self.backend.assert(&t_t1.eq(&expected_t));
+                    }
+                    // During lane change: no kinematic update (polynomial fixes t and vt directly)
+
+                    // Add lateral velocity bounds to prevent jumping to edges
+                    // Allow |vt| <= 2.0 m/s (prevents instant jumps to edges but allows variability)
+                    let max_vt = Real::from_rational(20_i64, 10_i64); // 2.0 m/s
+                    let neg_max_vt = Real::from_rational(-20_i64, 10_i64); // -2.0 m/s
+
+                    if t < start_step || t > end_step {
+                        // Before or after lane change: limit lateral velocity
+                        self.backend.assert(&vt_t.ge(&neg_max_vt));
+                        self.backend.assert(&vt_t.le(&max_vt));
+                    }
+                    // During lane change: t and vt are fixed by polynomial in encode_polynomial_lane_change
                 } else {
                     // Standard lateral kinematics when not in lane change
 
@@ -1386,6 +1411,22 @@ impl<B: Z3Backend> GenericEncoder<B> {
         // (to avoid borrow checker issues)
         for (actor_id, coeffs, start_time, duration) in poly_lane_change_actors {
             self.encode_polynomial_lane_change_for_actor(&actor_id, coeffs, start_time, duration);
+        }
+
+        // Add explicit bounds on lateral position t to ensure vehicles stay on road
+        // This prevents vehicles from jumping to lane edges or outside road boundaries
+        let road_width = (self.spec.get_num_lanes() as f64) * self.spec.lane_width;
+        let road_width_real = Real::from_rational((road_width * 10.0) as i64, 10_i64);
+        let zero_t = Real::from_rational(0_i64, 1_i64);
+
+        for actor in &self.spec.actors {
+            let actor_id = &actor.id;
+            for t in 0..=self.horizon {
+                let t_var = &self.frenet_t[actor_id][t];
+                // 0 <= t <= road_width
+                self.backend.assert(&t_var.ge(&zero_t));
+                self.backend.assert(&t_var.le(&road_width_real));
+            }
         }
     }
 
@@ -1454,6 +1495,21 @@ impl<B: Z3Backend> GenericEncoder<B> {
 
             let trajectory = self.extract_actor_trajectory(model, &actor.id, role_str)?;
             scenario.add_actor(trajectory);
+        }
+
+        // Validate extracted Frenet t values are within road boundaries
+        let road_width = (self.spec.get_num_lanes() as f64) * self.spec.lane_width;
+        for trajectory in &scenario.actors {
+            for state in &trajectory.states {
+                if let Some(frenet) = &state.frenet {
+                    if frenet.t < 0.0 || frenet.t > road_width {
+                        eprintln!(
+                            "WARNING: Actor {} at t={:.1}s has lateral position {:.2}m outside road bounds [0, {:.2}]",
+                            trajectory.id, state.time, frenet.t, road_width
+                        );
+                    }
+                }
+            }
         }
 
         // Compute validation metrics
