@@ -65,9 +65,9 @@ pub enum OptimizationTarget {
 #[serde(rename_all = "snake_case")]
 pub enum CoordinateSystem {
     /// Frenet coordinates (s, t) with smooth lane changes
-    #[default]
     Frenet,
-    /// Cartesian coordinates (x, y) with discrete lane assignments (for A/B testing)
+    /// Cartesian coordinates (x, y) with discrete lane assignments (default, for backward compatibility)
+    #[default]
     Cartesian,
 }
 
@@ -707,7 +707,7 @@ mod tests {
             min_velocity: None,
             min_lateral_distance: None,
             max_relative_velocity: None,
-            coordinate_system: CoordinateSystem::default(),
+            coordinate_system: CoordinateSystem::Cartesian,
             reference_line: None,
         }
     }
