@@ -82,10 +82,10 @@ impl AnimatorConfig {
 
         for actor in &scenario.actors {
             for state in &actor.states {
-                x_min = x_min.min(state.position.x);
-                x_max = x_max.max(state.position.x);
-                y_min = y_min.min(state.position.y);
-                y_max = y_max.max(state.position.y);
+                x_min = x_min.min(state.position().x);
+                x_max = x_max.max(state.position().x);
+                y_min = y_min.min(state.position().y);
+                y_max = y_max.max(state.position().y);
             }
         }
 
@@ -346,7 +346,7 @@ impl<'a> GifAnimator<'a> {
                 }
 
                 let state = &actor.states[t];
-                let (px, py) = self.transform_coords(state.position.x, state.position.y);
+                let (px, py) = self.transform_coords(state.position().x, state.position().y);
 
                 // Calculate alpha for fading effect (range 0.3 to 1.0 so oldest positions are visible)
                 let alpha = if current_frame > 0 {
@@ -389,7 +389,7 @@ impl<'a> GifAnimator<'a> {
 
             let state = &actor.states[frame_idx];
             let color = self.get_actor_color(&actor.id);
-            let (px, py) = self.transform_coords(state.position.x, state.position.y);
+            let (px, py) = self.transform_coords(state.position().x, state.position().y);
             let is_pedestrian = actor.role.to_lowercase() == "pedestrian";
 
             if is_pedestrian {
@@ -405,7 +405,7 @@ impl<'a> GifAnimator<'a> {
                 draw_filled_rect_mut(image, rect, color);
 
                 // Draw heading arrow
-                self.draw_heading_arrow(image, px, py, &state.velocity, color);
+                self.draw_heading_arrow(image, px, py, state.velocity(), color);
             }
         }
     }
@@ -462,7 +462,7 @@ impl<'a> GifAnimator<'a> {
                         if is_involved && frame_idx < actor.states.len() {
                             let state = &actor.states[frame_idx];
                             let (px, py) =
-                                self.transform_coords(state.position.x, state.position.y);
+                                self.transform_coords(state.position().x, state.position().y);
                             draw_hollow_circle_mut(image, (px, py), 15, COLOR_VIOLATION);
                         }
                     }
@@ -565,13 +565,13 @@ impl<'a> GifAnimator<'a> {
                 let state2 = &self.scenario.actors[j].states[frame_idx];
 
                 // Only compute metrics if in same lane
-                if state1.lane == state2.lane {
+                if state1.lane() == state2.lane() {
                     // Compute distance
-                    let distance = (state1.position.x - state2.position.x).abs();
+                    let distance = (state1.position().x - state2.position().x).abs();
                     min_distance = min_distance.min(distance);
 
                     // Compute TTC
-                    let rel_vel = (state1.velocity.vx - state2.velocity.vx).abs();
+                    let rel_vel = (state1.velocity().vx - state2.velocity().vx).abs();
                     if rel_vel > 0.01 {
                         let ttc = distance / rel_vel;
                         min_ttc = min_ttc.min(ttc);
@@ -593,37 +593,37 @@ mod tests {
 
     fn create_test_scenario() -> Scenario {
         let ego_states = vec![
-            State {
-                time: 0.0,
-                position: Position { x: 0.0, y: 5.0 },
-                velocity: Velocity { vx: 10.0, vy: 0.0 },
-                acceleration: Acceleration { ax: 0.0, ay: 0.0 },
-                lane: 1,
-            },
-            State {
-                time: 1.0,
-                position: Position { x: 10.0, y: 5.0 },
-                velocity: Velocity { vx: 10.0, vy: 0.0 },
-                acceleration: Acceleration { ax: 0.0, ay: 0.0 },
-                lane: 1,
-            },
+            State::new(
+                0.0,
+                Position { x: 0.0, y: 5.0 },
+                Velocity { vx: 10.0, vy: 0.0 },
+                Acceleration { ax: 0.0, ay: 0.0 },
+                1,
+            ),
+            State::new(
+                1.0,
+                Position { x: 10.0, y: 5.0 },
+                Velocity { vx: 10.0, vy: 0.0 },
+                Acceleration { ax: 0.0, ay: 0.0 },
+                1,
+            ),
         ];
 
         let npc_states = vec![
-            State {
-                time: 0.0,
-                position: Position { x: 5.0, y: 1.5 },
-                velocity: Velocity { vx: 10.0, vy: 0.0 },
-                acceleration: Acceleration { ax: 0.0, ay: 0.0 },
-                lane: 0,
-            },
-            State {
-                time: 1.0,
-                position: Position { x: 15.0, y: 5.0 },
-                velocity: Velocity { vx: 10.0, vy: 0.0 },
-                acceleration: Acceleration { ax: 0.0, ay: 0.0 },
-                lane: 1,
-            },
+            State::new(
+                0.0,
+                Position { x: 5.0, y: 1.5 },
+                Velocity { vx: 10.0, vy: 0.0 },
+                Acceleration { ax: 0.0, ay: 0.0 },
+                0,
+            ),
+            State::new(
+                1.0,
+                Position { x: 15.0, y: 5.0 },
+                Velocity { vx: 10.0, vy: 0.0 },
+                Acceleration { ax: 0.0, ay: 0.0 },
+                1,
+            ),
         ];
 
         Scenario {
@@ -657,6 +657,7 @@ mod tests {
                 max_deceleration: -3.0,
                 acceleration_violations: vec![],
             },
+            reference_line: None,
         }
     }
 

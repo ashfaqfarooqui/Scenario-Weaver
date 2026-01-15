@@ -1335,10 +1335,10 @@ impl<B: Z3Backend> GenericEncoder<B> {
                     let state2 = &traj2.states[t];
 
                     // Compute longitudinal distance
-                    let distance = (state1.position.x - state2.position.x).abs();
+                    let distance = (state1.position().x - state2.position().x).abs();
 
                     // Only consider distance when in same lane
-                    if state1.lane == state2.lane {
+                    if state1.lane() == state2.lane() {
                         if distance < min_distance {
                             min_distance = distance;
                         }
@@ -1357,8 +1357,8 @@ impl<B: Z3Backend> GenericEncoder<B> {
                     }
 
                     // Compute TTC (only when in same lane and approaching)
-                    if state1.lane == state2.lane {
-                        let rel_vel = (state1.velocity.vx - state2.velocity.vx).abs();
+                    if state1.lane() == state2.lane() {
+                        let rel_vel = (state1.velocity().vx - state2.velocity().vx).abs();
 
                         if rel_vel > 0.01 {
                             // Someone is catching up
@@ -1392,7 +1392,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
 
         for actor_traj in &scenario.actors {
             for state in &actor_traj.states {
-                let ax = state.acceleration.ax;
+                let ax = state.acceleration().ax;
 
                 // Track maximum values
                 if ax > max_accel {
@@ -1476,6 +1476,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
+                    lane_change: None,
                 },
                 ActorSpec {
                     id: "npc".to_string(),
@@ -1486,6 +1487,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: npc_behavior,
+                    lane_change: None,
                 },
             ],
             min_ttc: 3.0,
@@ -1505,6 +1507,8 @@ mod tests {
             min_velocity: None,
             min_lateral_distance: None,
             max_relative_velocity: None,
+            coordinate_system: crate::dsl::types::CoordinateSystem::default(),
+            reference_line: None,
         }
     }
 
@@ -1893,11 +1897,11 @@ mod tests {
                 assert_eq!(npc.states.len(), 21);
 
                 // Verify initial conditions
-                assert_eq!(ego.states[0].lane, 1);
-                assert_eq!(npc.states[0].lane, 0);
+                assert_eq!(ego.states[0].lane(), 1);
+                assert_eq!(npc.states[0].lane(), 0);
 
                 // Verify NPC position is ahead initially
-                assert!(npc.states[0].position.x > ego.states[0].position.x);
+                assert!(npc.states[0].position().x > ego.states[0].position().x);
 
                 // Verify validation metrics exist
                 println!("Min TTC: {}", scenario.validation.min_ttc);
@@ -1939,6 +1943,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
+                    lane_change: None,
                 }],
                 min_ttc: 3.0,
                 min_distance: 5.0,
@@ -1953,6 +1958,8 @@ mod tests {
                 min_velocity: Some(10.0),
                 min_lateral_distance: None,
                 max_relative_velocity: None,
+                coordinate_system: crate::dsl::types::CoordinateSystem::default(),
+                reference_line: None,
             };
 
             let mut encoder = Z3Encoder::new(spec);

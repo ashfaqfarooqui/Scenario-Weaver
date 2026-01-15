@@ -222,11 +222,11 @@ fn print_scenario_summary(scenario: &scenario_generator::scenario::model::Scenar
             "  {} [{}]: lane={}, pos=({:.2}, {:.2}), vel=({:.2}, {:.2})",
             actor.id,
             actor.role,
-            initial.lane,
-            initial.position.x,
-            initial.position.y,
-            initial.velocity.vx,
-            initial.velocity.vy
+            initial.lane(),
+            initial.position().x,
+            initial.position().y,
+            initial.velocity().vx,
+            initial.velocity().vy
         );
     }
 

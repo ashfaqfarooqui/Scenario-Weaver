@@ -130,7 +130,7 @@ fn build_trajectory(
         polyline_builder = polyline_builder
             .add_vertex()
             .time(state.time)
-            .world_position(state.position.x, state.position.y, 0.0, heading)
+            .world_position(state.position().x, state.position().y, 0.0, heading)
             .finish()
             .map_err(|e| {
                 crate::error::ScenarioGenError::XoscExport(format!(
@@ -175,7 +175,7 @@ fn build_scenario_description(scenario: &Scenario) -> String {
 /// - 0 radians = East (+X direction)
 /// - π/2 radians = North (+Y direction)
 fn compute_heading(state: &State) -> f64 {
-    state.velocity.vy.atan2(state.velocity.vx)
+    state.velocity().vy.atan2(state.velocity().vx)
 }
 
 /// Build init actions for all actors (position + speed)
@@ -193,14 +193,14 @@ fn build_init_actions(scenario: &Scenario) -> Result<openscenario_rs::types::sce
         })?;
 
         // Calculate speed from velocity magnitude
-        let speed = (initial_state.velocity.vx.powi(2) + initial_state.velocity.vy.powi(2)).sqrt();
+        let speed = (initial_state.velocity().vx.powi(2) + initial_state.velocity().vy.powi(2)).sqrt();
 
         // Calculate heading from velocity
         let heading = compute_heading(initial_state);
 
         // Create world position
         let position = WorldPositionBuilder::new()
-            .at_coordinates(initial_state.position.x, initial_state.position.y, 0.0)
+            .at_coordinates(initial_state.position().x, initial_state.position().y, 0.0)
             .with_heading(heading)
             .build()
             .map_err(|e| {

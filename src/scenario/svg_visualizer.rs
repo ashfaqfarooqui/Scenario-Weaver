@@ -75,10 +75,10 @@ impl VisualizerConfig {
 
         for actor in &scenario.actors {
             for state in &actor.states {
-                x_min = x_min.min(state.position.x);
-                x_max = x_max.max(state.position.x);
-                y_min = y_min.min(state.position.y);
-                y_max = y_max.max(state.position.y);
+                x_min = x_min.min(state.position().x);
+                x_max = x_max.max(state.position().x);
+                y_min = y_min.min(state.position().y);
+                y_max = y_max.max(state.position().y);
             }
         }
 
@@ -352,7 +352,7 @@ impl<'a> SvgVisualizer<'a> {
             // Build path data
             let mut path_data = String::new();
             for (i, state) in actor.states.iter().enumerate() {
-                let (svg_x, svg_y) = self.transform_coords(state.position.x, state.position.y);
+                let (svg_x, svg_y) = self.transform_coords(state.position().x, state.position().y);
                 if i == 0 {
                     path_data.push_str(&format!("M {} {} ", svg_x, svg_y));
                 } else {
@@ -372,7 +372,7 @@ impl<'a> SvgVisualizer<'a> {
 
             // Add small circles at each time step
             for state in &actor.states {
-                let (svg_x, svg_y) = self.transform_coords(state.position.x, state.position.y);
+                let (svg_x, svg_y) = self.transform_coords(state.position().x, state.position().y);
                 let circle = Circle::new()
                     .set("cx", svg_x)
                     .set("cy", svg_y)
@@ -400,7 +400,7 @@ impl<'a> SvgVisualizer<'a> {
                                     .find(|s| (s.time - time).abs() < tolerance)
                                 {
                                     let (svg_x, svg_y) =
-                                        self.transform_coords(state.position.x, state.position.y);
+                                        self.transform_coords(state.position().x, state.position().y);
                                     let marker = Circle::new()
                                         .set("cx", svg_x)
                                         .set("cy", svg_y)
@@ -431,7 +431,7 @@ impl<'a> SvgVisualizer<'a> {
             // Initial position
             if let Some(first_state) = actor.states.first() {
                 let (svg_x, svg_y) =
-                    self.transform_coords(first_state.position.x, first_state.position.y);
+                    self.transform_coords(first_state.position().x, first_state.position().y);
 
                 if is_pedestrian {
                     // Pedestrian rendered as circle
@@ -483,7 +483,7 @@ impl<'a> SvgVisualizer<'a> {
             // Final position
             if let Some(last_state) = actor.states.last() {
                 let (svg_x, svg_y) =
-                    self.transform_coords(last_state.position.x, last_state.position.y);
+                    self.transform_coords(last_state.position().x, last_state.position().y);
 
                 if is_pedestrian {
                     // Pedestrian rendered as circle
@@ -655,37 +655,37 @@ mod tests {
 
     fn create_test_scenario() -> Scenario {
         let ego_states = vec![
-            State {
-                time: 0.0,
-                position: Position { x: 0.0, y: 5.0 },
-                velocity: Velocity { vx: 10.0, vy: 0.0 },
-                acceleration: Acceleration { ax: 0.0, ay: 0.0 },
-                lane: 1,
-            },
-            State {
-                time: 1.0,
-                position: Position { x: 10.0, y: 5.0 },
-                velocity: Velocity { vx: 10.0, vy: 0.0 },
-                acceleration: Acceleration { ax: 0.0, ay: 0.0 },
-                lane: 1,
-            },
+            State::new(
+                0.0,
+                Position { x: 0.0, y: 5.0 },
+                Velocity { vx: 10.0, vy: 0.0 },
+                Acceleration { ax: 0.0, ay: 0.0 },
+                1,
+            ),
+            State::new(
+                1.0,
+                Position { x: 10.0, y: 5.0 },
+                Velocity { vx: 10.0, vy: 0.0 },
+                Acceleration { ax: 0.0, ay: 0.0 },
+                1,
+            ),
         ];
 
         let npc_states = vec![
-            State {
-                time: 0.0,
-                position: Position { x: 5.0, y: 1.5 },
-                velocity: Velocity { vx: 10.0, vy: 0.0 },
-                acceleration: Acceleration { ax: 0.0, ay: 0.0 },
-                lane: 0,
-            },
-            State {
-                time: 1.0,
-                position: Position { x: 15.0, y: 5.0 },
-                velocity: Velocity { vx: 10.0, vy: 0.0 },
-                acceleration: Acceleration { ax: 0.0, ay: 0.0 },
-                lane: 1,
-            },
+            State::new(
+                0.0,
+                Position { x: 5.0, y: 1.5 },
+                Velocity { vx: 10.0, vy: 0.0 },
+                Acceleration { ax: 0.0, ay: 0.0 },
+                0,
+            ),
+            State::new(
+                1.0,
+                Position { x: 15.0, y: 5.0 },
+                Velocity { vx: 10.0, vy: 0.0 },
+                Acceleration { ax: 0.0, ay: 0.0 },
+                1,
+            ),
         ];
 
         Scenario {
@@ -719,6 +719,7 @@ mod tests {
                 max_deceleration: -3.0,
                 acceleration_violations: vec![],
             },
+            reference_line: None,
         }
     }
 

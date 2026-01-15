@@ -134,8 +134,8 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
 
         // Get actor initial state (t=0)
         let actor_initial = &actor_traj.states[0];
-        let prev_px0 = actor_initial.position.x;
-        let prev_vx0 = actor_initial.velocity.vx;
+        let prev_px0 = actor_initial.position().x;
+        let prev_vx0 = actor_initial.velocity().vx;
 
         // Get Z3 variables for this actor's initial conditions
         let actor_px0 = encoder.get_position_x(&actor.id, 0);
@@ -154,8 +154,8 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
         // For pedestrians, also block lateral (y-axis) initial conditions
         // This ensures genuinely different 2D trajectories in multi-solve
         let blocking_clause = if actor.role == ActorRole::Pedestrian {
-            let prev_py0 = actor_initial.position.y;
-            let prev_vy0 = actor_initial.velocity.vy;
+            let prev_py0 = actor_initial.position().y;
+            let prev_vy0 = actor_initial.velocity().vy;
 
             let actor_py0 = encoder.get_position_y(&actor.id, 0);
             let actor_vy0 = encoder.get_velocity_y(&actor.id, 0);
@@ -245,6 +245,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
+                    lane_change: None,
                 },
                 ActorSpec {
                     id: "npc".to_string(),
@@ -255,6 +256,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: npc_behavior,
+                    lane_change: None,
                 },
             ],
             min_ttc: 3.0,
@@ -274,6 +276,8 @@ mod tests {
             min_velocity: None,
             min_lateral_distance: None,
             max_relative_velocity: None,
+            coordinate_system: crate::dsl::types::CoordinateSystem::default(),
+            reference_line: None,
         }
     }
 
@@ -298,15 +302,15 @@ mod tests {
         // Verify each scenario is different
         for (i, scenario) in scenarios.iter().enumerate() {
             let npc = scenario.get_actor("npc").unwrap();
-            let npc_px0 = npc.states[0].position.x;
-            let npc_vx0 = npc.states[0].velocity.vx;
+            let npc_px0 = npc.states[0].position().x;
+            let npc_vx0 = npc.states[0].velocity().vx;
 
             println!("Scenario {}: NPC px0={:.2}, vx0={:.2}", i, npc_px0, npc_vx0);
 
             // Verify NPC eventually changes to lane 1
             let mut found_lane_change = false;
             for state in &npc.states {
-                if state.lane == 1 {
+                if state.lane() == 1 {
                     found_lane_change = true;
                     break;
                 }
@@ -319,10 +323,10 @@ mod tests {
             let npc0 = scenarios[0].get_actor("npc").unwrap();
             let npc1 = scenarios[1].get_actor("npc").unwrap();
 
-            let px0_0 = npc0.states[0].position.x;
-            let vx0_0 = npc0.states[0].velocity.vx;
-            let px0_1 = npc1.states[0].position.x;
-            let vx0_1 = npc1.states[0].velocity.vx;
+            let px0_0 = npc0.states[0].position().x;
+            let vx0_0 = npc0.states[0].velocity().vx;
+            let px0_1 = npc1.states[0].position().x;
+            let vx0_1 = npc1.states[0].velocity().vx;
 
             let different = (px0_0 - px0_1).abs() > 0.01 || (vx0_0 - vx0_1).abs() > 0.01;
             assert!(
@@ -395,10 +399,10 @@ mod tests {
         let npc1 = scenario1.get_actor("npc").unwrap();
         let npc2 = scenario2.get_actor("npc").unwrap();
 
-        let px1 = npc1.states[0].position.x;
-        let vx1 = npc1.states[0].velocity.vx;
-        let px2 = npc2.states[0].position.x;
-        let vx2 = npc2.states[0].velocity.vx;
+        let px1 = npc1.states[0].position().x;
+        let vx1 = npc1.states[0].velocity().vx;
+        let px2 = npc2.states[0].position().x;
+        let vx2 = npc2.states[0].velocity().vx;
 
         println!("Scenario 1: px0={:.2}, vx0={:.2}", px1, vx1);
         println!("Scenario 2: px0={:.2}, vx0={:.2}", px2, vx2);
