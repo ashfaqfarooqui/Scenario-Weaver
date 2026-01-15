@@ -75,15 +75,18 @@ fn preprocess_imports(yaml_content: &str, base_dir: &Path) -> Result<String> {
         // Currently only supports importing road specs
         if let Some(road) = imported.get("road") {
             if value.get("road").is_none() {
-                value
+                let mapping = value
                     .as_mapping_mut()
-                    .unwrap()
-                    .insert(serde_yml::Value::String("road".to_string()), road.clone());
+                    .ok_or_else(|| ScenarioGenError::YamlStructure("Expected YAML mapping for import merging".to_string()))?;
+                mapping.insert(serde_yml::Value::String("road".to_string()), road.clone());
             }
         } else if imported.get("num_lanes").is_some() {
             // Import file is a road spec (flat structure)
             if value.get("road").is_none() {
-                value.as_mapping_mut().unwrap().insert(
+                let mapping = value
+                    .as_mapping_mut()
+                    .ok_or_else(|| ScenarioGenError::YamlStructure("Expected YAML mapping for import merging".to_string()))?;
+                mapping.insert(
                     serde_yml::Value::String("road".to_string()),
                     imported.clone(),
                 );
@@ -93,10 +96,10 @@ fn preprocess_imports(yaml_content: &str, base_dir: &Path) -> Result<String> {
 
     // Remove imports field from final output if it exists
     if value.get("imports").is_some() {
-        value
+        let mapping = value
             .as_mapping_mut()
-            .unwrap()
-            .remove(serde_yml::Value::String("imports".to_string()));
+            .ok_or_else(|| ScenarioGenError::YamlStructure("Expected YAML mapping to remove imports field".to_string()))?;
+        mapping.remove(serde_yml::Value::String("imports".to_string()));
     }
 
     // Convert back to YAML string
