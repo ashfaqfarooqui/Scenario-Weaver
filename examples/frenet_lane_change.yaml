@@ -25,11 +25,12 @@ road:
 
 actors:
   # Ego vehicle - stays in lane 1
+  # Note: Using ranges for position and speed to enable multiple scenario generation
   - id: ego
     role: ego
     lane: 1
-    position: 50.0
-    speed: 15.0
+    position: [0.0, 55.0]   # Wide range: allows significant variability
+    speed: [14.0, 16.0]      # Range: allows variability for multiple scenarios
     direction: 1
     acceleration: [-8.0, 3.0]
 
@@ -37,8 +38,8 @@ actors:
   - id: npc
     role: npc
     lane: 0
-    position: 60.0
-    speed: 14.0
+    position: [50.0, 80.0]   # Wide range: NPC ahead of ego, allows variability
+    speed: [12.0, 18.0]      # Wide range: allows more variability
     direction: 1
     acceleration: [-8.0, 3.0]
 
@@ -47,12 +48,12 @@ actors:
       enabled: true
       method: polynomial  # Quintic polynomial for C² continuity
       direction: left     # Lane change direction
-      start_time: 2.0     # Start lane change at t=2.0s
-      duration: 4.0       # Complete lane change in 4.0s
+      start_time: 5.0     # Start lane change at t=5.0s
+      duration: 3.0       # Complete lane change in 3.0s
 
 min_ttc: 3.0
 min_distance: 5.0
-num_scenarios: 1
+num_scenarios: 3  # Generate multiple diverse scenarios
 
 # Optimization target (optional)
 # - none: Generate any valid scenario
