@@ -35,6 +35,7 @@ mod tests {
     use std::collections::HashMap;
 
     fn create_test_spec() -> ScenarioSpec {
+        use crate::dsl::types::CoordinateSystem;
         ScenarioSpec {
             scenario_type: crate::dsl::types::ScenarioType::CutInLeft,
             time_step: 0.5,
@@ -49,6 +50,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
+                    lane_change: None,
                 },
                 ActorSpec {
                     id: "npc".to_string(),
@@ -63,6 +65,7 @@ mod tests {
                         map.insert("cut_in_time".to_string(), serde_json::json!([2.5, 7.5]));
                         map
                     },
+                    lane_change: None,
                 },
             ],
             min_ttc: 3.0,
@@ -78,6 +81,8 @@ mod tests {
             min_velocity: None,
             min_lateral_distance: None,
             max_relative_velocity: None,
+            coordinate_system: CoordinateSystem::default(),
+            reference_line: None,
         }
     }
 

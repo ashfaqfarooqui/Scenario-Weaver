@@ -81,16 +81,16 @@ fn test_generate_single_scenario_integration() {
 
     // Verify ego initial conditions (should be within ranges)
     let ego_initial = &ego.states[0];
-    assert_eq!(ego_initial.lane, 1);
+    assert_eq!(ego_initial.lane(), 1);
     assert!(
-        ego_initial.position.x >= 0.0 && ego_initial.position.x <= 55.0,
+        ego_initial.position().x >= 0.0 && ego_initial.position().x <= 55.0,
         "Ego position {} should be in range [0.0, 55.0]",
-        ego_initial.position.x
+        ego_initial.position().x
     );
     assert!(
-        ego_initial.velocity.vx >= 14.0 && ego_initial.velocity.vx <= 16.0,
+        ego_initial.velocity().vx >= 14.0 && ego_initial.velocity().vx <= 16.0,
         "Ego speed {} should be in range [14.0, 16.0]",
-        ego_initial.velocity.vx
+        ego_initial.velocity().vx
     );
 
     // Verify NPC actor
@@ -100,17 +100,17 @@ fn test_generate_single_scenario_integration() {
 
     // Verify NPC initial conditions
     let npc_initial = &npc.states[0];
-    assert_eq!(npc_initial.lane, 0);
-    assert!(npc_initial.position.x >= 60.0 && npc_initial.position.x <= 80.0);
-    assert!(npc_initial.velocity.vx >= 16.0 && npc_initial.velocity.vx <= 20.0);
+    assert_eq!(npc_initial.lane(), 0);
+    assert!(npc_initial.position().x >= 60.0 && npc_initial.position().x <= 80.0);
+    assert!(npc_initial.velocity().vx >= 16.0 && npc_initial.velocity().vx <= 20.0);
 
     // Verify NPC is initially ahead of ego
-    assert!(npc_initial.position.x > ego_initial.position.x);
+    assert!(npc_initial.position().x > ego_initial.position().x);
 
     // Verify NPC eventually changes to lane 1
     let mut found_lane_change = false;
     for state in &npc.states {
-        if state.lane == 1 {
+        if state.lane() == 1 {
             found_lane_change = true;
             break;
         }
@@ -172,13 +172,13 @@ fn test_generate_multiple_scenarios_integration() {
 
         println!(
             "  NPC initial: px={:.2}, vx={:.2}, lane={}",
-            npc_initial.position.x, npc_initial.velocity.vx, npc_initial.lane
+            npc_initial.position().x, npc_initial.velocity().vx, npc_initial.lane()
         );
 
         // Verify NPC eventually changes lanes
         let mut found_lane_change = false;
         for state in &npc.states {
-            if state.lane == 1 {
+            if state.lane() == 1 {
                 found_lane_change = true;
                 break;
             }
@@ -186,7 +186,7 @@ fn test_generate_multiple_scenarios_integration() {
         assert!(found_lane_change, "NPC should change to lane 1");
 
         // Verify NPC is ahead initially
-        assert!(npc_initial.position.x > ego_initial.position.x);
+        assert!(npc_initial.position().x > ego_initial.position().x);
     }
 
     // Verify scenarios are different (if we have at least 2)
@@ -194,10 +194,10 @@ fn test_generate_multiple_scenarios_integration() {
         let npc0 = scenarios[0].get_actor("npc").unwrap();
         let npc1 = scenarios[1].get_actor("npc").unwrap();
 
-        let px0 = npc0.states[0].position.x;
-        let vx0 = npc0.states[0].velocity.vx;
-        let px1 = npc1.states[0].position.x;
-        let vx1 = npc1.states[0].velocity.vx;
+        let px0 = npc0.states[0].position().x;
+        let vx0 = npc0.states[0].velocity().vx;
+        let px1 = npc1.states[0].position().x;
+        let vx1 = npc1.states[0].velocity().vx;
 
         let different = (px0 - px1).abs() > 0.01 || (vx0 - vx1).abs() > 0.01;
         assert!(

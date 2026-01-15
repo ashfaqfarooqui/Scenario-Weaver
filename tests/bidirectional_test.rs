@@ -60,9 +60,9 @@ num_scenarios: 1
     // All ego velocities should be positive (forward lane)
     for state in &ego.states {
         assert!(
-            state.velocity.vx >= 0.0,
+            state.velocity().vx >= 0.0,
             "Ego velocity should be non-negative in forward lane, got {}",
-            state.velocity.vx
+            state.velocity().vx
         );
     }
 
@@ -73,9 +73,9 @@ num_scenarios: 1
     // All NPC velocities should be positive (forward lane)
     for state in &npc.states {
         assert!(
-            state.velocity.vx >= 0.0,
+            state.velocity().vx >= 0.0,
             "NPC velocity should be non-negative in forward lane, got {}",
-            state.velocity.vx
+            state.velocity().vx
         );
     }
 
@@ -140,10 +140,10 @@ num_scenarios: 1
     let ego = scenario.actors.iter().find(|a| a.id == "ego").unwrap();
     for (i, state) in ego.states.iter().enumerate() {
         assert!(
-            state.velocity.vx >= 0.0,
+            state.velocity().vx >= 0.0,
             "Ego velocity at t={} should be non-negative (forward lane), got {}",
             i,
-            state.velocity.vx
+            state.velocity().vx
         );
     }
 
@@ -151,10 +151,10 @@ num_scenarios: 1
     let npc = scenario.actors.iter().find(|a| a.id == "npc").unwrap();
     for (i, state) in npc.states.iter().enumerate() {
         assert!(
-            state.velocity.vx <= 0.0,
+            state.velocity().vx <= 0.0,
             "NPC velocity at t={} should be non-positive (backward lane), got {}",
             i,
-            state.velocity.vx
+            state.velocity().vx
         );
     }
 }
@@ -215,13 +215,13 @@ num_scenarios: 1
 
     // Ego in forward lane (0) - all positive velocities
     assert!(
-        ego.states.iter().all(|s| s.velocity.vx >= 0.0),
+        ego.states.iter().all(|s| s.velocity().vx >= 0.0),
         "Ego should maintain positive velocity in forward lane"
     );
 
     // NPC in backward lane (1) - all negative velocities
     assert!(
-        npc.states.iter().all(|s| s.velocity.vx <= 0.0),
+        npc.states.iter().all(|s| s.velocity().vx <= 0.0),
         "NPC should maintain negative velocity in backward lane"
     );
 }
@@ -289,12 +289,12 @@ num_scenarios: 3
 
         // Both in forward lanes
         assert!(
-            ego.states.iter().all(|s| s.velocity.vx >= 0.0),
+            ego.states.iter().all(|s| s.velocity().vx >= 0.0),
             "Scenario {} ego should have positive velocity",
             idx
         );
         assert!(
-            npc.states.iter().all(|s| s.velocity.vx >= 0.0),
+            npc.states.iter().all(|s| s.velocity().vx >= 0.0),
             "Scenario {} npc should have positive velocity",
             idx
         );
@@ -358,7 +358,7 @@ num_scenarios: 1
     // Both actors in forward lanes
     for actor in &scenario.actors {
         assert!(
-            actor.states.iter().all(|s| s.velocity.vx >= 0.0),
+            actor.states.iter().all(|s| s.velocity().vx >= 0.0),
             "Actor {} should have positive velocity in forward lane",
             actor.id
         );
@@ -416,11 +416,11 @@ num_scenarios: 1
 
     // Ego forward, NPC backward
     assert!(
-        ego.states.iter().all(|s| s.velocity.vx >= 0.0),
+        ego.states.iter().all(|s| s.velocity().vx >= 0.0),
         "Ego in forward lane"
     );
     assert!(
-        npc.states.iter().all(|s| s.velocity.vx <= 0.0),
+        npc.states.iter().all(|s| s.velocity().vx <= 0.0),
         "NPC in backward lane"
     );
 }

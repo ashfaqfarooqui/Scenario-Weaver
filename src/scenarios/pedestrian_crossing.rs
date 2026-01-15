@@ -260,6 +260,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-3.0, 2.0]),
                     direction: 1,
                     behavior: ego_behavior,
+                    lane_change: None,
                 },
                 ActorSpec {
                     id: "pedestrian".to_string(),
@@ -270,6 +271,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-1.0, 1.0]),
                     direction: 1,
                     behavior: pedestrian_behavior,
+                    lane_change: None,
                 },
             ],
             min_ttc: 2.0,
@@ -285,6 +287,8 @@ mod tests {
             min_velocity: None,
             min_lateral_distance: None,
             max_relative_velocity: None,
+            coordinate_system: crate::dsl::types::CoordinateSystem::default(),
+            reference_line: None,
         }
     }
 

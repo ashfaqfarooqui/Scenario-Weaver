@@ -45,6 +45,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
+                    lane_change: None,
                 },
                 ActorSpec {
                     id: "npc".to_string(),
@@ -55,6 +56,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: npc_behavior,
+                    lane_change: None,
                 },
             ],
             min_ttc: 3.0,
@@ -74,6 +76,8 @@ mod tests {
             min_velocity: None,
             min_lateral_distance: None,
             max_relative_velocity: None,
+            coordinate_system: crate::dsl::types::CoordinateSystem::default(),
+            reference_line: None,
         }
     }
 
