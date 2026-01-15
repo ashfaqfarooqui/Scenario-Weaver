@@ -38,7 +38,7 @@ pub fn generate_single_scenario(yaml_content: &str) -> Result<Scenario> {
     scenario_model.validate(&spec)?;
 
     // Generate LTL using trait (behavior + safety combined)
-    let ltl_formula = ltl::generator::LTLGenerator::generate(&spec);
+    let ltl_formula = ltl::generator::LTLGenerator::generate(&spec)?;
 
     // Check if optimization is requested
     use dsl::types::OptimizationTarget;
@@ -97,7 +97,7 @@ fn generate_with_solver(
                 let model = encoder.get_model().ok_or_else(|| {
                     ScenarioGenError::ExtractionFailed("Failed to get Z3 model".to_string())
                 })?;
-                Ok(encoder.extract_scenario(&model))
+                encoder.extract_scenario(&model)
             }
             SatResult::Unsat => Err(ScenarioGenError::Unsatisfiable),
             SatResult::Unknown => Err(ScenarioGenError::Z3Encoding(
@@ -134,7 +134,7 @@ where
     let spec = dsl::parser::parse_yaml(yaml_content)?;
 
     // Generate LTL formula (same for all scenarios)
-    let ltl_formula = ltl::generator::LTLGenerator::generate(&spec);
+    let ltl_formula = ltl::generator::LTLGenerator::generate(&spec)?;
 
     // Use multi-solve module to generate multiple scenarios
     solver::multi_solve::generate_scenarios(&spec, &ltl_formula, num_scenarios, callback)

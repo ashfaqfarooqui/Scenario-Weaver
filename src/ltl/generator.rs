@@ -1,32 +1,27 @@
 //! LTL formula generation from DSL specifications
 
 use crate::dsl::types::ScenarioSpec;
+use crate::error::Result;
 
 pub struct LTLGenerator;
 
 impl LTLGenerator {
     /// Generate LTL formula from scenario specification using ScenarioModel trait
-    pub fn generate(spec: &ScenarioSpec) -> crate::ltl::formula::LTLFormula {
+    pub fn generate(spec: &ScenarioSpec) -> Result<crate::ltl::formula::LTLFormula> {
         // Get scenario model
         let model = spec.scenario_type.get_model();
 
         // Validate scenario-specific requirements
-        if let Err(e) = model.validate(spec) {
-            panic!("Scenario validation failed: {}", e);
-        }
+        model.validate(spec)?;
 
         // Generate behavioral LTL
-        let behavior = model
-            .generate_ltl(spec)
-            .expect("Failed to generate behavioral LTL");
+        let behavior = model.generate_ltl(spec)?;
 
         // Generate safety constraints (uses trait default or override)
-        let safety = model
-            .generate_safety(spec)
-            .expect("Failed to generate safety constraints");
+        let safety = model.generate_safety(spec)?;
 
         // Combine: behavior AND safety
-        behavior.and(safety)
+        Ok(behavior.and(safety))
     }
 }
 
@@ -89,7 +84,7 @@ mod tests {
     #[test]
     fn test_generate_cut_in_left() {
         let spec = create_test_spec();
-        let formula = LTLGenerator::generate(&spec);
+        let formula = LTLGenerator::generate(&spec).unwrap();
 
         println!("Generated LTL formula:");
         println!("{}", formula);
@@ -101,7 +96,7 @@ mod tests {
     #[test]
     fn test_cut_in_left_formula_structure() {
         let spec = create_test_spec();
-        let formula = LTLGenerator::generate(&spec);
+        let formula = LTLGenerator::generate(&spec).unwrap();
 
         let formula_str = format!("{}", formula);
         assert!(formula_str.contains("InLane"));

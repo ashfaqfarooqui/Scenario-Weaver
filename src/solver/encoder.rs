@@ -102,6 +102,7 @@ impl Z3Encoder {
         model: &dyn crate::scenarios::ScenarioModel,
     ) -> anyhow::Result<()> {
         model.add_z3_constraints(&self.spec, self, &self.backend, self.horizon)
+            .map_err(|e| anyhow::anyhow!(e))
     }
 }
 
@@ -1152,7 +1153,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
     ///
     /// Converts the Z3 solution (satisfying assignment) into a Scenario
     /// JSON structure with actor trajectories.
-    pub fn extract_scenario(&self, model: &z3::Model) -> crate::scenario::model::Scenario {
+    pub fn extract_scenario(&self, model: &z3::Model) -> crate::error::Result<crate::scenario::model::Scenario> {
         use crate::dsl::types::ActorRole;
 
         // Get RoadSpec from ScenarioSpec (required, should always exist after validation)
@@ -1160,7 +1161,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
             .spec
             .road
             .as_ref()
-            .expect("RoadSpec is required - should be validated during spec parsing")
+            .ok_or_else(|| crate::error::ScenarioGenError::ExtractionFailed("RoadSpec is required - should be validated during spec parsing".to_string()))?
             .clone();
 
         let mut scenario = crate::scenario::model::Scenario::new(
@@ -1178,14 +1179,14 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 ActorRole::Pedestrian => "pedestrian",
             };
 
-            let trajectory = self.extract_actor_trajectory(model, &actor.id, role_str);
+            let trajectory = self.extract_actor_trajectory(model, &actor.id, role_str)?;
             scenario.add_actor(trajectory);
         }
 
         // Compute validation metrics
-        self.compute_validation_metrics(&mut scenario);
+        self.compute_validation_metrics(&mut scenario)?;
 
-        scenario
+        Ok(scenario)
     }
 
     /// Extract trajectory for a single actor
@@ -1194,7 +1195,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
         model: &z3::Model,
         actor_id: &str,
         role: &str,
-    ) -> crate::scenario::model::ActorTrajectory {
+    ) -> crate::error::Result<crate::scenario::model::ActorTrajectory> {
         use crate::scenario::model::{Acceleration, ActorTrajectory, Position, State, Velocity};
 
         let mut trajectory = ActorTrajectory::new(actor_id.to_string(), role.to_string());
@@ -1203,19 +1204,19 @@ impl<B: Z3Backend> GenericEncoder<B> {
             let time = t as f64 * self.spec.time_step;
 
             // Extract position
-            let px = self.extract_real(model, &self.positions_x[actor_id][t]);
-            let py = self.extract_real(model, &self.positions_y[actor_id][t]);
+            let px = self.extract_real(model, &self.positions_x[actor_id][t])?;
+            let py = self.extract_real(model, &self.positions_y[actor_id][t])?;
 
             // Extract velocity
-            let vx = self.extract_real(model, &self.velocities_x[actor_id][t]);
-            let vy = self.extract_real(model, &self.velocities_y[actor_id][t]);
+            let vx = self.extract_real(model, &self.velocities_x[actor_id][t])?;
+            let vy = self.extract_real(model, &self.velocities_y[actor_id][t])?;
 
             // Extract acceleration
-            let ax = self.extract_real(model, &self.accelerations_x[actor_id][t]);
-            let ay = self.extract_real(model, &self.accelerations_y[actor_id][t]);
+            let ax = self.extract_real(model, &self.accelerations_x[actor_id][t])?;
+            let ay = self.extract_real(model, &self.accelerations_y[actor_id][t])?;
 
             // Extract lane
-            let lane = self.extract_int(model, &self.lanes[actor_id][t]);
+            let lane = self.extract_int(model, &self.lanes[actor_id][t])?;
 
             let state = State::new(
                 time,
@@ -1228,14 +1229,14 @@ impl<B: Z3Backend> GenericEncoder<B> {
             trajectory.add_state(state);
         }
 
-        trajectory
+        Ok(trajectory)
     }
 
     /// Extract a real value from Z3 model
-    fn extract_real(&self, model: &z3::Model, var: &Real) -> f64 {
+    fn extract_real(&self, model: &z3::Model, var: &Real) -> crate::error::Result<f64> {
         let ast = model
             .eval(var, true)
-            .expect("Failed to evaluate real variable");
+            .ok_or_else(|| crate::error::ScenarioGenError::Z3ModelParsing("Failed to evaluate real variable".to_string()))?;
 
         // Z3 returns rationals in various formats
         let ast_str = ast.to_string();
@@ -1248,48 +1249,55 @@ impl<B: Z3Backend> GenericEncoder<B> {
 
         // Check for various formats
         if parts.is_empty() {
-            panic!("Failed to parse real value from Z3: '{}'", ast_str);
+            return Err(crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse real value from Z3: '{}'", ast_str)));
         }
 
         // Format: "- / numerator denominator" -> negative fraction
         if parts.len() >= 4 && parts[0] == "-" && parts[1] == "/" {
-            let numerator: f64 = parts[2].parse().expect("Failed to parse numerator");
-            let denominator: f64 = parts[3].parse().expect("Failed to parse denominator");
-            return -(numerator / denominator);
+            let numerator: f64 = parts[2].parse()
+                .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse numerator: {}", e)))?;
+            let denominator: f64 = parts[3].parse()
+                .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse denominator: {}", e)))?;
+            return Ok(-(numerator / denominator));
         }
 
         // Format: "/ numerator denominator" -> positive fraction
         if parts.len() >= 3 && parts[0] == "/" {
-            let numerator: f64 = parts[1].parse().expect("Failed to parse numerator");
-            let denominator: f64 = parts[2].parse().expect("Failed to parse denominator");
-            return numerator / denominator;
+            let numerator: f64 = parts[1].parse()
+                .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse numerator: {}", e)))?;
+            let denominator: f64 = parts[2].parse()
+                .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse denominator: {}", e)))?;
+            return Ok(numerator / denominator);
         }
 
         // Format: "- value" -> simple negative
         if parts.len() == 2 && parts[0] == "-" {
-            let value: f64 = parts[1].parse().expect("Failed to parse negative value");
-            return -value;
+            let value: f64 = parts[1].parse()
+                .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse negative value: {}", e)))?;
+            return Ok(-value);
         }
 
         // Format: "numerator/denominator" or "-numerator/denominator"
         if parts.len() == 1 && parts[0].contains('/') {
             let frac_parts: Vec<&str> = parts[0].split('/').collect();
-            let numerator: f64 = frac_parts[0].parse().expect("Failed to parse numerator");
-            let denominator: f64 = frac_parts[1].parse().expect("Failed to parse denominator");
-            return numerator / denominator;
+            let numerator: f64 = frac_parts[0].parse()
+                .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse numerator: {}", e)))?;
+            let denominator: f64 = frac_parts[1].parse()
+                .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse denominator: {}", e)))?;
+            return Ok(numerator / denominator);
         }
 
         // Default: try to parse as a simple number
         parts[0]
             .parse()
-            .unwrap_or_else(|_| panic!("Failed to parse real value from Z3: '{}'", ast_str))
+            .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse real value from Z3 '{}': {}", ast_str, e)))
     }
 
     /// Extract an integer value from Z3 model
-    fn extract_int(&self, model: &z3::Model, var: &Int) -> usize {
+    fn extract_int(&self, model: &z3::Model, var: &Int) -> crate::error::Result<usize> {
         let ast = model
             .eval(var, true)
-            .expect("Failed to evaluate int variable");
+            .ok_or_else(|| crate::error::ScenarioGenError::Z3ModelParsing("Failed to evaluate int variable".to_string()))?;
         let ast_str = ast.to_string();
 
         // Handle negative values like "(- 5)" or simple values like "1"
@@ -1297,17 +1305,17 @@ impl<B: Z3Backend> GenericEncoder<B> {
 
         if cleaned.starts_with("- ") {
             // Format: "(- value)" - but usize can't be negative, so this would be an error
-            panic!("Cannot extract negative integer as usize: '{}'", ast_str);
+            return Err(crate::error::ScenarioGenError::Z3ModelParsing(format!("Cannot extract negative integer as usize: '{}'", ast_str)));
         }
 
         cleaned
             .trim()
             .parse()
-            .unwrap_or_else(|_| panic!("Failed to parse int value from Z3: '{}'", ast_str))
+            .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse int value from Z3 '{}': {}", ast_str, e)))
     }
 
     /// Compute validation metrics from the scenario trajectories
-    fn compute_validation_metrics(&self, scenario: &mut crate::scenario::model::Scenario) {
+    fn compute_validation_metrics(&self, scenario: &mut crate::scenario::model::Scenario) -> crate::error::Result<()> {
         let mut min_ttc = f64::INFINITY;
         let mut min_distance = f64::INFINITY;
         let mut violations = Vec::new();
@@ -1317,10 +1325,10 @@ impl<B: Z3Backend> GenericEncoder<B> {
             for id2 in self.spec.actors.iter().skip(i + 1).map(|a| a.id.clone()) {
                 let traj1 = scenario
                     .get_actor(&id1)
-                    .unwrap_or_else(|| panic!("Actor {} missing", id1));
+                    .ok_or_else(|| crate::error::ScenarioGenError::ActorNotFound(format!("Actor {} missing", id1)))?;
                 let traj2 = scenario
                     .get_actor(&id2)
-                    .unwrap_or_else(|| panic!("Actor {} missing", id2));
+                    .ok_or_else(|| crate::error::ScenarioGenError::ActorNotFound(format!("Actor {} missing", id2)))?;
 
                 for t in 0..=self.horizon {
                     let state1 = &traj1.states[t];
@@ -1438,6 +1446,8 @@ impl<B: Z3Backend> GenericEncoder<B> {
         scenario.validation.all_constraints_satisfied =
             violations.is_empty() && accel_violations.is_empty();
         scenario.validation.safety_violations = violations;
+
+        Ok(())
     }
 }
 
@@ -1798,7 +1808,7 @@ mod tests {
             encoder.encode_lateral_velocity_bounds();
 
             // Generate and encode full cut-in LTL formula
-            let ltl_formula = LTLGenerator::generate(&spec);
+            let ltl_formula = LTLGenerator::generate(&spec).unwrap();
             encoder.encode_ltl(&ltl_formula);
 
             // Add safety constraints
@@ -1853,7 +1863,7 @@ mod tests {
             encoder.encode_lateral_velocity_bounds();
 
             // Generate and encode full cut-in LTL formula
-            let ltl_formula = LTLGenerator::generate(&spec);
+            let ltl_formula = LTLGenerator::generate(&spec).unwrap();
             encoder.encode_ltl(&ltl_formula);
             // Safety constraints are now included in LTL formula via generate_safety()
 
@@ -1865,7 +1875,7 @@ mod tests {
                 let model = encoder.get_model().unwrap();
 
                 // Extract scenario
-                let scenario = encoder.extract_scenario(&model);
+                let scenario = encoder.extract_scenario(&model).unwrap();
 
                 // Verify basic structure
                 assert_eq!(scenario.actors.len(), 2);

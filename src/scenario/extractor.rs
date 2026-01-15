@@ -12,7 +12,7 @@ use crate::scenario::model::Scenario;
 pub fn extract_scenario_from_model(
     encoder: &crate::solver::encoder::Z3Encoder,
     model: &z3::Model,
-) -> Scenario {
+) -> crate::error::Result<Scenario> {
     encoder.extract_scenario(model)
 }
 
@@ -90,7 +90,7 @@ mod tests {
             encoder.encode_lane_velocity_constraints();
             encoder.encode_lateral_velocity_bounds();
 
-            let ltl_formula = LTLGenerator::generate(&spec);
+            let ltl_formula = LTLGenerator::generate(&spec).unwrap();
             encoder.encode_ltl(&ltl_formula);
             // Safety constraints are now included in LTL formula via generate_safety()
 
@@ -99,7 +99,7 @@ mod tests {
 
             if result == SatResult::Sat {
                 let model = encoder.get_model().unwrap();
-                let scenario = extract_scenario_from_model(&encoder, &model);
+                let scenario = extract_scenario_from_model(&encoder, &model).unwrap();
 
                 // Verify extraction worked
                 assert_eq!(scenario.actors.len(), 2);

@@ -70,7 +70,7 @@ where
                     let model = encoder.get_model().ok_or_else(|| {
                         ScenarioGenError::ExtractionFailed("Failed to get Z3 model".to_string())
                     })?;
-                    let scenario = encoder.extract_scenario(&model);
+                    let scenario = encoder.extract_scenario(&model)?;
                     scenarios.push(scenario);
                     tracing::info!("Generated scenario {}/{}", i + 1, num_scenarios);
                     Ok::<(), ScenarioGenError>(())
@@ -280,7 +280,7 @@ mod tests {
     #[test]
     fn test_generate_multiple_scenarios() {
         let spec = create_test_spec();
-        let ltl_formula = LTLGenerator::generate(&spec);
+        let ltl_formula = LTLGenerator::generate(&spec).unwrap();
 
         // Generate 3 scenarios
         let scenarios = generate_scenarios(
@@ -345,7 +345,7 @@ mod tests {
             encoder.encode_initial_conditions();
 
             // Generate first scenario
-            let ltl_formula = LTLGenerator::generate(&spec);
+            let ltl_formula = LTLGenerator::generate(&spec).unwrap();
             let scenario_model = spec.scenario_type.get_model();
             encoder.encode_kinematics();
             encoder.encode_lane_velocity_constraints();
@@ -360,13 +360,13 @@ mod tests {
             assert_eq!(result, SatResult::Sat);
 
             let model = encoder.get_model().unwrap();
-            encoder.extract_scenario(&model)
+            encoder.extract_scenario(&model).unwrap()
         });
 
         // Generate second scenario in a separate context (not nested)
         let cfg2 = Config::new();
         let scenario2 = z3::with_z3_config(&cfg2, || {
-            let ltl_formula = LTLGenerator::generate(&spec);
+            let ltl_formula = LTLGenerator::generate(&spec).unwrap();
             let scenario_model = spec.scenario_type.get_model();
             let mut enc = Z3Encoder::new(spec.clone());
             enc.create_variables();
@@ -388,7 +388,7 @@ mod tests {
             assert_eq!(result2, SatResult::Sat);
 
             let model2 = enc.get_model().unwrap();
-            enc.extract_scenario(&model2)
+            enc.extract_scenario(&model2).unwrap()
         });
 
         // Verify scenarios are different
