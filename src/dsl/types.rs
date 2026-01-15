@@ -298,6 +298,10 @@ pub struct RoadSpec {
     /// Example: [1, 1, -1, -1] for 4 lanes (2 forward, 2 backward)
     #[serde(default = "default_lane_directions")]
     pub lane_directions: Vec<i32>,
+
+    /// Length of the road in meters (optional, will be calculated if not provided)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub road_length: Option<f64>,
 }
 
 impl RoadSpec {
@@ -333,6 +337,12 @@ impl RoadSpec {
 
         if self.lane_width <= 0.0 {
             return Err("lane_width must be positive".to_string());
+        }
+
+        if let Some(length) = self.road_length {
+            if length <= 0.0 {
+                return Err("road_length must be positive".to_string());
+            }
         }
 
         Ok(())
@@ -718,6 +728,7 @@ mod tests {
             num_lanes: 4,
             lane_width: 3.5,
             lane_directions: vec![1, 1, -1, -1],
+            road_length: None,
         };
         assert!(valid_road.validate().is_ok());
 
@@ -725,6 +736,7 @@ mod tests {
             num_lanes: 4,
             lane_width: 3.5,
             lane_directions: vec![1, 1, -1], // Wrong length
+            road_length: None,
         };
         assert!(invalid_road.validate().is_err());
     }
@@ -735,6 +747,7 @@ mod tests {
             num_lanes: 4,
             lane_width: 3.5,
             lane_directions: vec![1, 2, -1, -1], // 2 is invalid
+            road_length: None,
         };
         assert!(road.validate().is_err());
     }
@@ -745,6 +758,7 @@ mod tests {
             num_lanes: 4,
             lane_width: 3.5,
             lane_directions: vec![1, 1, -1, -1],
+            road_length: None,
         };
 
         assert_eq!(road.get_lane_direction(0), 1);

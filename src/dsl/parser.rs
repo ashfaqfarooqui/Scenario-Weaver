@@ -15,26 +15,30 @@ pub fn parse_yaml(yaml_content: &str) -> Result<ScenarioSpec> {
     spec.validate().map_err(ScenarioGenError::InvalidSpec)?;
 
     // Create ReferenceLine from road specification
-    if let Some(road) = &spec.road {
-        let lane_width = road.lane_width;
-        let num_lanes = road.num_lanes;
-        // Calculate road length based on duration + max speed buffer
-        // For now, use a reasonable default (can be calculated more precisely)
-        let road_length = spec.duration * 30.0; // 30 m/s max speed assumption
+    if let Some(road) = &mut spec.road {
+        // Use provided road_length, or calculate based on duration + max speed buffer
+        let road_length = road.road_length.unwrap_or_else(|| {
+            // Calculate road length based on duration + max speed assumption
+            // Use 30 m/s (~108 km/h) as reasonable max speed for scenario generation
+            spec.duration * 30.0
+        });
 
-        let ref_line = ReferenceLine::straight(0.0, -(num_lanes as f64) * lane_width / 2.0, road_length, 0.0);
+        // Store calculated road_length back in RoadSpec for consistency
+        road.road_length = Some(road_length);
+
+        let ref_line = ReferenceLine::straight(0.0, 0.0, road_length, 0.0);
         spec.reference_line = Some(ref_line);
     }
 
     // Generate polynomial coefficients for lane changes
     let lane_width = spec.get_lane_width();
-    let num_lanes = spec.get_num_lanes();
 
     for actor in &mut spec.actors {
         if let Some(lc) = actor.lane_change.as_mut() {
             if lc.enabled && lc.method == LaneChangeMethod::Polynomial {
                 // Calculate t_start (center of starting lane)
-                let t_start = (actor.lane as f64 - (num_lanes as f64 - 1.0) / 2.0) * lane_width;
+                // Lane 0 is at 0.5*lane_width, Lane 1 is at 1.5*lane_width, etc.
+                let t_start = (actor.lane as f64 + 0.5) * lane_width;
 
                 // Calculate t_end (center of target lane)
                 let t_end = match lc.direction {
