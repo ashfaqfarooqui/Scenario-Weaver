@@ -5,9 +5,9 @@
 //! to the original lane ahead of the ego vehicle.
 
 use crate::dsl::types::{ScenarioSpec, ValueOrRange};
+use crate::error::{Result, ScenarioGenError};
 use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;
-use anyhow::Result;
 
 /// Overtake from left scenario model
 pub struct OvertakeLeftModel;
@@ -16,37 +16,41 @@ impl ScenarioModel for OvertakeLeftModel {
     fn validate(&self, spec: &ScenarioSpec) -> Result<()> {
         // Validate exactly 2 actors (ego + 1 npc)
         if spec.actors.len() != 2 {
-            anyhow::bail!(
+            return Err(ScenarioGenError::InvalidSpec(format!(
                 "Overtake-left requires exactly 2 actors, found {}",
                 spec.actors.len()
-            );
+            )));
         }
 
-        let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
+        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
         let npc = &spec.npcs()[0];
 
         // Validate NPC starts in same lane as ego
         if npc.lane != ego.lane {
-            anyhow::bail!(
+            return Err(ScenarioGenError::InvalidSpec(format!(
                 "Overtake-left requires NPC to start in same lane as ego. Ego lane: {}, NPC lane: {}",
                 ego.lane,
                 npc.lane
-            );
+            )));
         }
 
         // Validate passing lane exists (left of current lane)
         if ego.lane == 0 {
-            anyhow::bail!(
-                "Overtake-left requires a lane to the left. Ego is in lane 0, no left lane available"
-            );
+            return Err(ScenarioGenError::InvalidSpec(
+                "Overtake-left requires a lane to the left. Ego is in lane 0, no left lane available".to_string()
+            ));
         }
 
         // Validate behavior parameters exist
         if !npc.behavior.contains_key("overtake_start_time") {
-            anyhow::bail!("NPC missing 'overtake_start_time' in behavior map");
+            return Err(ScenarioGenError::InvalidSpec(
+                "NPC missing 'overtake_start_time' in behavior map".to_string()
+            ));
         }
         if !npc.behavior.contains_key("overtake_end_time") {
-            anyhow::bail!("NPC missing 'overtake_end_time' in behavior map");
+            return Err(ScenarioGenError::InvalidSpec(
+                "NPC missing 'overtake_end_time' in behavior map".to_string()
+            ));
         }
 
         // Parse and validate timing: start_time.max < end_time.min
@@ -54,24 +58,24 @@ impl ScenarioModel for OvertakeLeftModel {
         let end_time_json = npc.behavior.get("overtake_end_time").unwrap();
 
         let start_time: ValueOrRange = serde_json::from_value(start_time_json.clone())
-            .map_err(|e| anyhow::anyhow!("Failed to parse overtake_start_time: {}", e))?;
+            .map_err(|e| ScenarioGenError::InvalidSpec(format!("Failed to parse overtake_start_time: {}", e)))?;
         let end_time: ValueOrRange = serde_json::from_value(end_time_json.clone())
-            .map_err(|e| anyhow::anyhow!("Failed to parse overtake_end_time: {}", e))?;
+            .map_err(|e| ScenarioGenError::InvalidSpec(format!("Failed to parse overtake_end_time: {}", e)))?;
 
         // Ensure start_time.max < end_time.min for valid timing
         if start_time.max() >= end_time.min() {
-            anyhow::bail!(
+            return Err(ScenarioGenError::InvalidSpec(format!(
                 "overtake_start_time.max ({}) must be less than overtake_end_time.min ({})",
                 start_time.max(),
                 end_time.min()
-            );
+            )));
         }
 
         Ok(())
     }
 
     fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
-        let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
+        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
         let npc = &spec.npcs()[0];
 
         let ego_id = ego.id.as_str();
@@ -95,7 +99,7 @@ impl ScenarioModel for OvertakeLeftModel {
     ) -> Result<()> {
         use z3::ast::{Bool, Int};
 
-        let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
+        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
         let npc = &spec.npcs()[0];
         let original_lane = ego.lane;
         let passing_lane = ego.lane - 1; // Left lane (lower number)
@@ -106,16 +110,16 @@ impl ScenarioModel for OvertakeLeftModel {
         let start_time_json = npc
             .behavior
             .get("overtake_start_time")
-            .ok_or_else(|| anyhow::anyhow!("NPC missing 'overtake_start_time'"))?;
+            .ok_or_else(|| ScenarioGenError::InvalidSpec("NPC missing 'overtake_start_time'".to_string()))?;
         let end_time_json = npc
             .behavior
             .get("overtake_end_time")
-            .ok_or_else(|| anyhow::anyhow!("NPC missing 'overtake_end_time'"))?;
+            .ok_or_else(|| ScenarioGenError::InvalidSpec("NPC missing 'overtake_end_time'".to_string()))?;
 
         let start_time: ValueOrRange = serde_json::from_value(start_time_json.clone())
-            .map_err(|e| anyhow::anyhow!("Failed to parse overtake_start_time: {}", e))?;
+            .map_err(|e| ScenarioGenError::InvalidSpec(format!("Failed to parse overtake_start_time: {}", e)))?;
         let end_time: ValueOrRange = serde_json::from_value(end_time_json.clone())
-            .map_err(|e| anyhow::anyhow!("Failed to parse overtake_end_time: {}", e))?;
+            .map_err(|e| ScenarioGenError::InvalidSpec(format!("Failed to parse overtake_end_time: {}", e)))?;
 
         let time_step = spec.time_step;
 

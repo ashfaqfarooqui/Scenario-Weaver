@@ -2,7 +2,7 @@
 
 use crate::dsl::types::{ConstraintMode, ScenarioSpec};
 use crate::ltl::formula::{LTLFormula, Proposition};
-use anyhow::Result;
+use crate::error::Result;
 
 /// Trait for scenario-specific LTL generation and validation
 ///

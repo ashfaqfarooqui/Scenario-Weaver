@@ -5,9 +5,9 @@
 //! No complex sidewalk or timing constraints - just basic crossing behavior.
 
 use crate::dsl::types::ScenarioSpec;
+use crate::error::{Result, ScenarioGenError};
 use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;
-use anyhow::Result;
 
 /// Pedestrian crossing scenario model
 pub struct PedestrianCrossingModel;
@@ -18,21 +18,21 @@ impl ScenarioModel for PedestrianCrossingModel {
 
         // Validate exactly 2 actors (1 ego vehicle, 1 pedestrian)
         if spec.actors.len() != 2 {
-            anyhow::bail!(
+            return Err(ScenarioGenError::InvalidSpec(format!(
                 "Pedestrian crossing requires exactly 2 actors, found {}",
                 spec.actors.len()
-            );
+            )));
         }
 
         // Validate roles
-        let _ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
+        let _ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
         let pedestrian = &spec.npcs()[0];
 
         if pedestrian.role != ActorRole::Pedestrian {
-            anyhow::bail!(
+            return Err(ScenarioGenError::InvalidSpec(format!(
                 "Second actor must be pedestrian, found {:?}",
                 pedestrian.role
-            );
+            )));
         }
 
         // Validate direction field exists and is valid
@@ -40,26 +40,26 @@ impl ScenarioModel for PedestrianCrossingModel {
             .behavior
             .get("direction")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Pedestrian missing 'direction' in behavior"))?;
+            .ok_or_else(|| ScenarioGenError::InvalidSpec("Pedestrian missing 'direction' in behavior".to_string()))?;
 
         match direction {
             "left_to_right" | "right_to_left" => Ok(()),
-            _ => anyhow::bail!(
+            _ => return Err(ScenarioGenError::InvalidSpec(format!(
                 "Invalid direction '{}': must be 'left_to_right' or 'right_to_left'",
                 direction
-            ),
+            ))),
         }
     }
 
     fn generate_safety(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
         use crate::dsl::types::{ActorRole, ConstraintMode};
 
-        let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
+        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
         let npcs = spec.npcs();
         let pedestrian = npcs
             .iter()
             .find(|a| a.role == ActorRole::Pedestrian)
-            .ok_or_else(|| anyhow::anyhow!("No pedestrian found"))?;
+            .ok_or_else(|| ScenarioGenError::InvalidSpec("No pedestrian found".to_string()))?;
 
         let mut constraints = Vec::new();
 
@@ -107,7 +107,7 @@ impl ScenarioModel for PedestrianCrossingModel {
     fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
         use crate::dsl::types::ActorRole;
 
-        let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
+        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
         let ego_id = ego.id.as_str();
 
         // Ego stays in its lane
@@ -121,7 +121,7 @@ impl ScenarioModel for PedestrianCrossingModel {
         let pedestrian = npcs
             .iter()
             .find(|a| a.role == ActorRole::Pedestrian)
-            .ok_or_else(|| anyhow::anyhow!("No pedestrian found in spec"))?;
+            .ok_or_else(|| ScenarioGenError::InvalidSpec("No pedestrian found in spec".to_string()))?;
         let ped_id = &pedestrian.id;
 
         // Determine crossing direction from behavior field
@@ -129,15 +129,15 @@ impl ScenarioModel for PedestrianCrossingModel {
             .behavior
             .get("direction")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Pedestrian missing 'direction' in behavior"))?;
+            .ok_or_else(|| ScenarioGenError::InvalidSpec("Pedestrian missing 'direction' in behavior".to_string()))?;
 
         let opposite_side = match direction {
             "left_to_right" => "right",
             "right_to_left" => "left",
-            _ => anyhow::bail!(
+            _ => return Err(ScenarioGenError::InvalidSpec(format!(
                 "Invalid direction '{}': must be 'left_to_right' or 'right_to_left'",
                 direction
-            ),
+            ))),
         };
 
         // Multi-stage crossing using sequential implications
@@ -178,7 +178,7 @@ impl ScenarioModel for PedestrianCrossingModel {
         let pedestrian = npcs
             .iter()
             .find(|a| a.role == ActorRole::Pedestrian)
-            .ok_or_else(|| anyhow::anyhow!("No pedestrian actor found"))?;
+            .ok_or_else(|| ScenarioGenError::InvalidSpec("No pedestrian actor found".to_string()))?;
 
         let pedestrian_id = &pedestrian.id;
 

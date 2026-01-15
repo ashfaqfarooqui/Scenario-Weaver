@@ -5,9 +5,9 @@
 //! changes lanes to cut in front of the ego vehicle.
 
 use crate::dsl::types::{ScenarioSpec, ValueOrRange};
+use crate::error::{Result, ScenarioGenError};
 use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;
-use anyhow::Result;
 
 /// Cut-in from left scenario model
 pub struct CutInLeftModel;
@@ -16,24 +16,26 @@ impl ScenarioModel for CutInLeftModel {
     fn validate(&self, spec: &ScenarioSpec) -> Result<()> {
         // Validate exactly 2 actors (ego + 1 npc)
         if spec.actors.len() != 2 {
-            anyhow::bail!(
+            return Err(ScenarioGenError::InvalidSpec(format!(
                 "Cut-in-left requires exactly 2 actors, found {}",
                 spec.actors.len()
-            );
+            )));
         }
 
         let npc = &spec.npcs()[0];
 
         // Validate behavior parameters exist
         if !npc.behavior.contains_key("cut_in_time") {
-            anyhow::bail!("NPC missing 'cut_in_time' in behavior map");
+            return Err(ScenarioGenError::InvalidSpec(
+                "NPC missing 'cut_in_time' in behavior map".to_string()
+            ));
         }
 
         Ok(())
     }
 
     fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
-        let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
+        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
         let npc = &spec.npcs()[0];
 
         let ego_id = ego.id.as_str();
@@ -57,7 +59,7 @@ impl ScenarioModel for CutInLeftModel {
     ) -> Result<()> {
         use z3::ast::Int;
 
-        let ego = spec.ego().map_err(|e| anyhow::anyhow!(e))?;
+        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
         let npc = &spec.npcs()[0];
         let target_lane = ego.lane;
         let npc_id = &npc.id;
@@ -67,10 +69,10 @@ impl ScenarioModel for CutInLeftModel {
         let cut_in_time_json = npc
             .behavior
             .get("cut_in_time")
-            .ok_or_else(|| anyhow::anyhow!("NPC missing 'cut_in_time' in behavior"))?;
+            .ok_or_else(|| ScenarioGenError::InvalidSpec("NPC missing 'cut_in_time' in behavior".to_string()))?;
 
         let cut_in_time: ValueOrRange = serde_json::from_value(cut_in_time_json.clone())
-            .map_err(|e| anyhow::anyhow!("Failed to parse cut_in_time: {}", e))?;
+            .map_err(|e| ScenarioGenError::Z3Encoding(format!("Failed to parse cut_in_time: {}", e)))?;
 
         let time_step = spec.time_step;
         let (min_time, max_time) = match cut_in_time {
