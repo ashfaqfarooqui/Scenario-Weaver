@@ -1,16 +1,59 @@
 //! YAML parser for DSL specifications
 
-use super::types::ScenarioSpec;
+use super::types::{LaneChangeDirection, LaneChangeMethod, ScenarioSpec};
 use crate::error::{Result, ScenarioGenError};
+use crate::geometry::ReferenceLine;
+use crate::trajectory;
 use std::path::Path;
 
 /// Parse YAML string into ScenarioSpec
 pub fn parse_yaml(yaml_content: &str) -> Result<ScenarioSpec> {
-    let spec: ScenarioSpec =
+    let mut spec: ScenarioSpec =
         serde_yml::from_str(yaml_content).map_err(ScenarioGenError::YamlParse)?;
 
     // Validate the parsed specification
     spec.validate().map_err(ScenarioGenError::InvalidSpec)?;
+
+    // Create ReferenceLine from road specification
+    if let Some(road) = &spec.road {
+        let lane_width = road.lane_width;
+        let num_lanes = road.num_lanes;
+        // Calculate road length based on duration + max speed buffer
+        // For now, use a reasonable default (can be calculated more precisely)
+        let road_length = spec.duration * 30.0; // 30 m/s max speed assumption
+
+        let ref_line = ReferenceLine::straight(0.0, -(num_lanes as f64) * lane_width / 2.0, road_length, 0.0);
+        spec.reference_line = Some(ref_line);
+    }
+
+    // Generate polynomial coefficients for lane changes
+    let lane_width = spec.get_lane_width();
+    let num_lanes = spec.get_num_lanes();
+
+    for actor in &mut spec.actors {
+        if let Some(lc) = actor.lane_change.as_mut() {
+            if lc.enabled && lc.method == LaneChangeMethod::Polynomial {
+                // Calculate t_start (center of starting lane)
+                let t_start = (actor.lane as f64 - (num_lanes as f64 - 1.0) / 2.0) * lane_width;
+
+                // Calculate t_end (center of target lane)
+                let t_end = match lc.direction {
+                    LaneChangeDirection::Left => t_start + lane_width,
+                    LaneChangeDirection::Right => t_start - lane_width,
+                };
+
+                match trajectory::solve_quintic_polynomial(t_start, t_end, lc.duration) {
+                    Ok(coeffs) => lc.polynomial_coeffs = Some(coeffs),
+                    Err(e) => {
+                        return Err(ScenarioGenError::InvalidSpec(format!(
+                            "Failed to solve polynomial for lane change ({}): {}",
+                            actor.id, e
+                        )))
+                    }
+                }
+            }
+        }
+    }
 
     Ok(spec)
 }
