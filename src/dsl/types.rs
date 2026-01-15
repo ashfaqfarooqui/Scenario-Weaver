@@ -60,6 +60,50 @@ pub enum OptimizationTarget {
     MaximizeTtc,
 }
 
+/// Coordinate system for scenario generation
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CoordinateSystem {
+    /// Frenet coordinates (s, t) with smooth lane changes
+    #[default]
+    Frenet,
+    /// Cartesian coordinates (x, y) with discrete lane assignments (for A/B testing)
+    Cartesian,
+}
+
+/// Lane change method
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LaneChangeMethod {
+    /// Quintic polynomial smooth lane change (C² continuous)
+    #[default]
+    Polynomial,
+    /// Constant lateral velocity (not smooth, for comparison)
+    ConstantVy,
+}
+
+/// Lane change direction
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LaneChangeDirection {
+    Left,
+    Right,
+}
+
+/// Lane change configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LaneChangeConfig {
+    pub enabled: bool,
+    #[serde(default)]
+    pub method: LaneChangeMethod,
+    pub direction: LaneChangeDirection,
+    pub start_time: f64,
+    pub duration: f64,
+    /// Computed during parsing (not in YAML)
+    #[serde(skip)]
+    pub polynomial_coeffs: Option<[f64; 6]>,
+}
+
 /// Configuration for how constraints should be enforced
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
@@ -314,6 +358,9 @@ pub struct ActorSpec {
     /// Scenario-specific behavior parameters
     #[serde(default)]
     pub behavior: std::collections::HashMap<String, serde_json::Value>,
+    /// Lane change configuration (optional, for smooth lane changes)
+    #[serde(default)]
+    pub lane_change: Option<LaneChangeConfig>,
 }
 
 /// Root scenario specification
@@ -357,6 +404,12 @@ pub struct ScenarioSpec {
     /// Optional maximum relative velocity constraint (m/s)
     #[serde(default)]
     pub max_relative_velocity: Option<f64>,
+    /// Coordinate system (default: Frenet)
+    #[serde(default)]
+    pub coordinate_system: CoordinateSystem,
+    /// Reference line for Frenet coordinate conversion (computed during parsing)
+    #[serde(skip)]
+    pub reference_line: Option<crate::geometry::ReferenceLine>,
 }
 
 /// Default lane width for backward compatibility
@@ -623,6 +676,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
+                    lane_change: None,
                 },
                 ActorSpec {
                     id: "npc".to_string(),
@@ -637,6 +691,7 @@ mod tests {
                         map.insert("cut_in_time".to_string(), serde_json::json!([2.5, 7.5]));
                         map
                     },
+                    lane_change: None,
                 },
             ],
             min_ttc: 3.0,
@@ -652,6 +707,8 @@ mod tests {
             min_velocity: None,
             min_lateral_distance: None,
             max_relative_velocity: None,
+            coordinate_system: CoordinateSystem::default(),
+            reference_line: None,
         }
     }
 
