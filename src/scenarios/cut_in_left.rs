@@ -4,7 +4,7 @@
 //! ahead of the ego vehicle in the right lane (lane 1), and eventually
 //! changes lanes to cut in front of the ego vehicle.
 
-use crate::dsl::types::{ScenarioSpec, ValueOrRange};
+use crate::dsl::types::{CoordinateSystem, ScenarioSpec, ValueOrRange};
 use crate::error::{Result, ScenarioGenError};
 use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;
@@ -24,11 +24,24 @@ impl ScenarioModel for CutInLeftModel {
 
         let npc = &spec.npcs()[0];
 
-        // Validate behavior parameters exist
-        if !npc.behavior.contains_key("cut_in_time") {
-            return Err(ScenarioGenError::InvalidSpec(
-                "NPC missing 'cut_in_time' in behavior map".to_string()
-            ));
+        // Validate lane change configuration
+        match spec.coordinate_system {
+            CoordinateSystem::Frenet => {
+                // Frenet mode: requires lane_change config
+                if npc.lane_change.is_none() || !npc.lane_change.as_ref().unwrap().enabled {
+                    return Err(ScenarioGenError::InvalidSpec(
+                        "Frenet mode requires lane_change configuration with enabled=true".to_string()
+                    ));
+                }
+            }
+            CoordinateSystem::Cartesian => {
+                // Cartesian mode: requires cut_in_time in behavior
+                if !npc.behavior.contains_key("cut_in_time") {
+                    return Err(ScenarioGenError::InvalidSpec(
+                        "Cartesian mode requires 'cut_in_time' in behavior map".to_string()
+                    ));
+                }
+            }
         }
 
         Ok(())
@@ -57,6 +70,11 @@ impl ScenarioModel for CutInLeftModel {
         backend: &dyn crate::solver::Z3Backend,
         horizon: usize,
     ) -> Result<()> {
+        // In Frenet mode, lane changes are handled by polynomial encoder, skip discrete constraints
+        if matches!(spec.coordinate_system, CoordinateSystem::Frenet) {
+            return Ok(());
+        }
+
         use z3::ast::Int;
 
         let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;

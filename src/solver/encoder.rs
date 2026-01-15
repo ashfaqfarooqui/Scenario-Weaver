@@ -344,6 +344,8 @@ impl<B: Z3Backend> GenericEncoder<B> {
         role: crate::dsl::types::ActorRole,
         direction: i32,
     ) {
+        use crate::dsl::types::{ActorRole, CoordinateSystem};
+
         // Lane at t=0
         let lane_var = &self.lanes[actor_id][0];
         let lane_val = Int::from_i64(lane as i64);
@@ -396,7 +398,6 @@ impl<B: Z3Backend> GenericEncoder<B> {
         // Initial lateral velocity
         // For vehicles: zero (not changing lanes initially)
         // For pedestrians: unconstrained (they need to cross laterally)
-        use crate::dsl::types::ActorRole;
         let vy_var = &self.velocities_y[actor_id][0];
         let zero = Real::from_rational(0_i64, 1_i64);
         if role != ActorRole::Pedestrian {
@@ -423,6 +424,66 @@ impl<B: Z3Backend> GenericEncoder<B> {
         let ay_var = &self.accelerations_y[actor_id][0];
         if role != ActorRole::Pedestrian {
             self.backend.assert(&ay_var.eq(&zero));
+        }
+
+        // Frenet initial conditions (if using Frenet coordinate system)
+        if matches!(self.spec.coordinate_system, CoordinateSystem::Frenet) {
+            // Calculate initial Frenet coordinates from lane
+            let num_lanes = self.spec.road.as_ref().map(|r| r.num_lanes).unwrap_or(2);
+            let lane_width = self.spec.lane_width;
+
+            // Initial lateral position t: center of the lane
+            // Lane 0 is at -lane_width/2, Lane 1 is at +lane_width/2, etc.
+            let t_initial = (lane as f64 - (num_lanes as f64 - 1.0) / 2.0) * lane_width;
+            let t_val = Real::from_rational((t_initial * 10.0) as i64, 10_i64);
+            let t_var = &self.frenet_t[actor_id][0];
+            self.backend.assert(&t_var.eq(&t_val));
+
+            // Initial longitudinal position s: convert from x position
+            let s_min = Real::from_rational((pos_min * 10.0) as i64, 10_i64);
+            let s_max = Real::from_rational((pos_max * 10.0) as i64, 10_i64);
+            let s_var = &self.frenet_s[actor_id][0];
+            if (pos_min - pos_max).abs() < 1e-6 {
+                self.backend.assert(&s_var.eq(&s_min));
+            } else {
+                self.backend.assert(&s_var.ge(&s_min));
+                self.backend.assert(&s_var.le(&s_max));
+            }
+
+            // Initial longitudinal velocity vs: same as speed magnitude
+            if (speed_min - speed_max).abs() < 1e-6 {
+                let vs_val = Real::from_rational((speed_min * 10.0) as i64, 10_i64);
+                let vs_var = &self.frenet_vs[actor_id][0];
+                self.backend.assert(&vs_var.eq(&vs_val));
+            } else {
+                let vs_min = Real::from_rational((speed_min * 10.0) as i64, 10_i64);
+                let vs_max = Real::from_rational((speed_max * 10.0) as i64, 10_i64);
+                let vs_var = &self.frenet_vs[actor_id][0];
+                self.backend.assert(&vs_var.ge(&vs_min));
+                self.backend.assert(&vs_var.le(&vs_max));
+            }
+
+            // Initial lateral velocity vt: zero (not changing lanes initially)
+            let vt_var = &self.frenet_vt[actor_id][0];
+            self.backend.assert(&vt_var.eq(&zero));
+
+            // Initial longitudinal acceleration as: use acceleration range
+            let as_var = &self.frenet_as[actor_id][0];
+            if (accel_min - accel_max).abs() < 1e-6 {
+                let as_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
+                self.backend.assert(&as_var.eq(&as_val));
+            } else {
+                let as_min = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
+                let as_max = Real::from_rational((accel_max * 10.0) as i64, 10_i64);
+                self.backend.assert(&as_var.ge(&as_min));
+                self.backend.assert(&as_var.le(&as_max));
+            }
+
+            // Initial lateral acceleration at: zero (not changing lanes initially)
+            let at_var = &self.frenet_at[actor_id][0];
+            if role != ActorRole::Pedestrian {
+                self.backend.assert(&at_var.eq(&zero));
+            }
         }
     }
 

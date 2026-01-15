@@ -1,0 +1,59 @@
+# Example: Frenet Coordinate System with Polynomial Lane Change
+#
+# This example demonstrates the new Frenet coordinate system that enables
+# smooth lane changes using quintic polynomials.
+#
+# Key features:
+# - coordinate_system: frenet - Uses Frenet (s, t) coordinates instead of Cartesian (x, y)
+# - lane_change with polynomial method - Generates smooth C² continuous lane changes
+# - Polynomial coefficients are automatically computed during parsing
+
+scenario_type: cut_in_left
+time_step: 0.1
+duration: 8.0
+
+# Coordinate system selection
+# - frenet: Uses Frenet coordinates (s, t) for smoother lateral motion
+# - cartesian: Uses Cartesian coordinates (x, y) with discrete lane assignments
+coordinate_system: frenet
+
+road:
+  num_lanes: 3
+  lane_width: 3.5
+  lane_directions: [1, 1, 1]
+
+actors:
+  # Ego vehicle - stays in lane 1
+  - id: ego
+    role: ego
+    lane: 1
+    position: 50.0
+    speed: 15.0
+    direction: 1
+    acceleration: [-8.0, 3.0]
+
+  # NPC - performs smooth lane change from lane 0 to lane 1
+  - id: npc
+    role: npc
+    lane: 0
+    position: 60.0
+    speed: 14.0
+    direction: 1
+    acceleration: [-8.0, 3.0]
+
+    # Lane change configuration
+    lane_change:
+      enabled: true
+      method: polynomial  # Quintic polynomial for C² continuity
+      direction: left     # Lane change direction
+      start_time: 2.0     # Start lane change at t=2.0s
+      duration: 4.0       # Complete lane change in 4.0s
+
+min_ttc: 3.0
+min_distance: 5.0
+num_scenarios: 1
+
+# Optimization target (optional)
+# - none: Generate any valid scenario
+# - maximize_ttc: Find scenario with maximum time to collision
+optimization_target: none
