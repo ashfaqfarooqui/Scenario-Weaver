@@ -46,6 +46,9 @@ gif = "0.14"       # GIF encoding
 imageproc = "0.26" # Text rendering
 ab_glyph = "0.2"   # Font loading (compatible with imageproc)
 
+# Linear algebra for Frenet coordinate transformations
+nalgebra = { version = "0.33", features = ["serde"] }
+
 [dev-dependencies]
 pretty_assertions = "1.4" # Better test output
 tempfile = "3.8"          # Temporary files for testing

@@ -5,10 +5,12 @@
 
 pub mod dsl;
 pub mod error;
+pub mod geometry;
 pub mod ltl;
 pub mod scenario;
 pub mod scenarios;
 pub mod solver;
+pub mod trajectory;
 
 use error::{Result, ScenarioGenError};
 use scenario::model::Scenario;
