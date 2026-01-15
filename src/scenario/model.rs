@@ -1,6 +1,7 @@
 //! Scenario output data structures
 
 use crate::dsl::types::RoadSpec;
+use crate::geometry::{CartesianPoint, FrenetPoint, ReferenceLine};
 use serde::{Deserialize, Serialize};
 
 /// Complete scenario with all actor trajectories
@@ -26,6 +27,10 @@ pub struct Scenario {
 
     /// Validation information
     pub validation: ValidationInfo,
+
+    /// Reference line for coordinate conversion (optional, for Frenet scenarios)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference_line: Option<ReferenceLine>,
 }
 
 /// Trajectory of a single actor through the scenario
@@ -42,11 +47,51 @@ pub struct ActorTrajectory {
 }
 
 /// State of an actor at a specific time
+///
+/// Supports both Frenet and Cartesian coordinates for A/B testing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State {
     /// Time (seconds from start)
     pub time: f64,
 
+    /// Frenet coordinates (primary when using Frenet system)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frenet: Option<FrenetState>,
+
+    /// Cartesian coordinates (primary when using Cartesian system, also computed from Frenet)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cartesian: Option<CartesianState>,
+}
+
+/// Frenet coordinate state
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrenetState {
+    /// Longitudinal position along reference line (meters)
+    pub s: f64,
+
+    /// Lateral offset from reference line (meters)
+    pub t: f64,
+
+    /// Heading angle (radians)
+    pub theta: f64,
+
+    /// Longitudinal velocity (m/s)
+    pub vs: f64,
+
+    /// Lateral velocity (m/s)
+    pub vt: f64,
+
+    /// Longitudinal acceleration (m/s²)
+    #[serde(rename = "as")]
+    pub as_: f64,
+
+    /// Lateral acceleration (m/s²)
+    pub at: f64,
+}
+
+/// Cartesian coordinate state
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CartesianState {
     /// Position in world coordinates
     pub position: Position,
 
@@ -56,7 +101,7 @@ pub struct State {
     /// Acceleration
     pub acceleration: Acceleration,
 
-    /// Current lane
+    /// Current lane (derived from y-position or t-offset)
     pub lane: usize,
 }
 
@@ -138,6 +183,7 @@ impl Scenario {
                 max_deceleration: 0.0,
                 acceleration_violations: Vec::new(),
             },
+            reference_line: None,
         }
     }
 
@@ -186,7 +232,7 @@ impl ActorTrajectory {
 }
 
 impl State {
-    /// Create a new state
+    /// Create a new state with Cartesian coordinates (backward compatible)
     pub fn new(
         time: f64,
         position: Position,
@@ -196,11 +242,133 @@ impl State {
     ) -> Self {
         Self {
             time,
-            position,
-            velocity,
-            acceleration,
-            lane,
+            frenet: None,
+            cartesian: Some(CartesianState {
+                position,
+                velocity,
+                acceleration,
+                lane,
+            }),
         }
+    }
+
+    /// Create a new state with Frenet coordinates
+    pub fn new_frenet(
+        time: f64,
+        s: f64,
+        t: f64,
+        theta: f64,
+        vs: f64,
+        vt: f64,
+        as_: f64,
+        at: f64,
+        lane: usize,
+    ) -> Self {
+        Self {
+            time,
+            frenet: Some(FrenetState {
+                s,
+                t,
+                theta,
+                vs,
+                vt,
+                as_,
+                at,
+            }),
+            cartesian: None,
+        }
+    }
+
+    /// Create a new state with both Frenet and Cartesian coordinates
+    pub fn new_both(
+        time: f64,
+        frenet: FrenetState,
+        cartesian: CartesianState,
+    ) -> Self {
+        Self {
+            time,
+            frenet: Some(frenet),
+            cartesian: Some(cartesian),
+        }
+    }
+
+    /// Get lane from Frenet t offset
+    pub fn get_lane_from_frenet(&self, lane_width: f64) -> Option<usize> {
+        self.frenet.as_ref().map(|f| (f.t / lane_width).round() as usize)
+    }
+
+    /// Convert Frenet to Cartesian (requires ReferenceLine)
+    pub fn to_cartesian(&self, ref_line: &ReferenceLine) -> Option<CartesianState> {
+        self.frenet.as_ref().map(|f| {
+            let frenet_point = FrenetPoint::new(f.s, f.t);
+            let cart_point = ref_line.frenet_to_cartesian(&frenet_point);
+
+            CartesianState {
+                position: Position::new(cart_point.x, cart_point.y),
+                velocity: Velocity::new(
+                    f.vs * f.theta.cos() - f.vt * f.theta.sin(),
+                    f.vs * f.theta.sin() + f.vt * f.theta.cos(),
+                ),
+                acceleration: Acceleration::new(f.as_, f.at),
+                lane: (f.t / 3.5).round() as usize, // TODO: use actual lane_width
+            }
+        })
+    }
+
+    /// Get Cartesian position (fallback to Frenet conversion if needed)
+    pub fn get_position(&self, ref_line: &ReferenceLine) -> Option<Position> {
+        if let Some(cart) = &self.cartesian {
+            Some(cart.position.clone())
+        } else if let Some(_) = &self.frenet {
+            self.to_cartesian(ref_line).map(|c| c.position)
+        } else {
+            None
+        }
+    }
+
+    /// Get Cartesian velocity (fallback to Frenet conversion if needed)
+    pub fn get_velocity(&self, ref_line: &ReferenceLine) -> Option<Velocity> {
+        if let Some(cart) = &self.cartesian {
+            Some(cart.velocity.clone())
+        } else if let Some(_) = &self.frenet {
+            self.to_cartesian(ref_line).map(|c| c.velocity)
+        } else {
+            None
+        }
+    }
+
+    /// Get lane number (from either coordinate system)
+    pub fn get_lane(&self, lane_width: f64, _ref_line: &ReferenceLine) -> Option<usize> {
+        if let Some(cart) = &self.cartesian {
+            Some(cart.lane)
+        } else if let Some(f) = &self.frenet {
+            Some((f.t / lane_width).round() as usize)
+        } else {
+            None
+        }
+    }
+
+    // Convenience methods for backward compatibility
+    // These allow existing code to work while we transition to Frenet
+
+    /// Get position (backward compatible - will panic if neither cartesian nor frenet is set)
+    pub fn position(&self) -> &Position {
+        self.cartesian.as_ref().map(|c| &c.position).expect("State must have cartesian or frenet data")
+    }
+
+    /// Get velocity (backward compatible - will panic if neither cartesian nor frenet is set)
+    pub fn velocity(&self) -> &Velocity {
+        self.cartesian.as_ref().map(|c| &c.velocity).expect("State must have cartesian or frenet data")
+    }
+
+    /// Get acceleration (backward compatible - will panic if neither cartesian nor frenet is set)
+    pub fn acceleration(&self) -> &Acceleration {
+        self.cartesian.as_ref().map(|c| &c.acceleration).expect("State must have cartesian or frenet data")
+    }
+
+    /// Get lane (backward compatible - will panic if neither cartesian nor frenet is set)
+    pub fn lane(&self) -> usize {
+        self.cartesian.as_ref().map(|c| c.lane).expect("State must have cartesian or frenet data")
     }
 }
 
