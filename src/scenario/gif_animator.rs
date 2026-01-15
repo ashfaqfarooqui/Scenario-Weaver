@@ -57,7 +57,7 @@ const VEHICLE_WIDTH: u32 = 6;
 /// std::fs::write("scenario.gif", gif_bytes).unwrap();
 /// ```
 pub fn export_to_gif(scenario: &Scenario) -> Result<Vec<u8>> {
-    let animator = GifAnimator::new(scenario);
+    let animator = GifAnimator::new(scenario)?;
     animator.generate()
 }
 
@@ -136,18 +136,19 @@ struct GifAnimator<'a> {
 }
 
 impl<'a> GifAnimator<'a> {
-    fn new(scenario: &'a Scenario) -> Self {
+    fn new(scenario: &'a Scenario) -> Result<Self> {
         let config = AnimatorConfig::from_scenario(scenario);
 
         // Load embedded font
         let font_data: &[u8] = include_bytes!("../../assets/DejaVuSans.ttf");
-        let font = FontArc::try_from_slice(font_data).expect("Failed to load embedded font");
+        let font = FontArc::try_from_slice(font_data)
+            .map_err(|e| ScenarioGenError::FontLoading(format!("Failed to load embedded font: {}", e)))?;
 
-        Self {
+        Ok(Self {
             scenario,
             config,
             font,
-        }
+        })
     }
 
     /// Generate the complete GIF animation
@@ -673,7 +674,7 @@ mod tests {
     #[test]
     fn test_coordinate_transformation() {
         let scenario = create_test_scenario();
-        let animator = GifAnimator::new(&scenario);
+        let animator = GifAnimator::new(&scenario).unwrap();
 
         let (px, py) = animator.transform_coords(5.0, 3.0);
         assert!(px >= animator.config.margin as i32);
@@ -683,7 +684,7 @@ mod tests {
     #[test]
     fn test_vehicle_color_coding() {
         let scenario = create_test_scenario();
-        let animator = GifAnimator::new(&scenario);
+        let animator = GifAnimator::new(&scenario).unwrap();
 
         assert_eq!(animator.get_actor_color("ego"), COLOR_EGO);
         assert_eq!(animator.get_actor_color("npc"), COLOR_NPC);
@@ -693,7 +694,7 @@ mod tests {
     #[test]
     fn test_frame_metrics_computation() {
         let scenario = create_test_scenario();
-        let animator = GifAnimator::new(&scenario);
+        let animator = GifAnimator::new(&scenario).unwrap();
 
         let (ttc, distance) = animator.compute_frame_metrics(0);
         // Different lanes at frame 0, so metrics should be infinity
@@ -704,7 +705,7 @@ mod tests {
     #[test]
     fn test_violation_time_parsing() {
         let scenario = create_test_scenario();
-        let animator = GifAnimator::new(&scenario);
+        let animator = GifAnimator::new(&scenario).unwrap();
 
         let violation = "TTC violation at t=3.5s: ego-npc: 2.1s < 3.0s";
         let time = animator.parse_violation_time(violation);
