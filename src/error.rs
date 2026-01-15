@@ -36,6 +36,18 @@ pub enum ScenarioGenError {
 
     #[error("Scenario validation failed: {0}")]
     ValidationFailed(#[from] anyhow::Error),
+
+    #[error("Z3 model parsing failed: {0}")]
+    Z3ModelParsing(String),
+
+    #[error("Font loading failed: {0}")]
+    FontLoading(String),
+
+    #[error("YAML structure error: {0}")]
+    YamlStructure(String),
+
+    #[error("Actor not found: {0}")]
+    ActorNotFound(String),
 }
 
 pub type Result<T> = std::result::Result<T, ScenarioGenError>;
