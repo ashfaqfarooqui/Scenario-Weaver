@@ -21,6 +21,7 @@ road:
   num_lanes: 3
   lane_width: 3.5
   lane_directions: [1, 1, 1]
+  road_length: 250.0  # Optional: explicit road length in meters (defaults to duration * 30.0)
 
 actors:
   # Ego vehicle - stays in lane 1
