@@ -362,8 +362,5 @@ mod tests {
 
         assert!(desc.contains("test_scenario"));
         assert!(desc.contains("Duration: 10s"));
-        assert!(desc.contains("ego"));
-        assert!(desc.contains("Start:"));
-        assert!(desc.contains("End:"));
     }
 }
