@@ -222,7 +222,7 @@ mod tests {
             min_velocity: None,
             min_lateral_distance: None,
             max_relative_velocity: None,
-            coordinate_system: crate::dsl::types::CoordinateSystem::default(),
+            coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
             reference_line: None,
         }
     }

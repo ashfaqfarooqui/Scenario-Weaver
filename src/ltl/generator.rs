@@ -81,7 +81,7 @@ mod tests {
             min_velocity: None,
             min_lateral_distance: None,
             max_relative_velocity: None,
-            coordinate_system: CoordinateSystem::default(),
+            coordinate_system: CoordinateSystem::Cartesian,
             reference_line: None,
         }
     }
