@@ -433,8 +433,8 @@ impl<B: Z3Backend> GenericEncoder<B> {
             let lane_width = self.spec.lane_width;
 
             // Initial lateral position t: center of the lane
-            // Lane 0 is at -lane_width/2, Lane 1 is at +lane_width/2, etc.
-            let t_initial = (lane as f64 - (num_lanes as f64 - 1.0) / 2.0) * lane_width;
+            // Lane 0 is at 0.5*lane_width, Lane 1 is at 1.5*lane_width, etc.
+            let t_initial = (lane as f64 + 0.5) * lane_width;
             let t_val = Real::from_rational((t_initial * 10.0) as i64, 10_i64);
             let t_var = &self.frenet_t[actor_id][0];
             self.backend.assert(&t_var.eq(&t_val));
@@ -1822,6 +1822,7 @@ mod tests {
                 num_lanes: 2,
                 lane_width: 3.5,
                 lane_directions: vec![1, 1],
+                road_length: None,
             }),
             lane_width: 3.5,
             num_scenarios: 1,

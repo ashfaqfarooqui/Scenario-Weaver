@@ -428,6 +428,7 @@ mod tests {
             num_lanes: 2,
             lane_width: 3.5,
             lane_directions: vec![1, 1],
+            road_length: None,
         };
         let scenario = Scenario::new("cut_in_left".to_string(), 0.5, 10.0, road);
 
@@ -478,6 +479,7 @@ mod tests {
             num_lanes: 2,
             lane_width: 3.5,
             lane_directions: vec![1, 1],
+            road_length: None,
         };
         let mut scenario = Scenario::new("cut_in_left".to_string(), 0.5, 10.0, road);
 

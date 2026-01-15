@@ -265,6 +265,7 @@ mod tests {
                 num_lanes: 2,
                 lane_width: 3.5,
                 lane_directions: vec![1, 1],
+                road_length: None,
             }),
             lane_width: 3.5,
             num_scenarios: 5,
