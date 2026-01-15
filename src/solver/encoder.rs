@@ -4,13 +4,15 @@ use std::collections::HashMap;
 use z3::ast::{Int, Real};
 use z3::SatResult;
 
-use crate::dsl::types::{ConstraintMode, ScenarioSpec};
+use crate::dsl::types::{ConstraintMode, CoordinateSystem, ScenarioSpec};
 use crate::solver::backend::{SolverBackend, Z3Backend};
 
 /// Z3 SMT encoder for scenario constraints (generic over backend)
 ///
 /// This encoder can work with either `SolverBackend` (SAT checking)
 /// or `OptimizerBackend` (optimization objectives).
+///
+/// Supports both Cartesian (x, y) and Frenet (s, t) coordinate systems.
 ///
 /// Note: In Z3 0.19, the context is managed internally and is implicit
 /// within the `with_z3_config()` callback scope.
@@ -25,6 +27,8 @@ pub struct GenericEncoder<B: Z3Backend> {
     pub(crate) horizon: usize,
 
     // Variable maps: actor_id -> Vec<variable> (one per time step)
+
+    // Cartesian variables
     /// Longitudinal positions (m)
     pub(crate) positions_x: HashMap<String, Vec<Real>>,
 
@@ -45,6 +49,25 @@ pub struct GenericEncoder<B: Z3Backend> {
 
     /// Lateral accelerations (m/s²)
     pub(crate) accelerations_y: HashMap<String, Vec<Real>>,
+
+    // Frenet variables
+    /// Longitudinal positions along reference line (m)
+    pub(crate) frenet_s: HashMap<String, Vec<Real>>,
+
+    /// Lateral offsets from reference line (m)
+    pub(crate) frenet_t: HashMap<String, Vec<Real>>,
+
+    /// Longitudinal velocities (m/s)
+    pub(crate) frenet_vs: HashMap<String, Vec<Real>>,
+
+    /// Lateral velocities (m/s)
+    pub(crate) frenet_vt: HashMap<String, Vec<Real>>,
+
+    /// Longitudinal accelerations (m/s²)
+    pub(crate) frenet_as: HashMap<String, Vec<Real>>,
+
+    /// Lateral accelerations (m/s²)
+    pub(crate) frenet_at: HashMap<String, Vec<Real>>,
 }
 
 /// Type alias for backward compatibility - uses Solver backend
@@ -68,6 +91,12 @@ impl<B: Z3Backend> GenericEncoder<B> {
             lanes: HashMap::new(),
             accelerations_x: HashMap::new(),
             accelerations_y: HashMap::new(),
+            frenet_s: HashMap::new(),
+            frenet_t: HashMap::new(),
+            frenet_vs: HashMap::new(),
+            frenet_vt: HashMap::new(),
+            frenet_as: HashMap::new(),
+            frenet_at: HashMap::new(),
         }
     }
 
@@ -119,6 +148,8 @@ impl<B: Z3Backend> GenericEncoder<B> {
     /// - ay_t: lateral acceleration
     /// - lane_t: lane number
     pub fn create_variables(&mut self) {
+        let use_frenet = matches!(self.spec.coordinate_system, CoordinateSystem::Frenet);
+
         for actor in &self.spec.actors {
             let actor_id = &actor.id;
 
@@ -130,8 +161,17 @@ impl<B: Z3Backend> GenericEncoder<B> {
             let mut ax_vars = Vec::new();
             let mut ay_vars = Vec::new();
 
+            // Frenet variables
+            let mut s_vars = Vec::new();
+            let mut t_vars = Vec::new();
+            let mut vs_vars = Vec::new();
+            let mut vt_vars = Vec::new();
+            let mut as_vars = Vec::new();
+            let mut at_vars = Vec::new();
+
             // Create variables for each time step
             for t in 0..=self.horizon {
+                // Cartesian variables (always created for backward compatibility)
                 px_vars.push(Real::new_const(format!("{}_px_{}", actor_id, t)));
                 py_vars.push(Real::new_const(format!("{}_py_{}", actor_id, t)));
                 vx_vars.push(Real::new_const(format!("{}_vx_{}", actor_id, t)));
@@ -139,6 +179,16 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 lane_vars.push(Int::new_const(format!("{}_lane_{}", actor_id, t)));
                 ax_vars.push(Real::new_const(format!("{}_ax_{}", actor_id, t)));
                 ay_vars.push(Real::new_const(format!("{}_ay_{}", actor_id, t)));
+
+                // Frenet variables (created when needed)
+                if use_frenet {
+                    s_vars.push(Real::new_const(format!("{}_s_{}", actor_id, t)));
+                    t_vars.push(Real::new_const(format!("{}_t_{}", actor_id, t)));
+                    vs_vars.push(Real::new_const(format!("{}_vs_{}", actor_id, t)));
+                    vt_vars.push(Real::new_const(format!("{}_vt_{}", actor_id, t)));
+                    as_vars.push(Real::new_const(format!("{}_as_{}", actor_id, t)));
+                    at_vars.push(Real::new_const(format!("{}_at_{}", actor_id, t)));
+                }
             }
 
             self.positions_x.insert(actor_id.clone(), px_vars);
@@ -148,6 +198,15 @@ impl<B: Z3Backend> GenericEncoder<B> {
             self.lanes.insert(actor_id.clone(), lane_vars);
             self.accelerations_x.insert(actor_id.clone(), ax_vars);
             self.accelerations_y.insert(actor_id.clone(), ay_vars);
+
+            if use_frenet {
+                self.frenet_s.insert(actor_id.clone(), s_vars);
+                self.frenet_t.insert(actor_id.clone(), t_vars);
+                self.frenet_vs.insert(actor_id.clone(), vs_vars);
+                self.frenet_vt.insert(actor_id.clone(), vt_vars);
+                self.frenet_as.insert(actor_id.clone(), as_vars);
+                self.frenet_at.insert(actor_id.clone(), at_vars);
+            }
         }
     }
 
@@ -384,7 +443,17 @@ impl<B: Z3Backend> GenericEncoder<B> {
     }
 
     /// Encode kinematic constraints with acceleration support
+    ///
+    /// Dispatches to either Cartesian or Frenet kinematics encoding based on coordinate_system.
     pub fn encode_kinematics(&mut self) {
+        match self.spec.coordinate_system {
+            CoordinateSystem::Frenet => self.encode_frenet_kinematics(),
+            CoordinateSystem::Cartesian => self.encode_cartesian_kinematics(),
+        }
+    }
+
+    /// Encode Cartesian kinematic constraints (original implementation)
+    fn encode_cartesian_kinematics(&mut self) {
         use crate::dsl::types::{
             ActorRole, PEDESTRIAN_MAX_ACCELERATION, PEDESTRIAN_MAX_DECELERATION,
             PEDESTRIAN_RUN_MAX_SPEED, PEDESTRIAN_WALK_MAX_SPEED,
@@ -1149,6 +1218,149 @@ impl<B: Z3Backend> GenericEncoder<B> {
         }
     }
 
+    /// Check if an actor has a polynomial lane change configured
+    fn actor_has_polynomial_lane_change(&self, actor: &crate::dsl::types::ActorSpec) -> bool {
+        match &actor.lane_change {
+            Some(lc) => lc.enabled && matches!(lc.method, crate::dsl::types::LaneChangeMethod::Polynomial),
+            None => false,
+        }
+    }
+
+    /// Encode Frenet kinematics constraints for smooth lane changes
+    ///
+    /// This implements Frenet coordinate system kinematics:
+    /// - Longitudinal (s): standard kinematics with position, velocity, acceleration
+    /// - Lateral (t): constrained by polynomial during lane changes, otherwise follows kinematics
+    /// - Polynomial lane changes: t and vt are pre-computed and fixed
+    fn encode_frenet_kinematics(&mut self) {
+        use crate::dsl::types::ActorRole;
+
+        let dt = self.spec.time_step;
+        let dt_real = Real::from_rational((dt * 10.0) as i64, 10_i64);
+        let zero = Real::from_rational(0_i64, 1_i64);
+
+        // Collect actors with polynomial lane changes first (to avoid borrow checker issues)
+        let poly_lane_change_actors: Vec<_> = self.spec.actors.iter()
+            .filter(|a| self.actor_has_polynomial_lane_change(a))
+            .map(|a| (
+                a.id.clone(),
+                a.lane_change.as_ref().unwrap().polynomial_coeffs.unwrap(),
+                a.lane_change.as_ref().unwrap().start_time,
+                a.lane_change.as_ref().unwrap().duration,
+            ))
+            .collect();
+
+        for actor in &self.spec.actors {
+            let actor_id = &actor.id;
+
+            // Check if actor has polynomial lane change
+            let has_poly_lc = self.actor_has_polynomial_lane_change(actor);
+
+            // Get acceleration bounds from actor spec
+            let (ax_min, ax_max) = if actor.role == ActorRole::Pedestrian {
+                (actor.acceleration.min(), actor.acceleration.max())
+            } else {
+                (actor.acceleration.min(), actor.acceleration.max())
+            };
+            let ax_min_real = Real::from_rational((ax_min * 10.0) as i64, 10_i64);
+            let ax_max_real = Real::from_rational((ax_max * 10.0) as i64, 10_i64);
+
+            // Longitudinal kinematics (s)
+            for t in 0..self.horizon {
+                // Longitudinal acceleration bounds
+                let as_t = &self.frenet_as[actor_id][t];
+                self.backend.assert(&as_t.ge(&ax_min_real));
+                self.backend.assert(&as_t.le(&ax_max_real));
+
+                // Longitudinal velocity update: vs[t+1] = vs[t] + as[t] * dt
+                let vs_t = &self.frenet_vs[actor_id][t];
+                let vs_t1 = &self.frenet_vs[actor_id][t + 1];
+                let expected_vs = vs_t + &(as_t * &dt_real);
+                self.backend.assert(&vs_t1.eq(&expected_vs));
+
+                // Longitudinal position update: s[t+1] = s[t] + vs[t] * dt
+                let s_t = &self.frenet_s[actor_id][t];
+                let s_t1 = &self.frenet_s[actor_id][t + 1];
+                let expected_s = s_t + &(vs_t * &dt_real);
+                self.backend.assert(&s_t1.eq(&expected_s));
+            }
+
+            // Lateral kinematics (t, vt)
+            for t in 0..self.horizon {
+                let vt_t = &self.frenet_vt[actor_id][t];
+                let vt_t1 = &self.frenet_vt[actor_id][t + 1];
+                let t_t = &self.frenet_t[actor_id][t];
+                let t_t1 = &self.frenet_t[actor_id][t + 1];
+
+                if has_poly_lc {
+                    // During polynomial lane change, t and vt are fixed by polynomial
+                    // (Already constrained in encode_polynomial_lane_change)
+                } else {
+                    // Standard lateral kinematics when not in lane change
+
+                    // Lateral acceleration bounds
+                    if actor.role == ActorRole::Pedestrian {
+                        let at_t = &self.frenet_at[actor_id][t];
+                        self.backend.assert(&at_t.ge(&ax_min_real));
+                        self.backend.assert(&at_t.le(&ax_max_real));
+
+                        // Lateral velocity update: vt[t+1] = vt[t] + at[t] * dt
+                        let expected_vt = vt_t + &(at_t * &dt_real);
+                        self.backend.assert(&vt_t1.eq(&expected_vt));
+                    }
+
+                    // Lateral position update: t[t+1] = t[t] + vt[t] * dt
+                    let expected_t = t_t + &(vt_t * &dt_real);
+                    self.backend.assert(&t_t1.eq(&expected_t));
+
+                    // Ego never changes lanes (vt = 0)
+                    if actor.role == ActorRole::Ego {
+                        self.backend.assert(&vt_t.eq(&zero));
+                    }
+                }
+            }
+        }
+
+        // Encode polynomial lane change constraints after the main loop
+        // (to avoid borrow checker issues)
+        for (actor_id, coeffs, start_time, duration) in poly_lane_change_actors {
+            self.encode_polynomial_lane_change_for_actor(&actor_id, coeffs, start_time, duration);
+        }
+    }
+
+    /// Encode polynomial lane change constraints
+    ///
+    /// For actors with polynomial lane changes, this fixes t and vt values
+    /// based on the pre-computed quintic polynomial coefficients.
+    fn encode_polynomial_lane_change_for_actor(
+        &mut self,
+        actor_id: &str,
+        coeffs: [f64; 6],
+        start_time: f64,
+        duration: f64,
+    ) {
+        use crate::trajectory::{evaluate_polynomial, evaluate_polynomial_derivative};
+
+        let start_step = (start_time / self.spec.time_step) as usize;
+        let end_step = start_step + (duration / self.spec.time_step) as usize;
+
+        for t in start_step..=end_step {
+            let tau = (t as f64 - start_step as f64) * self.spec.time_step;
+
+            // Fix lateral position t from polynomial
+            let t_val = evaluate_polynomial(tau, &coeffs);
+            let t_real = Real::from_rational((t_val * 10.0) as i64, 10_i64);
+            let t_var = &self.frenet_t[actor_id][t];
+            self.backend.assert(&t_var.eq(&t_real));
+
+            // Fix lateral velocity vt from polynomial derivative
+            let vt_val = evaluate_polynomial_derivative(tau, &coeffs);
+            let vt_real = Real::from_rational((vt_val * 10.0) as i64, 10_i64);
+            let vt_var = &self.frenet_vt[actor_id][t];
+            self.backend.assert(&vt_var.eq(&vt_real));
+        }
+    }
+
     /// Extract scenario from Z3 model
     ///
     /// Converts the Z3 solution (satisfying assignment) into a Scenario
@@ -1196,35 +1408,88 @@ impl<B: Z3Backend> GenericEncoder<B> {
         actor_id: &str,
         role: &str,
     ) -> crate::error::Result<crate::scenario::model::ActorTrajectory> {
-        use crate::scenario::model::{Acceleration, ActorTrajectory, Position, State, Velocity};
+        use crate::dsl::types::CoordinateSystem;
+        use crate::geometry::FrenetPoint;
+        use crate::scenario::model::{Acceleration, ActorTrajectory, CartesianState, FrenetState, Position, State, Velocity};
 
         let mut trajectory = ActorTrajectory::new(actor_id.to_string(), role.to_string());
+
+        // Get reference line for Frenet conversion
+        let ref_line = self.spec.reference_line.as_ref();
 
         for t in 0..=self.horizon {
             let time = t as f64 * self.spec.time_step;
 
-            // Extract position
-            let px = self.extract_real(model, &self.positions_x[actor_id][t])?;
-            let py = self.extract_real(model, &self.positions_y[actor_id][t])?;
+            let state = match self.spec.coordinate_system {
+                CoordinateSystem::Frenet => {
+                    // Extract Frenet values
+                    let s = self.extract_real(model, &self.frenet_s[actor_id][t])?;
+                    let t_val = self.extract_real(model, &self.frenet_t[actor_id][t])?;
+                    let vs = self.extract_real(model, &self.frenet_vs[actor_id][t])?;
+                    let vt = self.extract_real(model, &self.frenet_vt[actor_id][t])?;
+                    let as_ = self.extract_real(model, &self.frenet_as[actor_id][t])?;
+                    let at = self.extract_real(model, &self.frenet_at[actor_id][t])?;
 
-            // Extract velocity
-            let vx = self.extract_real(model, &self.velocities_x[actor_id][t])?;
-            let vy = self.extract_real(model, &self.velocities_y[actor_id][t])?;
+                    // Calculate theta (heading) from road heading
+                    let theta = ref_line
+                        .map(|rl| rl.heading)
+                        .unwrap_or(0.0);
 
-            // Extract acceleration
-            let ax = self.extract_real(model, &self.accelerations_x[actor_id][t])?;
-            let ay = self.extract_real(model, &self.accelerations_y[actor_id][t])?;
+                    // Compute Cartesian from Frenet
+                    let cartesian = if let Some(rl) = ref_line {
+                        let frenet_point = FrenetPoint::new(s, t_val);
+                        let cart_point = rl.frenet_to_cartesian(&frenet_point);
 
-            // Extract lane
-            let lane = self.extract_int(model, &self.lanes[actor_id][t])?;
+                        // Convert Frenet velocity to Cartesian velocity
+                        let vx = vs * theta.cos() - vt * theta.sin();
+                        let vy = vs * theta.sin() + vt * theta.cos();
 
-            let state = State::new(
-                time,
-                Position::new(px, py),
-                Velocity::new(vx, vy),
-                Acceleration::new(ax, ay),
-                lane,
-            );
+                        Some(CartesianState {
+                            position: Position::new(cart_point.x, cart_point.y),
+                            velocity: Velocity::new(vx, vy),
+                            acceleration: Acceleration::new(as_, at),
+                            lane: (t_val / self.spec.lane_width).round() as usize,
+                        })
+                    } else {
+                        None
+                    };
+
+                    State {
+                        time,
+                        frenet: Some(FrenetState {
+                            s,
+                            t: t_val,
+                            theta,
+                            vs,
+                            vt,
+                            as_,
+                            at,
+                        }),
+                        cartesian,
+                    }
+                }
+                CoordinateSystem::Cartesian => {
+                    // Extract Cartesian values (existing behavior)
+                    let px = self.extract_real(model, &self.positions_x[actor_id][t])?;
+                    let py = self.extract_real(model, &self.positions_y[actor_id][t])?;
+                    let vx = self.extract_real(model, &self.velocities_x[actor_id][t])?;
+                    let vy = self.extract_real(model, &self.velocities_y[actor_id][t])?;
+                    let ax = self.extract_real(model, &self.accelerations_x[actor_id][t])?;
+                    let ay = self.extract_real(model, &self.accelerations_y[actor_id][t])?;
+                    let lane = self.extract_int(model, &self.lanes[actor_id][t])?;
+
+                    State {
+                        time,
+                        frenet: None,
+                        cartesian: Some(CartesianState {
+                            position: Position::new(px, py),
+                            velocity: Velocity::new(vx, vy),
+                            acceleration: Acceleration::new(ax, ay),
+                            lane,
+                        }),
+                    }
+                }
+            };
 
             trajectory.add_state(state);
         }
@@ -1507,7 +1772,7 @@ mod tests {
             min_velocity: None,
             min_lateral_distance: None,
             max_relative_velocity: None,
-            coordinate_system: crate::dsl::types::CoordinateSystem::default(),
+            coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
             reference_line: None,
         }
     }
@@ -1958,7 +2223,7 @@ mod tests {
                 min_velocity: Some(10.0),
                 min_lateral_distance: None,
                 max_relative_velocity: None,
-                coordinate_system: crate::dsl::types::CoordinateSystem::default(),
+                coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
                 reference_line: None,
             };
 
