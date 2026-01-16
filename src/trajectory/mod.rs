@@ -1,12 +1,5 @@
 //! Trajectory generation module
 //!
-//! Provides polynomial-based smooth lane change trajectory generation.
-
-pub mod polynomial;
-
-pub use polynomial::{
-    evaluate_polynomial,
-    evaluate_polynomial_acceleration,
-    evaluate_polynomial_derivative,
-    solve_quintic_polynomial,
-};
+//! NOTE: Polynomial-based trajectory generation has been removed.
+//! Lane change trajectories are now discovered dynamically by the solver
+//! using smoothness constraints.

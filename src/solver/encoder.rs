@@ -761,6 +761,46 @@ impl<B: Z3Backend> GenericEncoder<B> {
         self.backend.get_model()
     }
 
+    // === Variable Accessor Methods ===
+    // These provide access to Z3 variables for scenario-specific constraints
+
+    /// Get lane variable for an actor at a given time
+    pub fn get_lane_var(&self, actor_id: &str, time: usize) -> &Int {
+        &self.lanes[actor_id][time]
+    }
+
+    /// Get longitudinal position variable for an actor at a given time
+    pub fn get_longitudinal_pos(&self, actor_id: &str, time: usize) -> &Real {
+        match self.spec.coordinate_system {
+            CoordinateSystem::Cartesian => &self.positions_x[actor_id][time],
+            CoordinateSystem::Frenet => &self.frenet_s[actor_id][time],
+        }
+    }
+
+    /// Get lateral position variable for an actor at a given time
+    pub fn get_lateral_pos(&self, actor_id: &str, time: usize) -> &Real {
+        match self.spec.coordinate_system {
+            CoordinateSystem::Cartesian => &self.positions_y[actor_id][time],
+            CoordinateSystem::Frenet => &self.frenet_t[actor_id][time],
+        }
+    }
+
+    /// Get longitudinal velocity variable for an actor at a given time
+    pub fn get_longitudinal_vel(&self, actor_id: &str, time: usize) -> &Real {
+        match self.spec.coordinate_system {
+            CoordinateSystem::Cartesian => &self.velocities_x[actor_id][time],
+            CoordinateSystem::Frenet => &self.frenet_vs[actor_id][time],
+        }
+    }
+
+    /// Get lateral velocity variable for an actor at a given time
+    pub fn get_lateral_vel(&self, actor_id: &str, time: usize) -> &Real {
+        match self.spec.coordinate_system {
+            CoordinateSystem::Cartesian => &self.velocities_y[actor_id][time],
+            CoordinateSystem::Frenet => &self.frenet_vt[actor_id][time],
+        }
+    }
+
     /// Encode LTL formula into Z3 constraints using bounded model checking
     ///
     /// This is the core of Phase 7. We expand temporal operators over the
@@ -1279,20 +1319,14 @@ impl<B: Z3Backend> GenericEncoder<B> {
         }
     }
 
-    /// Check if an actor has a polynomial lane change configured
-    fn actor_has_polynomial_lane_change(&self, actor: &crate::dsl::types::ActorSpec) -> bool {
-        match &actor.lane_change {
-            Some(lc) => lc.enabled && matches!(lc.method, crate::dsl::types::LaneChangeMethod::Polynomial),
-            None => false,
-        }
-    }
-
     /// Encode Frenet kinematics constraints for smooth lane changes
     ///
     /// This implements Frenet coordinate system kinematics:
     /// - Longitudinal (s): standard kinematics with position, velocity, acceleration
-    /// - Lateral (t): constrained by polynomial during lane changes, otherwise follows kinematics
-    /// - Polynomial lane changes: t and vt are pre-computed and fixed
+    /// - Lateral (t): standard kinematics with smoothness constraints during lane changes
+    ///
+    /// NOTE: Polynomial lane changes are no longer supported. The solver discovers
+    /// lane change trajectories dynamically using smoothness constraints.
     fn encode_frenet_kinematics(&mut self) {
         use crate::dsl::types::ActorRole;
 
@@ -1300,22 +1334,11 @@ impl<B: Z3Backend> GenericEncoder<B> {
         let dt_real = Real::from_rational((dt * 10.0) as i64, 10_i64);
         let zero = Real::from_rational(0_i64, 1_i64);
 
-        // Collect actors with polynomial lane changes first (to avoid borrow checker issues)
-        let poly_lane_change_actors: Vec<_> = self.spec.actors.iter()
-            .filter(|a| self.actor_has_polynomial_lane_change(a))
-            .map(|a| (
-                a.id.clone(),
-                a.lane_change.as_ref().unwrap().polynomial_coeffs.unwrap(),
-                a.lane_change.as_ref().unwrap().start_time,
-                a.lane_change.as_ref().unwrap().duration,
-            ))
-            .collect();
-
         for actor in &self.spec.actors {
             let actor_id = &actor.id;
 
-            // Check if actor has polynomial lane change
-            let has_poly_lc = self.actor_has_polynomial_lane_change(actor);
+            // Check if actor has lane change configured
+            let has_lane_change = actor.lane_change.as_ref().map(|lc| lc.enabled).unwrap_or(false);
 
             // Get acceleration bounds from actor spec
             let (ax_min, ax_max) = if actor.role == ActorRole::Pedestrian {
@@ -1352,65 +1375,64 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 let vt_t1 = &self.frenet_vt[actor_id][t + 1];
                 let t_t = &self.frenet_t[actor_id][t];
                 let t_t1 = &self.frenet_t[actor_id][t + 1];
+                let at_t = &self.frenet_at[actor_id][t];
 
-                if has_poly_lc {
-                    // For actors with polynomial lane changes, we need to handle three phases:
-                    // 1. Before lane change: allow small lateral movement but prevent drifting to edges
-                    // 2. During lane change: t and vt fixed by polynomial (handled in encode_polynomial_lane_change)
-                    // 3. After lane change: allow small lateral movement but prevent drifting to edges
+                if actor.role == ActorRole::Pedestrian {
+                    // Pedestrians: full lateral dynamics
+                    self.backend.assert(&at_t.ge(&ax_min_real));
+                    self.backend.assert(&at_t.le(&ax_max_real));
 
+                    // Lateral velocity update: vt[t+1] = vt[t] + at[t] * dt
+                    let expected_vt = vt_t + &(at_t * &dt_real);
+                    self.backend.assert(&vt_t1.eq(&expected_vt));
+                } else if actor.role == ActorRole::Ego {
+                    // Ego: no lane changes
+                    self.backend.assert(&vt_t.eq(&zero));
+                } else if has_lane_change {
+                    // Other vehicles with lane change: allow lateral movement with smoothness constraints
                     let lc_config = actor.lane_change.as_ref().unwrap();
-                    let start_step = (lc_config.start_time / self.spec.time_step) as usize;
-                    let end_step = start_step + (lc_config.duration / self.spec.time_step) as usize;
+                    let start_min = lc_config.start_time.min();
+                    let start_max = lc_config.start_time.max();
+                    let duration_min = lc_config.duration.min();
+                    let duration_max = lc_config.duration.max();
 
-                    // Add kinematic update only for timesteps outside lane change period
-                    if t < start_step || t >= end_step {
-                        let expected_t = t_t + &(vt_t * &dt_real);
-                        self.backend.assert(&t_t1.eq(&expected_t));
-                    }
-                    // During lane change: no kinematic update (polynomial fixes t and vt directly)
+                    let start_step_min = (start_min / self.spec.time_step) as usize;
+                    let start_step_max = (start_max / self.spec.time_step) as usize;
+                    let duration_steps_min = (duration_min / self.spec.time_step) as usize;
+                    let duration_steps_max = (duration_max / self.spec.time_step) as usize;
 
-                    // Add lateral velocity bounds to prevent jumping to edges
-                    // Allow |vt| <= 2.0 m/s (prevents instant jumps to edges but allows variability)
-                    let max_vt = Real::from_rational(20_i64, 10_i64); // 2.0 m/s
-                    let neg_max_vt = Real::from_rational(-20_i64, 10_i64); // -2.0 m/s
+                    // Use midpoint of ranges for conservative estimate
+                    let start_step = (start_step_min + start_step_max) / 2;
+                    let duration_steps = (duration_steps_min + duration_steps_max) / 2;
+                    let end_step = start_step + duration_steps;
 
-                    if t < start_step || t > end_step {
-                        // Before or after lane change: limit lateral velocity
-                        self.backend.assert(&vt_t.ge(&neg_max_vt));
+                    // During lane change window: constrain lateral acceleration for smoothness
+                    if t >= start_step && t < end_step {
+                        let max_at = Real::from_rational(20_i64, 10_i64); // 2.0 m/s²
+                        self.backend.assert(&at_t.le(&max_at));
+                        self.backend.assert(&at_t.ge(&-&max_at));
+
+                        // Constrain lateral velocity
+                        let max_vt = Real::from_rational(25_i64, 10_i64); // 2.5 m/s
                         self.backend.assert(&vt_t.le(&max_vt));
-                    }
-                    // During lane change: t and vt are fixed by polynomial in encode_polynomial_lane_change
-                } else {
-                    // Standard lateral kinematics when not in lane change
-
-                    // Lateral acceleration bounds
-                    if actor.role == ActorRole::Pedestrian {
-                        let at_t = &self.frenet_at[actor_id][t];
-                        self.backend.assert(&at_t.ge(&ax_min_real));
-                        self.backend.assert(&at_t.le(&ax_max_real));
+                        self.backend.assert(&vt_t.ge(&-&max_vt));
 
                         // Lateral velocity update: vt[t+1] = vt[t] + at[t] * dt
                         let expected_vt = vt_t + &(at_t * &dt_real);
                         self.backend.assert(&vt_t1.eq(&expected_vt));
-                    }
-
-                    // Lateral position update: t[t+1] = t[t] + vt[t] * dt
-                    let expected_t = t_t + &(vt_t * &dt_real);
-                    self.backend.assert(&t_t1.eq(&expected_t));
-
-                    // Ego never changes lanes (vt = 0)
-                    if actor.role == ActorRole::Ego {
+                    } else {
+                        // Outside lane change: vt = 0
                         self.backend.assert(&vt_t.eq(&zero));
                     }
+                } else {
+                    // No lane change: vt = 0
+                    self.backend.assert(&vt_t.eq(&zero));
                 }
-            }
-        }
 
-        // Encode polynomial lane change constraints after the main loop
-        // (to avoid borrow checker issues)
-        for (actor_id, coeffs, start_time, duration) in poly_lane_change_actors {
-            self.encode_polynomial_lane_change_for_actor(&actor_id, coeffs, start_time, duration);
+                // Lateral position update: t[t+1] = t[t] + vt[t] * dt
+                let expected_t = t_t + &(vt_t * &dt_real);
+                self.backend.assert(&t_t1.eq(&expected_t));
+            }
         }
 
         // Add explicit bounds on lateral position t to ensure vehicles stay on road
@@ -1427,39 +1449,6 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 self.backend.assert(&t_var.ge(&zero_t));
                 self.backend.assert(&t_var.le(&road_width_real));
             }
-        }
-    }
-
-    /// Encode polynomial lane change constraints
-    ///
-    /// For actors with polynomial lane changes, this fixes t and vt values
-    /// based on the pre-computed quintic polynomial coefficients.
-    fn encode_polynomial_lane_change_for_actor(
-        &mut self,
-        actor_id: &str,
-        coeffs: [f64; 6],
-        start_time: f64,
-        duration: f64,
-    ) {
-        use crate::trajectory::{evaluate_polynomial, evaluate_polynomial_derivative};
-
-        let start_step = (start_time / self.spec.time_step) as usize;
-        let end_step = start_step + (duration / self.spec.time_step) as usize;
-
-        for t in start_step..=end_step {
-            let tau = (t as f64 - start_step as f64) * self.spec.time_step;
-
-            // Fix lateral position t from polynomial
-            let t_val = evaluate_polynomial(tau, &coeffs);
-            let t_real = Real::from_rational((t_val * 10.0) as i64, 10_i64);
-            let t_var = &self.frenet_t[actor_id][t];
-            self.backend.assert(&t_var.eq(&t_real));
-
-            // Fix lateral velocity vt from polynomial derivative
-            let vt_val = evaluate_polynomial_derivative(tau, &coeffs);
-            let vt_real = Real::from_rational((vt_val * 10.0) as i64, 10_i64);
-            let vt_var = &self.frenet_vt[actor_id][t];
-            self.backend.assert(&vt_var.eq(&vt_real));
         }
     }
 

@@ -1,9 +1,8 @@
 //! YAML parser for DSL specifications
 
-use super::types::{LaneChangeDirection, LaneChangeMethod, ScenarioSpec};
+use super::types::ScenarioSpec;
 use crate::error::{Result, ScenarioGenError};
 use crate::geometry::ReferenceLine;
-use crate::trajectory;
 use std::path::Path;
 
 /// Parse YAML string into ScenarioSpec
@@ -30,34 +29,8 @@ pub fn parse_yaml(yaml_content: &str) -> Result<ScenarioSpec> {
         spec.reference_line = Some(ref_line);
     }
 
-    // Generate polynomial coefficients for lane changes
-    let lane_width = spec.get_lane_width();
-
-    for actor in &mut spec.actors {
-        if let Some(lc) = actor.lane_change.as_mut() {
-            if lc.enabled && lc.method == LaneChangeMethod::Polynomial {
-                // Calculate t_start (center of starting lane)
-                // Lane 0 is at 0.5*lane_width, Lane 1 is at 1.5*lane_width, etc.
-                let t_start = (actor.lane as f64 + 0.5) * lane_width;
-
-                // Calculate t_end (center of target lane)
-                let t_end = match lc.direction {
-                    LaneChangeDirection::Left => t_start + lane_width,
-                    LaneChangeDirection::Right => t_start - lane_width,
-                };
-
-                match trajectory::solve_quintic_polynomial(t_start, t_end, lc.duration) {
-                    Ok(coeffs) => lc.polynomial_coeffs = Some(coeffs),
-                    Err(e) => {
-                        return Err(ScenarioGenError::InvalidSpec(format!(
-                            "Failed to solve polynomial for lane change ({}): {}",
-                            actor.id, e
-                        )))
-                    }
-                }
-            }
-        }
-    }
+    // NOTE: Polynomial computation removed - the solver now discovers
+    // lane change trajectories dynamically using smoothness constraints
 
     Ok(spec)
 }

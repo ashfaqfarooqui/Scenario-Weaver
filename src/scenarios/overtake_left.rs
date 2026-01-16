@@ -135,30 +135,30 @@ impl ScenarioModel for OvertakeLeftModel {
         // ===== PHASE 1: Before overtake_start_time.min =====
         // NPC must be in original lane (same as ego)
         for t in 0..start_min_step.saturating_sub(1) {
-            let lane_t = &encoder.lanes[npc_id][t];
+            let lane_t = encoder.get_lane_var(npc_id, t);
             backend.assert(&lane_t.eq(&original_val));
         }
 
         // ===== PHASE 2: Between start_max and end_min =====
         // NPC must be in passing lane (guaranteed passing window)
         for t in start_max_step..=end_min_step.min(horizon) {
-            let lane_t = &encoder.lanes[npc_id][t];
+            let lane_t = encoder.get_lane_var(npc_id, t);
             backend.assert(&lane_t.eq(&passing_val));
         }
 
         // ===== PHASE 3: After overtake_end_time.max =====
         // NPC must be back in original lane
         for t in end_max_step..=horizon {
-            let lane_t = &encoder.lanes[npc_id][t];
+            let lane_t = encoder.get_lane_var(npc_id, t);
             backend.assert(&lane_t.eq(&original_val));
         }
 
         // ===== CRITICAL: Position constraint - NPC must be ahead before returning =====
         // At return time window, if NPC is in original lane, it must be ahead of ego
         for t in end_min_step.saturating_sub(1)..=end_max_step.min(horizon) {
-            let npc_px = &encoder.positions_x[npc_id][t];
-            let ego_px = &encoder.positions_x[ego_id][t];
-            let lane_t = &encoder.lanes[npc_id][t];
+            let npc_px = encoder.get_longitudinal_pos(npc_id, t);
+            let ego_px = encoder.get_longitudinal_pos(ego_id, t);
+            let lane_t = encoder.get_lane_var(npc_id, t);
 
             // If NPC is returning to original lane at this step, it must be ahead
             let in_original = lane_t.eq(&original_val);
@@ -172,8 +172,8 @@ impl ScenarioModel for OvertakeLeftModel {
         // Prevent oscillation: only allow transitions in correct direction
 
         for t in 0..horizon {
-            let lane_t = &encoder.lanes[npc_id][t];
-            let lane_t1 = &encoder.lanes[npc_id][t + 1];
+            let lane_t = encoder.get_lane_var(npc_id, t);
+            let lane_t1 = encoder.get_lane_var(npc_id, t + 1);
 
             // Once in passing lane before end window, stay in passing lane
             if t < end_min_step.saturating_sub(1) {
@@ -191,14 +191,14 @@ impl ScenarioModel for OvertakeLeftModel {
         }
 
         // ===== Initial position constraint: NPC behind ego =====
-        let npc_px_0 = &encoder.positions_x[npc_id][0];
-        let ego_px_0 = &encoder.positions_x[ego_id][0];
+        let npc_px_0 = encoder.get_longitudinal_pos(npc_id, 0);
+        let ego_px_0 = encoder.get_longitudinal_pos(ego_id, 0);
         backend.assert(&npc_px_0.lt(ego_px_0));
 
         // ===== Lane restriction: NPC can only be in original or passing lane =====
         // This prevents the NPC from using arbitrary lanes during transition windows
         for t in 0..=horizon {
-            let lane_t = &encoder.lanes[npc_id][t];
+            let lane_t = encoder.get_lane_var(npc_id, t);
             let in_original = lane_t.eq(&original_val);
             let in_passing = lane_t.eq(&passing_val);
             backend.assert(&Bool::or(&[&in_original, &in_passing]));

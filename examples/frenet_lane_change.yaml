@@ -1,19 +1,19 @@
-# Example: Frenet Coordinate System with Polynomial Lane Change
+# Example: Frenet Coordinate System with Solver-Discovered Lane Changes
 #
-# This example demonstrates the new Frenet coordinate system that enables
-# smooth lane changes using quintic polynomials.
+# This example demonstrates the Frenet coordinate system where the solver
+# discovers smooth lane change trajectories dynamically using smoothness constraints.
 #
 # Key features:
 # - coordinate_system: frenet - Uses Frenet (s, t) coordinates instead of Cartesian (x, y)
-# - lane_change with polynomial method - Generates smooth C² continuous lane changes
-# - Polynomial coefficients are automatically computed during parsing
+# - lane_change with ranges - Solver chooses optimal start_time and duration
+# - Smooth trajectories - Lateral acceleration and velocity constrained for realism
 
 scenario_type: cut_in_left
 time_step: 0.1
-duration: 8.0
+duration: 15.0
 
 # Coordinate system selection
-# - frenet: Uses Frenet coordinates (s, t) for smoother lateral motion
+# - frenet: Uses Frenet coordinates (s, t) with solver-discovered lane changes
 # - cartesian: Uses Cartesian coordinates (x, y) with discrete lane assignments
 coordinate_system: frenet
 
@@ -44,12 +44,12 @@ actors:
     acceleration: [-8.0, 3.0]
 
     # Lane change configuration
+    # NOTE: Polynomial method removed - solver discovers trajectories
     lane_change:
       enabled: true
-      method: polynomial  # Quintic polynomial for C² continuity
-      direction: left     # Lane change direction
-      start_time: 5.0     # Start lane change at t=5.0s
-      duration: 3.0       # Complete lane change in 3.0s
+      direction: left           # Lane change direction
+      start_time: [4.0, 6.0]    # Range: solver chooses when to start (between 4.0s and 6.0s)
+      duration: [2.5, 3.5]      # Range: solver chooses how long (between 2.5s and 3.5s)
 
 min_ttc: 3.0
 min_distance: 5.0

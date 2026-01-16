@@ -87,14 +87,14 @@ impl ScenarioModel for CutInRightModel {
         // Constraint: NPC must be in initial lane before cut_in_time_min
         let initial_val = Int::from_i64(initial_lane as i64);
         for t in 0..min_step.saturating_sub(1) {
-            let lane_t = &encoder.lanes[npc_id][t];
+            let lane_t = encoder.get_lane_var(npc_id, t);
             backend.assert(&lane_t.eq(&initial_val));
         }
 
         // Constraint: NPC must be in target lane after cut_in_time_max
         let target_val = Int::from_i64(target_lane as i64);
         for t in max_step..=horizon {
-            let lane_t = &encoder.lanes[npc_id][t];
+            let lane_t = encoder.get_lane_var(npc_id, t);
             backend.assert(&lane_t.eq(&target_val));
         }
 
@@ -105,8 +105,8 @@ impl ScenarioModel for CutInRightModel {
         // We enforce: for all pairs of consecutive time steps, if we're in target at t,
         // we cannot transition back to initial lane at t+1
         for t in 0..horizon {
-            let lane_t = &encoder.lanes[npc_id][t];
-            let lane_t1 = &encoder.lanes[npc_id][t + 1];
+            let lane_t = encoder.get_lane_var(npc_id, t);
+            let lane_t1 = encoder.get_lane_var(npc_id, t + 1);
 
             // If lane[t] == target_lane, then lane[t+1] != initial_lane
             // (This is stronger than just requiring lane[t+1] == target)

@@ -188,7 +188,7 @@ impl ScenarioModel for PedestrianCrossingModel {
         // Z3 from generating spurious lane values (e.g., 2, 3, 4).
         let zero_lane = Int::from_i64(0_i64);
         for t in 0..=horizon {
-            let lane_t = &encoder.lanes[pedestrian_id][t];
+            let lane_t = encoder.get_lane_var(pedestrian_id, t);
             backend.assert(&lane_t.eq(&zero_lane));
         }
 
@@ -211,8 +211,8 @@ impl ScenarioModel for PedestrianCrossingModel {
 
                 let mut slow_constraints = vec![];
                 for t in start_hesitate..end_hesitate {
-                    let vx_t = &encoder.velocities_x[pedestrian_id][t];
-                    let vy_t = &encoder.velocities_y[pedestrian_id][t];
+                    let vx_t = encoder.get_longitudinal_vel(pedestrian_id, t);
+                    let vy_t = encoder.get_lateral_vel(pedestrian_id, t);
                     let vx_sq = vx_t * vx_t;
                     let vy_sq = vy_t * vy_t;
                     let speed_sq = &vx_sq + &vy_sq;

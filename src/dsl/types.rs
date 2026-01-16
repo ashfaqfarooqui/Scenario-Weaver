@@ -71,17 +71,6 @@ pub enum CoordinateSystem {
     Cartesian,
 }
 
-/// Lane change method
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum LaneChangeMethod {
-    /// Quintic polynomial smooth lane change (C² continuous)
-    #[default]
-    Polynomial,
-    /// Constant lateral velocity (not smooth, for comparison)
-    ConstantVy,
-}
-
 /// Lane change direction
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -91,17 +80,17 @@ pub enum LaneChangeDirection {
 }
 
 /// Lane change configuration
+///
+/// The solver discovers lane change trajectories dynamically using smoothness
+/// constraints, rather than pre-computing them with polynomials.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LaneChangeConfig {
     pub enabled: bool,
-    #[serde(default)]
-    pub method: LaneChangeMethod,
     pub direction: LaneChangeDirection,
-    pub start_time: f64,
-    pub duration: f64,
-    /// Computed during parsing (not in YAML)
-    #[serde(skip)]
-    pub polynomial_coeffs: Option<[f64; 6]>,
+    /// Start time (can be a fixed value or range for solver to choose)
+    pub start_time: ValueOrRange,
+    /// Duration (can be a fixed value or range for solver to choose)
+    pub duration: ValueOrRange,
 }
 
 /// Configuration for how constraints should be enforced
