@@ -25,12 +25,12 @@ actors:
   - id: npc
     role: npc
     lane: 0 # left lane
-    position: [60.0, 80.0] # start 60-80m from start (Z3 chooses)
+    position: [20.0, 80.0] # start 60-80m from start (Z3 chooses)
     speed: [16.0, 20.0] # slightly slower (Z3 chooses)
     direction: 1
     acceleration: [0.0, 3.0] # -8.0 to 3.0 m/s²
     behavior:
-      cut_in_time: [1.4, 7.5] # cut in between 2.5-7.5 seconds
+      cut_in_time: [1.4, 3.5] # cut in between 2.5-7.5 seconds
 
 # Safety constraints
 min_ttc: 3.0 # minimum 3 second time-to-collision
