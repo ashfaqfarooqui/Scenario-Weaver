@@ -568,21 +568,50 @@ cargo doc --open
 
 ## Architecture
 
-The generator uses a **modular, trait-based plugin system** for scenario types:
+The generator uses a **modular, trait-based plugin system** for both scenario types and coordinate systems:
 
 ### Pipeline
 
 1. **DSL Parser** (`src/dsl/`) - Parse YAML into structured specification
 2. **Scenario Model** (`src/scenarios/`) - Trait-based scenario implementations
 3. **LTL Generator** (`src/ltl/`) - Convert specification to temporal logic constraints
-4. **Z3 Encoder** (`src/solver/`) - Encode LTL + physics + safety into Z3 constraints
+4. **Z3 Encoder** (`src/solver/`) - Coordinate-specific encoders via trait objects
+   - `GenericEncoder` facade dispatches to `CartesianEncoder` or `FrenetEncoder`
+   - Coordinate-specific logic in `src/solver/encoders/cartesian.rs` and `frenet.rs`
 5. **Scenario Extractor** (`src/scenario/`) - Extract solution as JSON trajectories
+
+### Encoder Architecture
+
+The encoder system uses a **trait-based plugin architecture**:
+
+- **`CoordinateEncoder<B>` trait**: Defines interface for coordinate-specific encoders
+  - Variable creation (`create_variables`)
+  - Kinematics encoding (`encode_kinematics`)
+  - Constraint encoding (`encode_velocity_constraints`, `encode_acceleration_constraints`, etc.)
+  - Variable accessors (`get_longitudinal_pos`, `get_lateral_pos`, `get_longitudinal_vel`, etc.)
+  - Trajectory extraction (`extract_actor_trajectory`)
+
+- **`GenericEncoder<B>`**: Thin facade that coordinates encoding
+  - Holds `Box<dyn CoordinateEncoder<B>>` trait object
+  - Dispatches to appropriate encoder based on `scenario.coordinate_system`
+  - Maintains coordinate-agnostic logic (LTL encoding, validation metrics)
+
+- **Coordinate-specific implementations**:
+  - `CartesianEncoder<B>`: (x, y) coordinate system with lane-position coupling
+  - `FrenetEncoder<B>`: (s, t) coordinate system with smooth lane change constraints
+
+**Benefits:**
+- Clean separation of coordinate system logic
+- Easy to add new coordinate systems (just implement the trait)
+- Type-safe dispatch at construction time
+- Backward compatible with existing scenario code
 
 ### Key Design Features
 
 - **Generic actor system**: Supports 1 ego + N NPCs with dynamic constraints
 - **Trait-based plugins**: Each scenario type implements `ScenarioModel` trait
-- **Type-safe dispatch**: Enum-based scenario types (no string registry)
+- **Coordinate system plugins**: Each coordinate system implements `CoordinateEncoder` trait
+- **Type-safe dispatch**: Enum-based scenario types and coordinate systems (no string registry)
 - **Automatic safety**: Pairwise TTC and distance constraints by default
 - **Multi-scenario diversity**: Blocking clauses force diverse solutions
 - **Constraint modes**: Enforce, violate, or ignore each safety constraint independently
