@@ -210,44 +210,6 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
     }
 }
 
-/// Add accessor methods to Z3Encoder for multi_solve module
-impl Z3Encoder {
-    /// Get position_x variable for an actor at a specific time
-    pub fn get_position_x(&self, actor_id: &str, time: usize) -> &Real {
-        &self.positions_x[actor_id][time]
-    }
-
-    /// Get velocity_x variable for an actor at a specific time
-    pub fn get_velocity_x(&self, actor_id: &str, time: usize) -> &Real {
-        &self.velocities_x[actor_id][time]
-    }
-
-    /// Get position_y variable for an actor at a specific time
-    pub fn get_position_y(&self, actor_id: &str, time: usize) -> &Real {
-        &self.positions_y[actor_id][time]
-    }
-
-    /// Get velocity_y variable for an actor at a specific time
-    pub fn get_velocity_y(&self, actor_id: &str, time: usize) -> &Real {
-        &self.velocities_y[actor_id][time]
-    }
-
-    /// Get frenet_s variable for an actor at a specific time (Frenet coordinates)
-    pub fn get_frenet_s(&self, actor_id: &str, time: usize) -> &Real {
-        &self.frenet_s[actor_id][time]
-    }
-
-    /// Get frenet_vs variable for an actor at a specific time (Frenet coordinates)
-    pub fn get_frenet_vs(&self, actor_id: &str, time: usize) -> &Real {
-        &self.frenet_vs[actor_id][time]
-    }
-
-    /// Assert a constraint to the solver
-    pub fn assert_constraint(&self, constraint: &Bool) {
-        self.backend.assert(constraint);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
