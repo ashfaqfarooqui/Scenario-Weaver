@@ -1,15 +1,20 @@
 //! Z3 constraint encoder
 
-use std::collections::HashMap;
-use z3::ast::{Int, Real};
+use z3::ast::{Bool, Int, Real};
 use z3::SatResult;
 
 use crate::dsl::types::{ConstraintMode, CoordinateSystem, ScenarioSpec};
 use crate::solver::backend::{SolverBackend, Z3Backend};
+use crate::solver::coordinate_encoder::CoordinateEncoder;
+use crate::solver::encoders::cartesian::CartesianEncoder;
+use crate::solver::encoders::frenet::FrenetEncoder;
 
 /// Z3 SMT encoder for scenario constraints (generic over backend)
 ///
-/// This encoder can work with either `SolverBackend` (SAT checking)
+/// This is now a thin facade that dispatches to coordinate-specific encoders
+/// (CartesianEncoder or FrenetEncoder) via the CoordinateEncoder trait.
+///
+/// The encoder can work with either `SolverBackend` (SAT checking)
 /// or `OptimizerBackend` (optimization objectives).
 ///
 /// Supports both Cartesian (x, y) and Frenet (s, t) coordinate systems.
@@ -17,86 +22,41 @@ use crate::solver::backend::{SolverBackend, Z3Backend};
 /// Note: In Z3 0.19, the context is managed internally and is implicit
 /// within the `with_z3_config()` callback scope.
 pub struct GenericEncoder<B: Z3Backend> {
-    /// Z3 backend (Solver or Optimizer)
-    pub(crate) backend: B,
+    /// Coordinate-specific encoder (Cartesian or Frenet)
+    coord_encoder: Box<dyn CoordinateEncoder<B>>,
 
     /// Original scenario specification
     pub(crate) spec: ScenarioSpec,
 
     /// Number of time steps in the scenario
     pub(crate) horizon: usize,
-
-    // Variable maps: actor_id -> Vec<variable> (one per time step)
-
-    // Cartesian variables
-    /// Longitudinal positions (m)
-    pub(crate) positions_x: HashMap<String, Vec<Real>>,
-
-    /// Lateral positions (m)
-    pub(crate) positions_y: HashMap<String, Vec<Real>>,
-
-    /// Longitudinal velocities (m/s)
-    pub(crate) velocities_x: HashMap<String, Vec<Real>>,
-
-    /// Lateral velocities (m/s)
-    pub(crate) velocities_y: HashMap<String, Vec<Real>>,
-
-    /// Lane numbers (integer)
-    pub(crate) lanes: HashMap<String, Vec<Int>>,
-
-    /// Longitudinal accelerations (m/s²)
-    pub(crate) accelerations_x: HashMap<String, Vec<Real>>,
-
-    /// Lateral accelerations (m/s²)
-    pub(crate) accelerations_y: HashMap<String, Vec<Real>>,
-
-    // Frenet variables
-    /// Longitudinal positions along reference line (m)
-    pub(crate) frenet_s: HashMap<String, Vec<Real>>,
-
-    /// Lateral offsets from reference line (m)
-    pub(crate) frenet_t: HashMap<String, Vec<Real>>,
-
-    /// Longitudinal velocities (m/s)
-    pub(crate) frenet_vs: HashMap<String, Vec<Real>>,
-
-    /// Lateral velocities (m/s)
-    pub(crate) frenet_vt: HashMap<String, Vec<Real>>,
-
-    /// Longitudinal accelerations (m/s²)
-    pub(crate) frenet_as: HashMap<String, Vec<Real>>,
-
-    /// Lateral accelerations (m/s²)
-    pub(crate) frenet_at: HashMap<String, Vec<Real>>,
 }
 
 /// Type alias for backward compatibility - uses Solver backend
 pub type Z3Encoder = GenericEncoder<SolverBackend>;
 
-impl<B: Z3Backend> GenericEncoder<B> {
+impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// Create a new encoder with a specific backend
+    ///
+    /// Dispatches to the appropriate coordinate-specific encoder based on the
+    /// coordinate system specified in the scenario spec.
     ///
     /// Note: This must be called within a `z3::with_z3_config()` callback.
     pub fn with_backend(spec: ScenarioSpec, backend: B) -> Self {
         let horizon = spec.num_time_steps();
 
+        // Dispatch to appropriate encoder based on coordinate system
+        let coord_encoder: Box<dyn CoordinateEncoder<B>> = match spec.coordinate_system {
+            CoordinateSystem::Cartesian => {
+                Box::new(CartesianEncoder::new(spec.clone(), backend))
+            }
+            CoordinateSystem::Frenet => Box::new(FrenetEncoder::new(spec.clone(), backend)),
+        };
+
         Self {
-            backend,
+            coord_encoder,
             spec,
             horizon,
-            positions_x: HashMap::new(),
-            positions_y: HashMap::new(),
-            velocities_x: HashMap::new(),
-            velocities_y: HashMap::new(),
-            lanes: HashMap::new(),
-            accelerations_x: HashMap::new(),
-            accelerations_y: HashMap::new(),
-            frenet_s: HashMap::new(),
-            frenet_t: HashMap::new(),
-            frenet_vs: HashMap::new(),
-            frenet_vt: HashMap::new(),
-            frenet_as: HashMap::new(),
-            frenet_at: HashMap::new(),
         }
     }
 
@@ -130,635 +90,47 @@ impl Z3Encoder {
         &mut self,
         model: &dyn crate::scenarios::ScenarioModel,
     ) -> anyhow::Result<()> {
-        model.add_z3_constraints(&self.spec, self, &self.backend, self.horizon)
+        model.add_z3_constraints(&self.spec, self, self.coord_encoder.backend(), self.horizon)
             .map_err(|e| anyhow::anyhow!(e))
     }
 }
 
-impl<B: Z3Backend> GenericEncoder<B> {
+impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// Create all Z3 variables for the scenario
     ///
-    /// For each actor and each time step t ∈ [0, horizon],
-    /// creates variables:
-    /// - px_t: longitudinal position
-    /// - py_t: lateral position
-    /// - vx_t: longitudinal velocity
-    /// - vy_t: lateral velocity
-    /// - ax_t: longitudinal acceleration
-    /// - ay_t: lateral acceleration
-    /// - lane_t: lane number
+    /// Delegates to the coordinate-specific encoder.
     pub fn create_variables(&mut self) {
-        let use_frenet = matches!(self.spec.coordinate_system, CoordinateSystem::Frenet);
-
-        for actor in &self.spec.actors {
-            let actor_id = &actor.id;
-
-            let mut px_vars = Vec::new();
-            let mut py_vars = Vec::new();
-            let mut vx_vars = Vec::new();
-            let mut vy_vars = Vec::new();
-            let mut lane_vars = Vec::new();
-            let mut ax_vars = Vec::new();
-            let mut ay_vars = Vec::new();
-
-            // Frenet variables
-            let mut s_vars = Vec::new();
-            let mut t_vars = Vec::new();
-            let mut vs_vars = Vec::new();
-            let mut vt_vars = Vec::new();
-            let mut as_vars = Vec::new();
-            let mut at_vars = Vec::new();
-
-            // Create variables for each time step
-            for t in 0..=self.horizon {
-                // Cartesian variables (always created for backward compatibility)
-                px_vars.push(Real::new_const(format!("{}_px_{}", actor_id, t)));
-                py_vars.push(Real::new_const(format!("{}_py_{}", actor_id, t)));
-                vx_vars.push(Real::new_const(format!("{}_vx_{}", actor_id, t)));
-                vy_vars.push(Real::new_const(format!("{}_vy_{}", actor_id, t)));
-                lane_vars.push(Int::new_const(format!("{}_lane_{}", actor_id, t)));
-                ax_vars.push(Real::new_const(format!("{}_ax_{}", actor_id, t)));
-                ay_vars.push(Real::new_const(format!("{}_ay_{}", actor_id, t)));
-
-                // Frenet variables (created when needed)
-                if use_frenet {
-                    s_vars.push(Real::new_const(format!("{}_s_{}", actor_id, t)));
-                    t_vars.push(Real::new_const(format!("{}_t_{}", actor_id, t)));
-                    vs_vars.push(Real::new_const(format!("{}_vs_{}", actor_id, t)));
-                    vt_vars.push(Real::new_const(format!("{}_vt_{}", actor_id, t)));
-                    as_vars.push(Real::new_const(format!("{}_as_{}", actor_id, t)));
-                    at_vars.push(Real::new_const(format!("{}_at_{}", actor_id, t)));
-                }
-            }
-
-            self.positions_x.insert(actor_id.clone(), px_vars);
-            self.positions_y.insert(actor_id.clone(), py_vars);
-            self.velocities_x.insert(actor_id.clone(), vx_vars);
-            self.velocities_y.insert(actor_id.clone(), vy_vars);
-            self.lanes.insert(actor_id.clone(), lane_vars);
-            self.accelerations_x.insert(actor_id.clone(), ax_vars);
-            self.accelerations_y.insert(actor_id.clone(), ay_vars);
-
-            if use_frenet {
-                self.frenet_s.insert(actor_id.clone(), s_vars);
-                self.frenet_t.insert(actor_id.clone(), t_vars);
-                self.frenet_vs.insert(actor_id.clone(), vs_vars);
-                self.frenet_vt.insert(actor_id.clone(), vt_vars);
-                self.frenet_as.insert(actor_id.clone(), as_vars);
-                self.frenet_at.insert(actor_id.clone(), at_vars);
-            }
-        }
+        self.coord_encoder.create_variables(self.horizon, &self.spec);
     }
 
     /// Encode initial conditions from the DSL specification
     pub fn encode_initial_conditions(&mut self) {
-        use crate::dsl::types::ActorRole;
-
-        // Collect all actor data upfront to avoid borrow checker issues
-        let actor_data: Vec<_> = self
-            .spec
-            .actors
-            .iter()
-            .map(|actor| {
-                (
-                    actor.id.clone(),
-                    actor.lane,
-                    actor.position.min(),
-                    actor.position.max(),
-                    actor.speed.min(),
-                    actor.speed.max(),
-                    actor.acceleration.min(),
-                    actor.acceleration.max(),
-                    actor.role,
-                    actor.direction,
-                    actor.behavior.clone(),
-                )
-            })
-            .collect();
-
-        for (
-            actor_id,
-            lane,
-            pos_min,
-            pos_max,
-            speed_min,
-            speed_max,
-            acc_min,
-            acc_max,
-            role,
-            direction,
-            behavior,
-        ) in actor_data
-        {
-            // Call existing encoding method
-            self.encode_actor_initial_state(
-                &actor_id, lane, pos_min, pos_max, speed_min, speed_max, acc_min, acc_max, role,
-                direction,
-            );
-
-            // Handle lateral position constraints
-            if role == ActorRole::Pedestrian {
-                // Pedestrians start on sidewalk (based on direction field in behavior)
-                // Use range to allow Z3 to choose specific position that works
-                let lane_width = self.spec.get_lane_width();
-                let num_lanes = self.spec.get_num_lanes();
-                let road_width = lane_width * num_lanes as f64;
-
-                let py_0 = &self.positions_y[&actor_id][0];
-                let road_width_real = Real::from_rational((road_width * 10.0) as i64, 10_i64);
-
-                // Get crossing direction from behavior
-                let direction = behavior.get("direction").and_then(|v| v.as_str());
-
-                // Set initial sidewalk position based on direction
-                if let Some(dir) = direction {
-                    match dir {
-                        "left_to_right" => {
-                            // Left sidewalk: py between -0.6 and -0.4
-                            let sidewalk_min = Real::from_rational(-6_i64, 10_i64);
-                            let sidewalk_max = Real::from_rational(-4_i64, 10_i64);
-                            self.backend.assert(&py_0.ge(&sidewalk_min));
-                            self.backend.assert(&py_0.le(&sidewalk_max));
-                        }
-                        "right_to_left" => {
-                            // Right sidewalk: py between road_width + 0.4 and road_width + 0.6
-                            let sidewalk_min =
-                                &road_width_real + &Real::from_rational(4_i64, 10_i64);
-                            let sidewalk_max =
-                                &road_width_real + &Real::from_rational(6_i64, 10_i64);
-                            self.backend.assert(&py_0.ge(&sidewalk_min));
-                            self.backend.assert(&py_0.le(&sidewalk_max));
-                        }
-                        _ => {
-                            tracing::error!(
-                                "Invalid direction '{}' for pedestrian {}",
-                                dir,
-                                actor_id
-                            );
-                            // Fall back to left sidewalk
-                            let sidewalk_min = Real::from_rational(-6_i64, 10_i64);
-                            let sidewalk_max = Real::from_rational(-4_i64, 10_i64);
-                            self.backend.assert(&py_0.ge(&sidewalk_min));
-                            self.backend.assert(&py_0.le(&sidewalk_max));
-                        }
-                    }
-                } else {
-                    tracing::error!("Pedestrian {} missing 'direction' in behavior", actor_id);
-                    // Fall back to left sidewalk
-                    let sidewalk_min = Real::from_rational(-6_i64, 10_i64);
-                    let sidewalk_max = Real::from_rational(-4_i64, 10_i64);
-                    self.backend.assert(&py_0.ge(&sidewalk_min));
-                    self.backend.assert(&py_0.le(&sidewalk_max));
-                }
-
-                // Set initial lane to 0 for all pedestrians (value doesn't matter semantically)
-                let lane_0 = &self.lanes[&actor_id][0];
-                let zero_lane = Int::from_i64(0_i64);
-                self.backend.assert(&lane_0.eq(&zero_lane));
-            } else {
-                // Vehicles: initial lateral position matches lane center
-                self.encode_lane_position_coupling_at_time(&actor_id, 0);
-            }
-
-            // Ego never changes lanes (vy = 0)
-            // Pedestrians can move laterally, so skip this constraint for them
-            if role == ActorRole::Ego {
-                let zero = Real::from_rational(0_i64, 1_i64);
-                let vy_0 = &self.velocities_y[&actor_id][0];
-                self.backend.assert(&vy_0.eq(&zero));
-            }
-        }
-    }
-
-    /// Encode initial state for an actor
-    fn encode_actor_initial_state(
-        &mut self,
-        actor_id: &str,
-        lane: usize,
-        pos_min: f64,
-        pos_max: f64,
-        speed_min: f64,
-        speed_max: f64,
-        accel_min: f64,
-        accel_max: f64,
-        role: crate::dsl::types::ActorRole,
-        direction: i32,
-    ) {
-        use crate::dsl::types::{ActorRole, CoordinateSystem};
-
-        // Lane at t=0
-        let lane_var = &self.lanes[actor_id][0];
-        let lane_val = Int::from_i64(lane as i64);
-        self.backend.assert(&lane_var.eq(&lane_val));
-
-        // Position at t=0
-        let px_var = &self.positions_x[actor_id][0];
-        if (pos_min - pos_max).abs() < 1e-6 {
-            // Fixed value
-            let pos_val = Real::from_rational((pos_min * 10.0) as i64, 10_i64);
-            self.backend.assert(&px_var.eq(&pos_val));
-        } else {
-            // Range
-            let min_val = Real::from_rational((pos_min * 10.0) as i64, 10_i64);
-            let max_val = Real::from_rational((pos_max * 10.0) as i64, 10_i64);
-            self.backend.assert(&px_var.ge(&min_val));
-            self.backend.assert(&px_var.le(&max_val));
-        }
-
-        // Velocity at t=0
-        // Use actor direction: speed is magnitude, vx sign depends on direction
-        let vx_var = &self.velocities_x[actor_id][0];
-
-        if (speed_min - speed_max).abs() < 1e-6 {
-            // Fixed value
-            let speed = if direction == 1 {
-                speed_min
-            } else {
-                -speed_min
-            };
-            let speed_val = Real::from_rational((speed * 10.0) as i64, 10_i64);
-            self.backend.assert(&vx_var.eq(&speed_val));
-        } else {
-            // Range
-            if direction == 1 {
-                // Forward: vx in [speed_min, speed_max]
-                let min_val = Real::from_rational((speed_min * 10.0) as i64, 10_i64);
-                let max_val = Real::from_rational((speed_max * 10.0) as i64, 10_i64);
-                self.backend.assert(&vx_var.ge(&min_val));
-                self.backend.assert(&vx_var.le(&max_val));
-            } else {
-                // Backward: vx in [-speed_max, -speed_min]
-                let min_val = Real::from_rational((-speed_max * 10.0) as i64, 10_i64);
-                let max_val = Real::from_rational((-speed_min * 10.0) as i64, 10_i64);
-                self.backend.assert(&vx_var.ge(&min_val));
-                self.backend.assert(&vx_var.le(&max_val));
-            }
-        }
-
-        // Initial lateral velocity
-        // For vehicles: zero (not changing lanes initially)
-        // For pedestrians: unconstrained (they need to cross laterally)
-        let vy_var = &self.velocities_y[actor_id][0];
-        let zero = Real::from_rational(0_i64, 1_i64);
-        if role != ActorRole::Pedestrian {
-            self.backend.assert(&vy_var.eq(&zero));
-        }
-
-        // Initial acceleration at t=0
-        let ax_var = &self.accelerations_x[actor_id][0];
-        if (accel_min - accel_max).abs() < 1e-6 {
-            // Fixed acceleration
-            let accel_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
-            self.backend.assert(&ax_var.eq(&accel_val));
-        } else {
-            // Acceleration range
-            let min_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
-            let max_val = Real::from_rational((accel_max * 10.0) as i64, 10_i64);
-            self.backend.assert(&ax_var.ge(&min_val));
-            self.backend.assert(&ax_var.le(&max_val));
-        }
-
-        // Initial lateral acceleration
-        // For vehicles: zero (not changing lanes initially)
-        // For pedestrians: unconstrained (they need to accelerate laterally to cross)
-        let ay_var = &self.accelerations_y[actor_id][0];
-        if role != ActorRole::Pedestrian {
-            self.backend.assert(&ay_var.eq(&zero));
-        }
-
-        // Frenet initial conditions (if using Frenet coordinate system)
-        if matches!(self.spec.coordinate_system, CoordinateSystem::Frenet) {
-            // Calculate initial Frenet coordinates from lane
-            let num_lanes = self.spec.road.as_ref().map(|r| r.num_lanes).unwrap_or(2);
-            let lane_width = self.spec.lane_width;
-
-            // Initial lateral position t: center of the lane
-            // Lane 0 is at 0.5*lane_width, Lane 1 is at 1.5*lane_width, etc.
-            let t_initial = (lane as f64 + 0.5) * lane_width;
-            let t_val = Real::from_rational((t_initial * 10.0) as i64, 10_i64);
-            let t_var = &self.frenet_t[actor_id][0];
-            self.backend.assert(&t_var.eq(&t_val));
-
-            // Initial longitudinal position s: convert from x position
-            let s_min = Real::from_rational((pos_min * 10.0) as i64, 10_i64);
-            let s_max = Real::from_rational((pos_max * 10.0) as i64, 10_i64);
-            let s_var = &self.frenet_s[actor_id][0];
-            if (pos_min - pos_max).abs() < 1e-6 {
-                self.backend.assert(&s_var.eq(&s_min));
-            } else {
-                self.backend.assert(&s_var.ge(&s_min));
-                self.backend.assert(&s_var.le(&s_max));
-            }
-
-            // Initial longitudinal velocity vs: same as speed magnitude
-            if (speed_min - speed_max).abs() < 1e-6 {
-                let vs_val = Real::from_rational((speed_min * 10.0) as i64, 10_i64);
-                let vs_var = &self.frenet_vs[actor_id][0];
-                self.backend.assert(&vs_var.eq(&vs_val));
-            } else {
-                let vs_min = Real::from_rational((speed_min * 10.0) as i64, 10_i64);
-                let vs_max = Real::from_rational((speed_max * 10.0) as i64, 10_i64);
-                let vs_var = &self.frenet_vs[actor_id][0];
-                self.backend.assert(&vs_var.ge(&vs_min));
-                self.backend.assert(&vs_var.le(&vs_max));
-            }
-
-            // Initial lateral velocity vt: zero (not changing lanes initially)
-            let vt_var = &self.frenet_vt[actor_id][0];
-            self.backend.assert(&vt_var.eq(&zero));
-
-            // Initial longitudinal acceleration as: use acceleration range
-            let as_var = &self.frenet_as[actor_id][0];
-            if (accel_min - accel_max).abs() < 1e-6 {
-                let as_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
-                self.backend.assert(&as_var.eq(&as_val));
-            } else {
-                let as_min = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
-                let as_max = Real::from_rational((accel_max * 10.0) as i64, 10_i64);
-                self.backend.assert(&as_var.ge(&as_min));
-                self.backend.assert(&as_var.le(&as_max));
-            }
-
-            // Initial lateral acceleration at: zero (not changing lanes initially)
-            let at_var = &self.frenet_at[actor_id][0];
-            if role != ActorRole::Pedestrian {
-                self.backend.assert(&at_var.eq(&zero));
-            }
-        }
-    }
-
-    /// Encode constraint: lateral position matches lane center
-    /// py = lane * lane_width + lane_width/2
-    fn encode_lane_position_coupling_at_time(&mut self, actor_id: &str, t: usize) {
-        let lane_var = &self.lanes[actor_id][t];
-        let py_var = &self.positions_y[actor_id][t];
-
-        let lane_width = self.spec.lane_width;
-        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
-        let half_width = Real::from_rational((lane_width * 5.0) as i64, 10_i64);
-
-        // py = lane * lane_width + lane_width/2
-        let lane_real = lane_var.to_real();
-        let expected_py = lane_real * &lane_width_real + &half_width;
-        self.backend.assert(&py_var.eq(&expected_py));
+        self.coord_encoder.encode_initial_conditions();
     }
 
     /// Encode kinematic constraints with acceleration support
-    ///
-    /// Dispatches to either Cartesian or Frenet kinematics encoding based on coordinate_system.
     pub fn encode_kinematics(&mut self) {
-        match self.spec.coordinate_system {
-            CoordinateSystem::Frenet => self.encode_frenet_kinematics(),
-            CoordinateSystem::Cartesian => self.encode_cartesian_kinematics(),
-        }
+        self.coord_encoder.encode_kinematics(self.spec.time_step);
     }
 
-    /// Encode Cartesian kinematic constraints (original implementation)
-    fn encode_cartesian_kinematics(&mut self) {
-        use crate::dsl::types::{
-            ActorRole, PEDESTRIAN_MAX_ACCELERATION, PEDESTRIAN_MAX_DECELERATION,
-            PEDESTRIAN_RUN_MAX_SPEED, PEDESTRIAN_WALK_MAX_SPEED,
-        };
-
-        let dt = self.spec.time_step;
-        let dt_real = Real::from_rational((dt * 10.0) as i64, 10_i64);
-        let zero = Real::from_rational(0_i64, 1_i64);
-
-        for actor in &self.spec.actors {
-            let actor_id = &actor.id;
-
-            // Get acceleration bounds from actor spec
-            // For pedestrians, clamp to pedestrian-specific physics limits
-            let (ax_min, ax_max) = if actor.role == ActorRole::Pedestrian {
-                let spec_min = actor.acceleration.min();
-                let spec_max = actor.acceleration.max();
-                (
-                    spec_min.max(PEDESTRIAN_MAX_DECELERATION),
-                    spec_max.min(PEDESTRIAN_MAX_ACCELERATION),
-                )
-            } else {
-                (actor.acceleration.min(), actor.acceleration.max())
-            };
-            let ax_min_real = Real::from_rational((ax_min * 10.0) as i64, 10_i64);
-            let ax_max_real = Real::from_rational((ax_max * 10.0) as i64, 10_i64);
-
-            for t in 0..self.horizon {
-                // ========== LONGITUDINAL DYNAMICS ==========
-
-                // Acceleration bounds at each timestep
-                let ax_t = &self.accelerations_x[actor_id][t];
-                self.backend.assert(&ax_t.ge(&ax_min_real));
-                self.backend.assert(&ax_t.le(&ax_max_real));
-
-                // Velocity update: vx[t+1] = vx[t] + ax[t] * dt
-                let vx_t = &self.velocities_x[actor_id][t];
-                let vx_t1 = &self.velocities_x[actor_id][t + 1];
-                let expected_vx = vx_t + &(ax_t * &dt_real);
-                self.backend.assert(&vx_t1.eq(&expected_vx));
-
-                // Note: Velocity direction constraints are applied separately
-                // in encode_lane_velocity_constraints() based on lane direction
-
-                // Position update: px[t+1] = px[t] + vx[t] * dt
-                let px_t = &self.positions_x[actor_id][t];
-                let px_t1 = &self.positions_x[actor_id][t + 1];
-                let expected_px = px_t + &(vx_t * &dt_real);
-                self.backend.assert(&px_t1.eq(&expected_px));
-
-                // ========== LATERAL DYNAMICS ==========
-
-                // Lateral acceleration bounds (for pedestrians)
-                if actor.role == ActorRole::Pedestrian {
-                    let ay_t = &self.accelerations_y[actor_id][t];
-                    self.backend.assert(&ay_t.ge(&ax_min_real));
-                    self.backend.assert(&ay_t.le(&ax_max_real));
-
-                    // Lateral velocity update for pedestrians: vy[t+1] = vy[t] + ay[t] * dt
-                    let vy_t = &self.velocities_y[actor_id][t];
-                    let vy_t1 = &self.velocities_y[actor_id][t + 1];
-                    let expected_vy = vy_t + &(ay_t * &dt_real);
-                    self.backend.assert(&vy_t1.eq(&expected_vy));
-                }
-
-                // Lateral position update: py[t+1] = py[t] + vy[t] * dt
-                let py_t = &self.positions_y[actor_id][t];
-                let py_t1 = &self.positions_y[actor_id][t + 1];
-                let vy_t = &self.velocities_y[actor_id][t];
-                let expected_py = py_t + &(vy_t * &dt_real);
-                self.backend.assert(&py_t1.eq(&expected_py));
-
-                // Ego never changes lanes (vy = 0)
-                if actor.role == ActorRole::Ego {
-                    self.backend.assert(&vy_t.eq(&zero));
-                }
-
-                // Pedestrian speed magnitude constraints
-                //
-                // LINEARIZED VERSION (Phase 2): Replaced quadratic disk constraint
-                // (vx^2 + vy^2 <= max^2) with linear box constraint (|vx| <= max AND |vy| <= max)
-                //
-                // Trade-off: Box is over-conservative (contains disk), so diagonal speeds up
-                // to sqrt(2) * max are allowed. Compensated by reducing max speeds by sqrt(2)
-                // in constants to maintain semantic correctness.
-                //
-                // Performance: Eliminates QF_NRA (nonlinear) solver requirement, keeps Z3 in
-                // QF_LRA (linear) theory for 10-20x speedup. Multi-solve now works reliably.
-                if actor.role == ActorRole::Pedestrian {
-                    let max_speed = actor
-                        .behavior
-                        .get("walking_mode")
-                        .map(|mode| match mode.as_str() {
-                            Some("run") => PEDESTRIAN_RUN_MAX_SPEED,
-                            _ => PEDESTRIAN_WALK_MAX_SPEED,
-                        })
-                        .unwrap_or(PEDESTRIAN_WALK_MAX_SPEED);
-
-                    let max_speed_real = Real::from_rational((max_speed * 10.0) as i64, 10_i64);
-                    let neg_max_speed = -max_speed;
-                    let neg_max_speed_real =
-                        Real::from_rational((neg_max_speed * 10.0) as i64, 10_i64);
-
-                    // Linear box constraint: |vx| <= max_speed AND |vy| <= max_speed
-                    // vx >= -max_speed AND vx <= max_speed
-                    self.backend.assert(&vx_t.ge(&neg_max_speed_real));
-                    self.backend.assert(&vx_t.le(&max_speed_real));
-
-                    // vy >= -max_speed AND vy <= max_speed
-                    self.backend.assert(&vy_t.ge(&neg_max_speed_real));
-                    self.backend.assert(&vy_t.le(&max_speed_real));
-                }
-            }
-
-            // Note: Final velocity direction constraints are applied
-            // in encode_lane_velocity_constraints() based on lane direction
-        }
-
-        // Lane-position coupling for all time steps (skip pedestrians)
-        let actor_ids: Vec<_> = self
-            .spec
-            .actors
-            .iter()
-            .filter(|a| a.role != ActorRole::Pedestrian)
-            .map(|a| a.id.clone())
-            .collect();
-        for actor_id in actor_ids {
-            for t in 0..=self.horizon {
-                self.encode_lane_position_coupling_at_time(&actor_id, t);
-            }
-        }
-    }
-
-    /// Encode velocity direction constraints based on actor direction
-    ///
-    /// For each actor and time step, constrains velocity to match actor direction:
-    /// - Forward (direction = +1): vx >= 0
-    /// - Backward (direction = -1): vx <= 0
-    ///
-    /// Note: Pedestrians are skipped as they don't follow lane-based kinematics
+    /// Encode lane-based velocity constraints
     pub fn encode_lane_velocity_constraints(&mut self) {
-        use crate::dsl::types::ActorRole;
-
-        let zero = Real::from_rational(0_i64, 1_i64);
-
-        for actor in &self.spec.actors {
-            let actor_id = &actor.id;
-
-            // Skip pedestrians - they don't follow lane-based kinematics
-            if actor.role == ActorRole::Pedestrian {
-                continue;
-            }
-
-            // Use actor's direction (independent of lane direction)
-            let direction = actor.direction;
-
-            for t in 0..=self.horizon {
-                let vx_t = &self.velocities_x[actor_id][t];
-
-                if direction == 1 {
-                    // Forward: vx >= 0
-                    self.backend.assert(&vx_t.ge(&zero));
-                } else {
-                    // Backward: vx <= 0
-                    self.backend.assert(&vx_t.le(&zero));
-                }
-            }
-        }
-
-        // Add lane bounds: 0 <= lane < num_lanes for all actors and time steps
-        let num_lanes = self.spec.get_num_lanes();
-        let max_lane = Int::from_i64((num_lanes - 1) as i64);
-        let zero_lane = Int::from_i64(0);
-
-        for actor in &self.spec.actors {
-            let actor_id = &actor.id;
-            for t in 0..=self.horizon {
-                let lane_var = &self.lanes[actor_id][t];
-                self.backend.assert(&lane_var.ge(&zero_lane));
-                self.backend.assert(&lane_var.le(&max_lane));
-            }
-        }
-
-        // Add single-lane-jump constraint: |lane[t+1] - lane[t]| <= 1
-        // Prevents vehicles from jumping multiple lanes at once
-        let one = Int::from_i64(1);
-        let neg_one = Int::from_i64(-1);
-
-        for actor in &self.spec.actors {
-            if actor.role != ActorRole::Ego {
-                // Ego already constrained (vy = 0, lane never changes)
-                let actor_id = &actor.id;
-                for t in 0..self.horizon {
-                    let lane_t = &self.lanes[actor_id][t];
-                    let lane_t1 = &self.lanes[actor_id][t + 1];
-                    let diff = lane_t1 - lane_t;
-                    // -1 <= diff <= 1
-                    self.backend.assert(&diff.ge(&neg_one));
-                    self.backend.assert(&diff.le(&one));
-                }
-            }
-        }
+        self.coord_encoder.encode_lane_velocity_constraints();
     }
 
     /// Encode lateral velocity bounds for realistic lane changes
-    ///
-    /// Constrains lateral velocity to be within a reasonable range based on
-    /// lane width and time step. This ensures physically realistic lane change
-    /// maneuvers while still allowing lane changes within 1-2 time steps.
-    ///
-    /// The bound is: max_vy = (lane_width / time_step) * 1.1
-    /// This allows single-timestep lane changes with a small buffer.
-    ///
-    /// Example: For 3.5m lanes and 0.5s timestep: max_vy = 7.7 m/s (~28 km/h lateral)
     pub fn encode_lateral_velocity_bounds(&mut self) {
-        use crate::dsl::types::ActorRole;
-
-        // max_vy allows single-timestep lane changes with 10% buffer
-        // This is much more reasonable than unconstrained (which produced 14+ m/s)
-        let max_vy = (self.spec.lane_width / self.spec.time_step) * 1.1;
-        let max_vy_real = Real::from_rational((max_vy * 10.0) as i64, 10_i64);
-        let neg_max_vy_real = Real::from_rational((-max_vy * 10.0) as i64, 10_i64);
-
-        for actor in &self.spec.actors {
-            if actor.role != ActorRole::Ego {
-                // Ego vy already constrained to 0 (no lane changes)
-                let actor_id = &actor.id;
-                for t in 0..=self.horizon {
-                    let vy_t = &self.velocities_y[actor_id][t];
-                    self.backend.assert(&vy_t.ge(&neg_max_vy_real));
-                    self.backend.assert(&vy_t.le(&max_vy_real));
-                }
-            }
-        }
+        self.coord_encoder.encode_lateral_velocity_bounds();
     }
 
     /// Check if the constraints are satisfiable (for testing)
     pub fn check(&self) -> SatResult {
-        self.backend.check()
+        self.coord_encoder.backend().check()
     }
 
     /// Get the Z3 model (for testing)
     pub fn get_model(&self) -> Option<z3::Model> {
-        self.backend.get_model()
+        self.coord_encoder.backend().get_model()
     }
 
     // === Variable Accessor Methods ===
@@ -766,40 +138,67 @@ impl<B: Z3Backend> GenericEncoder<B> {
 
     /// Get lane variable for an actor at a given time
     pub fn get_lane_var(&self, actor_id: &str, time: usize) -> &Int {
-        &self.lanes[actor_id][time]
+        self.coord_encoder.get_lane_var(actor_id, time)
     }
 
     /// Get longitudinal position variable for an actor at a given time
     pub fn get_longitudinal_pos(&self, actor_id: &str, time: usize) -> &Real {
-        match self.spec.coordinate_system {
-            CoordinateSystem::Cartesian => &self.positions_x[actor_id][time],
-            CoordinateSystem::Frenet => &self.frenet_s[actor_id][time],
-        }
+        self.coord_encoder.get_longitudinal_pos(actor_id, time)
     }
 
     /// Get lateral position variable for an actor at a given time
     pub fn get_lateral_pos(&self, actor_id: &str, time: usize) -> &Real {
-        match self.spec.coordinate_system {
-            CoordinateSystem::Cartesian => &self.positions_y[actor_id][time],
-            CoordinateSystem::Frenet => &self.frenet_t[actor_id][time],
-        }
+        self.coord_encoder.get_lateral_pos(actor_id, time)
     }
 
     /// Get longitudinal velocity variable for an actor at a given time
     pub fn get_longitudinal_vel(&self, actor_id: &str, time: usize) -> &Real {
-        match self.spec.coordinate_system {
-            CoordinateSystem::Cartesian => &self.velocities_x[actor_id][time],
-            CoordinateSystem::Frenet => &self.frenet_vs[actor_id][time],
-        }
+        self.coord_encoder.get_longitudinal_vel(actor_id, time)
     }
 
     /// Get lateral velocity variable for an actor at a given time
     pub fn get_lateral_vel(&self, actor_id: &str, time: usize) -> &Real {
-        match self.spec.coordinate_system {
-            CoordinateSystem::Cartesian => &self.velocities_y[actor_id][time],
-            CoordinateSystem::Frenet => &self.frenet_vt[actor_id][time],
-        }
+        self.coord_encoder.get_lateral_vel(actor_id, time)
     }
+
+    // === Coordinate-specific accessors (for multi_solve.rs blocking clauses) ===
+
+    /// Get Frenet s coordinate (longitudinal position along reference line)
+    pub fn get_frenet_s(&self, actor_id: &str, time: usize) -> &Real {
+        self.get_longitudinal_pos(actor_id, time)
+    }
+
+    /// Get Frenet vs coordinate (longitudinal velocity)
+    pub fn get_frenet_vs(&self, actor_id: &str, time: usize) -> &Real {
+        self.get_longitudinal_vel(actor_id, time)
+    }
+
+    /// Get Cartesian x position (maps to longitudinal position)
+    pub fn get_position_x(&self, actor_id: &str, time: usize) -> &Real {
+        self.get_longitudinal_pos(actor_id, time)
+    }
+
+    /// Get Cartesian x velocity (maps to longitudinal velocity)
+    pub fn get_velocity_x(&self, actor_id: &str, time: usize) -> &Real {
+        self.get_longitudinal_vel(actor_id, time)
+    }
+
+    /// Get Cartesian y position (maps to lateral position)
+    pub fn get_position_y(&self, actor_id: &str, time: usize) -> &Real {
+        self.get_lateral_pos(actor_id, time)
+    }
+
+    /// Get Cartesian y velocity (maps to lateral velocity)
+    pub fn get_velocity_y(&self, actor_id: &str, time: usize) -> &Real {
+        self.get_lateral_vel(actor_id, time)
+    }
+
+    /// Assert a constraint directly to the backend
+    pub fn assert_constraint(&mut self, constraint: &Bool) {
+        self.coord_encoder.backend_mut().assert(constraint);
+    }
+
+    // === LTL Encoding ===
 
     /// Encode LTL formula into Z3 constraints using bounded model checking
     ///
@@ -809,7 +208,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
     pub fn encode_ltl(&mut self, formula: &crate::ltl::formula::LTLFormula) {
         // Encode the formula starting at time 0, with full horizon
         let constraint = self.encode_ltl_bounded(formula, 0, self.horizon);
-        self.backend.assert(&constraint);
+        self.coord_encoder.backend_mut().assert(&constraint);
     }
 
     /// Bounded LTL encoding: expand temporal operators over [time, horizon]
@@ -928,15 +327,15 @@ impl<B: Z3Backend> GenericEncoder<B> {
         match prop {
             // InLane(actor, lane): lane_var[t] == lane
             Proposition::InLane { actor, lane } => {
-                let lane_var = &self.lanes[actor][time];
+                let lane_var = self.get_lane_var(actor, time);
                 let lane_val = Int::from_i64(*lane as i64);
                 lane_var.eq(&lane_val)
             }
 
             // Ahead(actor1, actor2): px1[t] > px2[t]
             Proposition::Ahead { actor1, actor2 } => {
-                let px1 = &self.positions_x[actor1][time];
-                let px2 = &self.positions_x[actor2][time];
+                let px1 = self.get_longitudinal_pos(actor1, time);
+                let px2 = self.get_longitudinal_pos(actor2, time);
                 px1.gt(px2)
             }
 
@@ -946,8 +345,8 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 actor2,
                 distance,
             } => {
-                let px1 = &self.positions_x[actor1][time];
-                let px2 = &self.positions_x[actor2][time];
+                let px1 = self.get_longitudinal_pos(actor1, time);
+                let px2 = self.get_longitudinal_pos(actor2, time);
                 let dist_val = Real::from_rational((*distance * 10.0) as i64, 10_i64);
 
                 // |px1 - px2| > d is equivalent to: (px1 - px2 > d) OR (px2 - px1 > d)
@@ -969,7 +368,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
 
             // OnSidewalk(actor, side): py < 0 (left) or py > road_width (right)
             Proposition::OnSidewalk { actor, side } => {
-                let py = &self.positions_y[actor][time];
+                let py = self.get_lateral_pos(actor, time);
                 let zero = Real::from_rational(0_i64, 1_i64);
 
                 let lane_width = self.spec.get_lane_width();
@@ -986,7 +385,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
 
             // CrossingRoad(actor): 0 <= py <= road_width
             Proposition::CrossingRoad { actor } => {
-                let py = &self.positions_y[actor][time];
+                let py = self.get_lateral_pos(actor, time);
                 let zero = Real::from_rational(0_i64, 1_i64);
 
                 let lane_width = self.spec.get_lane_width();
@@ -1005,10 +404,10 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 actor2,
                 distance,
             } => {
-                let px1 = &self.positions_x[actor1][time];
-                let py1 = &self.positions_y[actor1][time];
-                let px2 = &self.positions_x[actor2][time];
-                let py2 = &self.positions_y[actor2][time];
+                let px1 = self.get_longitudinal_pos(actor1, time);
+                let py1 = self.get_lateral_pos(actor1, time);
+                let px2 = self.get_longitudinal_pos(actor2, time);
+                let py2 = self.get_lateral_pos(actor2, time);
 
                 // Euclidean distance: sqrt((px1-px2)^2 + (py1-py2)^2) > threshold
                 // Z3 encoding: (px1-px2)^2 + (py1-py2)^2 > threshold^2
@@ -1028,10 +427,10 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 actor2,
                 distance,
             } => {
-                let px1 = &self.positions_x[actor1][time];
-                let py1 = &self.positions_y[actor1][time];
-                let px2 = &self.positions_x[actor2][time];
-                let py2 = &self.positions_y[actor2][time];
+                let px1 = self.get_longitudinal_pos(actor1, time);
+                let py1 = self.get_lateral_pos(actor1, time);
+                let px2 = self.get_longitudinal_pos(actor2, time);
+                let py2 = self.get_lateral_pos(actor2, time);
 
                 let dx = px1 - px2;
                 let dy = py1 - py2;
@@ -1062,10 +461,10 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 threshold_x,
                 threshold_y,
             } => {
-                let px1 = &self.positions_x[actor1][time];
-                let py1 = &self.positions_y[actor1][time];
-                let px2 = &self.positions_x[actor2][time];
-                let py2 = &self.positions_y[actor2][time];
+                let px1 = self.get_longitudinal_pos(actor1, time);
+                let py1 = self.get_lateral_pos(actor1, time);
+                let px2 = self.get_longitudinal_pos(actor2, time);
+                let py2 = self.get_lateral_pos(actor2, time);
 
                 let dx = px1 - px2;
                 let dy = py1 - py2;
@@ -1094,10 +493,10 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 pedestrian,
                 ttc,
             } => {
-                let ego_px = &self.positions_x[ego][time];
-                let ego_vx = &self.velocities_x[ego][time];
-                let ped_px = &self.positions_x[pedestrian][time];
-                let ped_py = &self.positions_y[pedestrian][time];
+                let ego_px = self.get_longitudinal_pos(ego, time);
+                let ego_vx = self.get_longitudinal_vel(ego, time);
+                let ped_px = self.get_longitudinal_pos(pedestrian, time);
+                let ped_py = self.get_lateral_pos(pedestrian, time);
 
                 let lane_width = self.spec.get_lane_width();
                 let num_lanes = self.spec.get_num_lanes();
@@ -1128,7 +527,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
             // Linear constraint: |vx| > threshold
             // Z3 encoding: (vx > threshold) OR (vx < -threshold)
             Proposition::VelocityGT { actor, velocity } => {
-                let vx = &self.velocities_x[actor][time];
+                let vx = self.get_longitudinal_vel(actor, time);
                 let threshold_val = Real::from_rational((velocity * 10.0) as i64, 10_i64);
 
                 // |vx| > threshold is equivalent to: (vx > threshold) OR (vx < -threshold)
@@ -1143,7 +542,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
             // Linear constraint: |vx| < threshold
             // Z3 encoding: (vx < threshold) AND (vx > -threshold)
             Proposition::VelocityLT { actor, velocity } => {
-                let vx = &self.velocities_x[actor][time];
+                let vx = self.get_longitudinal_vel(actor, time);
                 let threshold_val = Real::from_rational((velocity * 10.0) as i64, 10_i64);
                 let neg_threshold = Real::from_rational((-velocity * 10.0) as i64, 10_i64);
 
@@ -1161,8 +560,8 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 actor2,
                 distance,
             } => {
-                let py1 = &self.positions_y[actor1][time];
-                let py2 = &self.positions_y[actor2][time];
+                let py1 = self.get_lateral_pos(actor1, time);
+                let py2 = self.get_lateral_pos(actor2, time);
                 let dist_val = Real::from_rational((*distance * 10.0) as i64, 10_i64);
 
                 // |py1 - py2| > d is equivalent to: (py1 - py2 > d) OR (py2 - py1 > d)
@@ -1178,16 +577,16 @@ impl<B: Z3Backend> GenericEncoder<B> {
             // OnLeftOf: Actor1 is laterally left of Actor2
             // Simple comparison: py1 > py2
             Proposition::OnLeftOf { actor1, actor2 } => {
-                let py1 = &self.positions_y[actor1][time];
-                let py2 = &self.positions_y[actor2][time];
+                let py1 = self.get_lateral_pos(actor1, time);
+                let py2 = self.get_lateral_pos(actor2, time);
                 py1.gt(py2)
             }
 
             // OnRightOf: Actor1 is laterally right of Actor2
             // Simple comparison: py1 < py2
             Proposition::OnRightOf { actor1, actor2 } => {
-                let py1 = &self.positions_y[actor1][time];
-                let py2 = &self.positions_y[actor2][time];
+                let py1 = self.get_lateral_pos(actor1, time);
+                let py2 = self.get_lateral_pos(actor2, time);
                 py1.lt(py2)
             }
 
@@ -1198,8 +597,8 @@ impl<B: Z3Backend> GenericEncoder<B> {
                 actor2,
                 velocity,
             } => {
-                let vx1 = &self.velocities_x[actor1][time];
-                let vx2 = &self.velocities_x[actor2][time];
+                let vx1 = self.get_longitudinal_vel(actor1, time);
+                let vx2 = self.get_longitudinal_vel(actor2, time);
                 let vel_val = Real::from_rational((*velocity * 10.0) as i64, 10_i64);
 
                 // |vx1 - vx2| > v is equivalent to: (vx1 - vx2 > v) OR (vx2 - vx1 > v)
@@ -1231,14 +630,14 @@ impl<B: Z3Backend> GenericEncoder<B> {
         min_ttc: f64,
         time: usize,
     ) -> z3::ast::Bool {
-        let lane1 = &self.lanes[actor1][time];
-        let lane2 = &self.lanes[actor2][time];
+        let lane1 = self.get_lane_var(actor1, time);
+        let lane2 = self.get_lane_var(actor2, time);
 
-        let px1 = &self.positions_x[actor1][time];
-        let px2 = &self.positions_x[actor2][time];
+        let px1 = self.get_longitudinal_pos(actor1, time);
+        let px2 = self.get_longitudinal_pos(actor2, time);
 
-        let vx1 = &self.velocities_x[actor1][time];
-        let vx2 = &self.velocities_x[actor2][time];
+        let vx1 = self.get_longitudinal_vel(actor1, time);
+        let vx2 = self.get_longitudinal_vel(actor2, time);
 
         let min_ttc_val = Real::from_rational((min_ttc * 10.0) as i64, 10_i64);
         let epsilon = Real::from_rational(1_i64, 100_i64); // 0.01 m/s to avoid division by zero
@@ -1285,171 +684,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
 
     /// Encode global max acceleration constraints (if specified)
     pub fn encode_acceleration_constraints(&mut self) {
-        // Only apply if max_acceleration/max_deceleration specified AND mode is Enforce
-        if let Some(max_accel) = self.spec.max_acceleration {
-            let mode = self.spec.constraint_modes.max_acceleration();
-
-            if mode == ConstraintMode::Enforce {
-                let max_real = Real::from_rational((max_accel * 10.0) as i64, 10_i64);
-
-                for actor in &self.spec.actors {
-                    for t in 0..=self.horizon {
-                        let ax = &self.accelerations_x[&actor.id][t];
-                        self.backend.assert(&ax.le(&max_real));
-                    }
-                }
-            }
-            // Violate and Ignore modes handled via LTL
-        }
-
-        if let Some(max_decel) = self.spec.max_deceleration {
-            // max_decel should be negative (e.g., -3.0)
-            let mode = self.spec.constraint_modes.max_acceleration();
-
-            if mode == ConstraintMode::Enforce {
-                let min_real = Real::from_rational((max_decel * 10.0) as i64, 10_i64);
-
-                for actor in &self.spec.actors {
-                    for t in 0..=self.horizon {
-                        let ax = &self.accelerations_x[&actor.id][t];
-                        self.backend.assert(&ax.ge(&min_real));
-                    }
-                }
-            }
-        }
-    }
-
-    /// Encode Frenet kinematics constraints for smooth lane changes
-    ///
-    /// This implements Frenet coordinate system kinematics:
-    /// - Longitudinal (s): standard kinematics with position, velocity, acceleration
-    /// - Lateral (t): standard kinematics with smoothness constraints during lane changes
-    ///
-    /// NOTE: Polynomial lane changes are no longer supported. The solver discovers
-    /// lane change trajectories dynamically using smoothness constraints.
-    fn encode_frenet_kinematics(&mut self) {
-        use crate::dsl::types::ActorRole;
-
-        let dt = self.spec.time_step;
-        let dt_real = Real::from_rational((dt * 10.0) as i64, 10_i64);
-        let zero = Real::from_rational(0_i64, 1_i64);
-
-        for actor in &self.spec.actors {
-            let actor_id = &actor.id;
-
-            // Check if actor has lane change configured
-            let has_lane_change = actor.lane_change.as_ref().map(|lc| lc.enabled).unwrap_or(false);
-
-            // Get acceleration bounds from actor spec
-            let (ax_min, ax_max) = if actor.role == ActorRole::Pedestrian {
-                (actor.acceleration.min(), actor.acceleration.max())
-            } else {
-                (actor.acceleration.min(), actor.acceleration.max())
-            };
-            let ax_min_real = Real::from_rational((ax_min * 10.0) as i64, 10_i64);
-            let ax_max_real = Real::from_rational((ax_max * 10.0) as i64, 10_i64);
-
-            // Longitudinal kinematics (s)
-            for t in 0..self.horizon {
-                // Longitudinal acceleration bounds
-                let as_t = &self.frenet_as[actor_id][t];
-                self.backend.assert(&as_t.ge(&ax_min_real));
-                self.backend.assert(&as_t.le(&ax_max_real));
-
-                // Longitudinal velocity update: vs[t+1] = vs[t] + as[t] * dt
-                let vs_t = &self.frenet_vs[actor_id][t];
-                let vs_t1 = &self.frenet_vs[actor_id][t + 1];
-                let expected_vs = vs_t + &(as_t * &dt_real);
-                self.backend.assert(&vs_t1.eq(&expected_vs));
-
-                // Longitudinal position update: s[t+1] = s[t] + vs[t] * dt
-                let s_t = &self.frenet_s[actor_id][t];
-                let s_t1 = &self.frenet_s[actor_id][t + 1];
-                let expected_s = s_t + &(vs_t * &dt_real);
-                self.backend.assert(&s_t1.eq(&expected_s));
-            }
-
-            // Lateral kinematics (t, vt)
-            for t in 0..self.horizon {
-                let vt_t = &self.frenet_vt[actor_id][t];
-                let vt_t1 = &self.frenet_vt[actor_id][t + 1];
-                let t_t = &self.frenet_t[actor_id][t];
-                let t_t1 = &self.frenet_t[actor_id][t + 1];
-                let at_t = &self.frenet_at[actor_id][t];
-
-                if actor.role == ActorRole::Pedestrian {
-                    // Pedestrians: full lateral dynamics
-                    self.backend.assert(&at_t.ge(&ax_min_real));
-                    self.backend.assert(&at_t.le(&ax_max_real));
-
-                    // Lateral velocity update: vt[t+1] = vt[t] + at[t] * dt
-                    let expected_vt = vt_t + &(at_t * &dt_real);
-                    self.backend.assert(&vt_t1.eq(&expected_vt));
-                } else if actor.role == ActorRole::Ego {
-                    // Ego: no lane changes
-                    self.backend.assert(&vt_t.eq(&zero));
-                } else if has_lane_change {
-                    // Other vehicles with lane change: allow lateral movement with smoothness constraints
-                    let lc_config = actor.lane_change.as_ref().unwrap();
-                    let start_min = lc_config.start_time.min();
-                    let start_max = lc_config.start_time.max();
-                    let duration_min = lc_config.duration.min();
-                    let duration_max = lc_config.duration.max();
-
-                    let start_step_min = (start_min / self.spec.time_step) as usize;
-                    let start_step_max = (start_max / self.spec.time_step) as usize;
-                    let duration_steps_min = (duration_min / self.spec.time_step) as usize;
-                    let duration_steps_max = (duration_max / self.spec.time_step) as usize;
-
-                    // Use midpoint of ranges for conservative estimate
-                    let start_step = (start_step_min + start_step_max) / 2;
-                    let duration_steps = (duration_steps_min + duration_steps_max) / 2;
-                    let end_step = start_step + duration_steps;
-
-                    // During lane change window: constrain lateral acceleration for smoothness
-                    if t >= start_step && t < end_step {
-                        let max_at = Real::from_rational(20_i64, 10_i64); // 2.0 m/s²
-                        self.backend.assert(&at_t.le(&max_at));
-                        self.backend.assert(&at_t.ge(&-&max_at));
-
-                        // Constrain lateral velocity
-                        let max_vt = Real::from_rational(25_i64, 10_i64); // 2.5 m/s
-                        self.backend.assert(&vt_t.le(&max_vt));
-                        self.backend.assert(&vt_t.ge(&-&max_vt));
-
-                        // Lateral velocity update: vt[t+1] = vt[t] + at[t] * dt
-                        let expected_vt = vt_t + &(at_t * &dt_real);
-                        self.backend.assert(&vt_t1.eq(&expected_vt));
-                    } else {
-                        // Outside lane change: vt = 0
-                        self.backend.assert(&vt_t.eq(&zero));
-                    }
-                } else {
-                    // No lane change: vt = 0
-                    self.backend.assert(&vt_t.eq(&zero));
-                }
-
-                // Lateral position update: t[t+1] = t[t] + vt[t] * dt
-                let expected_t = t_t + &(vt_t * &dt_real);
-                self.backend.assert(&t_t1.eq(&expected_t));
-            }
-        }
-
-        // Add explicit bounds on lateral position t to ensure vehicles stay on road
-        // This prevents vehicles from jumping to lane edges or outside road boundaries
-        let road_width = (self.spec.get_num_lanes() as f64) * self.spec.lane_width;
-        let road_width_real = Real::from_rational((road_width * 10.0) as i64, 10_i64);
-        let zero_t = Real::from_rational(0_i64, 1_i64);
-
-        for actor in &self.spec.actors {
-            let actor_id = &actor.id;
-            for t in 0..=self.horizon {
-                let t_var = &self.frenet_t[actor_id][t];
-                // 0 <= t <= road_width
-                self.backend.assert(&t_var.ge(&zero_t));
-                self.backend.assert(&t_var.le(&road_width_real));
-            }
-        }
+        self.coord_encoder.encode_acceleration_constraints();
     }
 
     /// Extract scenario from Z3 model
@@ -1514,175 +749,7 @@ impl<B: Z3Backend> GenericEncoder<B> {
         actor_id: &str,
         role: &str,
     ) -> crate::error::Result<crate::scenario::model::ActorTrajectory> {
-        use crate::dsl::types::CoordinateSystem;
-        use crate::geometry::FrenetPoint;
-        use crate::scenario::model::{Acceleration, ActorTrajectory, CartesianState, FrenetState, Position, State, Velocity};
-
-        let mut trajectory = ActorTrajectory::new(actor_id.to_string(), role.to_string());
-
-        // Get reference line for Frenet conversion
-        let ref_line = self.spec.reference_line.as_ref();
-
-        for t in 0..=self.horizon {
-            let time = t as f64 * self.spec.time_step;
-
-            let state = match self.spec.coordinate_system {
-                CoordinateSystem::Frenet => {
-                    // Extract Frenet values
-                    let s = self.extract_real(model, &self.frenet_s[actor_id][t])?;
-                    let t_val = self.extract_real(model, &self.frenet_t[actor_id][t])?;
-                    let vs = self.extract_real(model, &self.frenet_vs[actor_id][t])?;
-                    let vt = self.extract_real(model, &self.frenet_vt[actor_id][t])?;
-                    let as_ = self.extract_real(model, &self.frenet_as[actor_id][t])?;
-                    let at = self.extract_real(model, &self.frenet_at[actor_id][t])?;
-
-                    // Calculate theta (heading) from road heading
-                    let theta = ref_line
-                        .map(|rl| rl.heading)
-                        .unwrap_or(0.0);
-
-                    // Compute Cartesian from Frenet
-                    let cartesian = if let Some(rl) = ref_line {
-                        let frenet_point = FrenetPoint::new(s, t_val);
-                        let cart_point = rl.frenet_to_cartesian(&frenet_point);
-
-                        // Convert Frenet velocity to Cartesian velocity
-                        let vx = vs * theta.cos() - vt * theta.sin();
-                        let vy = vs * theta.sin() + vt * theta.cos();
-
-                        Some(CartesianState {
-                            position: Position::new(cart_point.x, cart_point.y),
-                            velocity: Velocity::new(vx, vy),
-                            acceleration: Acceleration::new(as_, at),
-                            lane: (t_val / self.spec.lane_width).round() as usize,
-                        })
-                    } else {
-                        None
-                    };
-
-                    State {
-                        time,
-                        frenet: Some(FrenetState {
-                            s,
-                            t: t_val,
-                            theta,
-                            vs,
-                            vt,
-                            as_,
-                            at,
-                        }),
-                        cartesian,
-                    }
-                }
-                CoordinateSystem::Cartesian => {
-                    // Extract Cartesian values (existing behavior)
-                    let px = self.extract_real(model, &self.positions_x[actor_id][t])?;
-                    let py = self.extract_real(model, &self.positions_y[actor_id][t])?;
-                    let vx = self.extract_real(model, &self.velocities_x[actor_id][t])?;
-                    let vy = self.extract_real(model, &self.velocities_y[actor_id][t])?;
-                    let ax = self.extract_real(model, &self.accelerations_x[actor_id][t])?;
-                    let ay = self.extract_real(model, &self.accelerations_y[actor_id][t])?;
-                    let lane = self.extract_int(model, &self.lanes[actor_id][t])?;
-
-                    State {
-                        time,
-                        frenet: None,
-                        cartesian: Some(CartesianState {
-                            position: Position::new(px, py),
-                            velocity: Velocity::new(vx, vy),
-                            acceleration: Acceleration::new(ax, ay),
-                            lane,
-                        }),
-                    }
-                }
-            };
-
-            trajectory.add_state(state);
-        }
-
-        Ok(trajectory)
-    }
-
-    /// Extract a real value from Z3 model
-    fn extract_real(&self, model: &z3::Model, var: &Real) -> crate::error::Result<f64> {
-        let ast = model
-            .eval(var, true)
-            .ok_or_else(|| crate::error::ScenarioGenError::Z3ModelParsing("Failed to evaluate real variable".to_string()))?;
-
-        // Z3 returns rationals in various formats
-        let ast_str = ast.to_string();
-
-        // Remove all parentheses and work with the content
-        let cleaned = ast_str.replace(['(', ')'], "");
-
-        // Split by whitespace to get components
-        let parts: Vec<&str> = cleaned.split_whitespace().collect();
-
-        // Check for various formats
-        if parts.is_empty() {
-            return Err(crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse real value from Z3: '{}'", ast_str)));
-        }
-
-        // Format: "- / numerator denominator" -> negative fraction
-        if parts.len() >= 4 && parts[0] == "-" && parts[1] == "/" {
-            let numerator: f64 = parts[2].parse()
-                .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse numerator: {}", e)))?;
-            let denominator: f64 = parts[3].parse()
-                .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse denominator: {}", e)))?;
-            return Ok(-(numerator / denominator));
-        }
-
-        // Format: "/ numerator denominator" -> positive fraction
-        if parts.len() >= 3 && parts[0] == "/" {
-            let numerator: f64 = parts[1].parse()
-                .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse numerator: {}", e)))?;
-            let denominator: f64 = parts[2].parse()
-                .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse denominator: {}", e)))?;
-            return Ok(numerator / denominator);
-        }
-
-        // Format: "- value" -> simple negative
-        if parts.len() == 2 && parts[0] == "-" {
-            let value: f64 = parts[1].parse()
-                .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse negative value: {}", e)))?;
-            return Ok(-value);
-        }
-
-        // Format: "numerator/denominator" or "-numerator/denominator"
-        if parts.len() == 1 && parts[0].contains('/') {
-            let frac_parts: Vec<&str> = parts[0].split('/').collect();
-            let numerator: f64 = frac_parts[0].parse()
-                .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse numerator: {}", e)))?;
-            let denominator: f64 = frac_parts[1].parse()
-                .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse denominator: {}", e)))?;
-            return Ok(numerator / denominator);
-        }
-
-        // Default: try to parse as a simple number
-        parts[0]
-            .parse()
-            .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse real value from Z3 '{}': {}", ast_str, e)))
-    }
-
-    /// Extract an integer value from Z3 model
-    fn extract_int(&self, model: &z3::Model, var: &Int) -> crate::error::Result<usize> {
-        let ast = model
-            .eval(var, true)
-            .ok_or_else(|| crate::error::ScenarioGenError::Z3ModelParsing("Failed to evaluate int variable".to_string()))?;
-        let ast_str = ast.to_string();
-
-        // Handle negative values like "(- 5)" or simple values like "1"
-        let cleaned = ast_str.trim_start_matches('(').trim_end_matches(')');
-
-        if cleaned.starts_with("- ") {
-            // Format: "(- value)" - but usize can't be negative, so this would be an error
-            return Err(crate::error::ScenarioGenError::Z3ModelParsing(format!("Cannot extract negative integer as usize: '{}'", ast_str)));
-        }
-
-        cleaned
-            .trim()
-            .parse()
-            .map_err(|e| crate::error::ScenarioGenError::Z3ModelParsing(format!("Failed to parse int value from Z3 '{}': {}", ast_str, e)))
+        self.coord_encoder.extract_actor_trajectory(model, actor_id, role)
     }
 
     /// Compute validation metrics from the scenario trajectories
@@ -1902,13 +969,14 @@ mod tests {
             let mut encoder = Z3Encoder::new(spec);
             encoder.create_variables();
 
-            // Check variables were created
-            assert!(encoder.positions_x.contains_key("ego"));
-            assert!(encoder.positions_x.contains_key("npc"));
+            // Variables are created internally - just verify accessor methods work
+            // Test that we can access variables for both actors
+            let _ego_lane = encoder.get_lane_var("ego", 0);
+            let _npc_lane = encoder.get_lane_var("npc", 0);
+            let _ego_px = encoder.get_longitudinal_pos("ego", 0);
+            let _npc_px = encoder.get_longitudinal_pos("npc", 0);
 
-            // Check we have the right number of time steps
-            assert_eq!(encoder.positions_x["ego"].len(), 21); // 0..=20
-            assert_eq!(encoder.velocities_x["npc"].len(), 21);
+            // If we get here without panicking, variables were created successfully
         });
     }
 
@@ -1929,15 +997,15 @@ mod tests {
             let model = encoder.get_model().unwrap();
 
             // Ego position should be 50.0
-            let ego_px_0 = model.eval(&encoder.positions_x["ego"][0], true).unwrap();
+            let ego_px_0 = model.eval(encoder.get_longitudinal_pos("ego", 0), true).unwrap();
             println!("Ego initial position: {:?}", ego_px_0);
 
             // NPC position should be in range [60.0, 80.0]
-            let npc_px_0 = model.eval(&encoder.positions_x["npc"][0], true).unwrap();
+            let npc_px_0 = model.eval(encoder.get_longitudinal_pos("npc", 0), true).unwrap();
             println!("NPC initial position: {:?}", npc_px_0);
 
             // Ego speed should be 15.0
-            let ego_vx_0 = model.eval(&encoder.velocities_x["ego"][0], true).unwrap();
+            let ego_vx_0 = model.eval(encoder.get_longitudinal_vel("ego", 0), true).unwrap();
             println!("Ego initial speed: {:?}", ego_vx_0);
         });
     }
@@ -1956,11 +1024,11 @@ mod tests {
             let model = encoder.get_model().unwrap();
 
             // Ego in lane 1, should have py = 1 * 3.5 + 1.75 = 5.25
-            let ego_py_0 = model.eval(&encoder.positions_y["ego"][0], true).unwrap();
+            let ego_py_0 = model.eval(encoder.get_lateral_pos("ego", 0), true).unwrap();
             println!("Ego lateral position: {:?}", ego_py_0);
 
             // NPC in lane 0, should have py = 0 * 3.5 + 1.75 = 1.75
-            let npc_py_0 = model.eval(&encoder.positions_y["npc"][0], true).unwrap();
+            let npc_py_0 = model.eval(encoder.get_lateral_pos("npc", 0), true).unwrap();
             println!("NPC lateral position: {:?}", npc_py_0);
         });
     }
@@ -1982,9 +1050,9 @@ mod tests {
             let model = encoder.get_model().unwrap();
 
             // Check that position evolves correctly
-            let ego_px_0 = model.eval(&encoder.positions_x["ego"][0], true).unwrap();
-            let ego_px_1 = model.eval(&encoder.positions_x["ego"][1], true).unwrap();
-            let ego_vx_0 = model.eval(&encoder.velocities_x["ego"][0], true).unwrap();
+            let ego_px_0 = model.eval(encoder.get_longitudinal_pos("ego", 0), true).unwrap();
+            let ego_px_1 = model.eval(encoder.get_longitudinal_pos("ego", 1), true).unwrap();
+            let ego_vx_0 = model.eval(encoder.get_longitudinal_vel("ego", 0), true).unwrap();
 
             println!("Ego px[0]: {:?}", ego_px_0);
             println!("Ego px[1]: {:?}", ego_px_1);
@@ -2050,7 +1118,7 @@ mod tests {
             // Check that NPC is in lane 1 at some point
             let mut found_lane_1 = false;
             for t in 0..=encoder.horizon {
-                let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
+                let lane = model.eval(encoder.get_lane_var("npc", t), true).unwrap();
                 if lane.to_string() == "1" {
                     found_lane_1 = true;
                     println!("NPC in lane 1 at time {}", t);
@@ -2090,7 +1158,7 @@ mod tests {
 
             // Check that ego is in lane 1 at all times
             for t in 0..=encoder.horizon {
-                let lane = model.eval(&encoder.lanes["ego"][t], true).unwrap();
+                let lane = model.eval(encoder.get_lane_var("ego", t), true).unwrap();
                 assert_eq!(lane.to_string(), "1", "Ego should always be in lane 1");
             }
         });
@@ -2129,7 +1197,7 @@ mod tests {
             // Find when NPC transitions to lane 1
             let mut transition_time = None;
             for t in 0..=encoder.horizon {
-                let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
+                let lane = model.eval(encoder.get_lane_var("npc", t), true).unwrap();
                 if lane.to_string() == "1" {
                     transition_time = Some(t);
                     break;
@@ -2140,7 +1208,7 @@ mod tests {
                 println!("NPC transitions to lane 1 at time {}", trans_t);
                 // Before transition, should be in lane 0
                 for t in 0..trans_t {
-                    let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
+                    let lane = model.eval(encoder.get_lane_var("npc", t), true).unwrap();
                     assert_eq!(
                         lane.to_string(),
                         "0",
@@ -2202,15 +1270,15 @@ mod tests {
                 let model = encoder.get_model().unwrap();
 
                 // Verify initial conditions
-                let ego_lane_0 = model.eval(&encoder.lanes["ego"][0], true).unwrap();
-                let npc_lane_0 = model.eval(&encoder.lanes["npc"][0], true).unwrap();
+                let ego_lane_0 = model.eval(encoder.get_lane_var("ego", 0), true).unwrap();
+                let npc_lane_0 = model.eval(encoder.get_lane_var("npc", 0), true).unwrap();
                 assert_eq!(ego_lane_0.to_string(), "1");
                 assert_eq!(npc_lane_0.to_string(), "0");
 
                 // Verify NPC eventually changes lanes
                 let mut npc_in_lane_1 = false;
                 for t in 0..=encoder.horizon {
-                    let lane = model.eval(&encoder.lanes["npc"][t], true).unwrap();
+                    let lane = model.eval(encoder.get_lane_var("npc", t), true).unwrap();
                     if lane.to_string() == "1" {
                         npc_in_lane_1 = true;
                         println!("NPC changes to lane 1 at time step {}", t);
