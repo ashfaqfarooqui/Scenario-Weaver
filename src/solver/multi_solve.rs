@@ -151,12 +151,23 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
             let prev_s0_z3 = Real::from_rational((prev_s0 * 10.0) as i64, 10_i64);
             let prev_vs0_z3 = Real::from_rational((prev_vs0 * 10.0) as i64, 10_i64);
 
-            let s_eq = actor_s0.eq(&prev_s0_z3);
-            let vs_eq = actor_vs0.eq(&prev_vs0_z3);
+            // Tolerance bands for diversity (block near-duplicates)
+            let pos_tolerance = Real::from_rational(5_i64, 10_i64);  // 0.5m
+            let vel_tolerance = Real::from_rational(2_i64, 10_i64);  // 0.2 m/s
 
-            // Block if both s and vs match
-            let both_equal = Bool::and(&[&s_eq, &vs_eq]);
-            both_equal.not()
+            let s_close = Bool::and(&[
+                &actor_s0.ge(&(&prev_s0_z3 - &pos_tolerance)),
+                &actor_s0.le(&(&prev_s0_z3 + &pos_tolerance))
+            ]);
+
+            let vs_close = Bool::and(&[
+                &actor_vs0.ge(&(&prev_vs0_z3 - &vel_tolerance)),
+                &actor_vs0.le(&(&prev_vs0_z3 + &vel_tolerance))
+            ]);
+
+            // Block if both s and vs are within tolerance
+            let both_close = Bool::and(&[&s_close, &vs_close]);
+            both_close.not()
         } else {
             // For Cartesian: block based on position_x and velocity_x
             let prev_px0 = actor_initial.position().x;
@@ -168,8 +179,19 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
             let prev_px0_z3 = Real::from_rational((prev_px0 * 10.0) as i64, 10_i64);
             let prev_vx0_z3 = Real::from_rational((prev_vx0 * 10.0) as i64, 10_i64);
 
-            let px_eq = actor_px0.eq(&prev_px0_z3);
-            let vx_eq = actor_vx0.eq(&prev_vx0_z3);
+            // Tolerance bands for diversity (block near-duplicates)
+            let pos_tolerance = Real::from_rational(5_i64, 10_i64);  // 0.5m
+            let vel_tolerance = Real::from_rational(2_i64, 10_i64);  // 0.2 m/s
+
+            let px_close = Bool::and(&[
+                &actor_px0.ge(&(&prev_px0_z3 - &pos_tolerance)),
+                &actor_px0.le(&(&prev_px0_z3 + &pos_tolerance))
+            ]);
+
+            let vx_close = Bool::and(&[
+                &actor_vx0.ge(&(&prev_vx0_z3 - &vel_tolerance)),
+                &actor_vx0.le(&(&prev_vx0_z3 + &vel_tolerance))
+            ]);
 
             // For pedestrians, also block lateral (y-axis) initial conditions
             if actor.role == ActorRole::Pedestrian {
@@ -182,16 +204,23 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
                 let prev_py0_z3 = Real::from_rational((prev_py0 * 10.0) as i64, 10_i64);
                 let prev_vy0_z3 = Real::from_rational((prev_vy0 * 10.0) as i64, 10_i64);
 
-                let py_eq = actor_py0.eq(&prev_py0_z3);
-                let vy_eq = actor_vy0.eq(&prev_vy0_z3);
+                let py_close = Bool::and(&[
+                    &actor_py0.ge(&(&prev_py0_z3 - &pos_tolerance)),
+                    &actor_py0.le(&(&prev_py0_z3 + &pos_tolerance))
+                ]);
 
-                // All four must match: px0 == prev AND vx0 == prev AND py0 == prev AND vy0 == prev
-                let all_equal = Bool::and(&[&px_eq, &vx_eq, &py_eq, &vy_eq]);
-                all_equal.not()
+                let vy_close = Bool::and(&[
+                    &actor_vy0.ge(&(&prev_vy0_z3 - &vel_tolerance)),
+                    &actor_vy0.le(&(&prev_vy0_z3 + &vel_tolerance))
+                ]);
+
+                // Block if all four are within tolerance
+                let all_close = Bool::and(&[&px_close, &vx_close, &py_close, &vy_close]);
+                all_close.not()
             } else {
-                // For vehicles, only block longitudinal (x-axis) initial conditions
-                let both_equal = Bool::and(&[&px_eq, &vx_eq]);
-                both_equal.not()
+                // For vehicles, block if both longitudinal values are within tolerance
+                let both_close = Bool::and(&[&px_close, &vx_close]);
+                both_close.not()
             }
         };
 
@@ -269,6 +298,7 @@ mod tests {
             min_velocity: None,
             min_lateral_distance: None,
             max_relative_velocity: None,
+            max_lateral_acceleration: 2.0,
             coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
             reference_line: None,
         }

@@ -948,6 +948,7 @@ mod tests {
             min_velocity: None,
             min_lateral_distance: None,
             max_relative_velocity: None,
+            max_lateral_acceleration: 2.0,
             coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
             reference_line: None,
         }
@@ -1400,6 +1401,7 @@ mod tests {
                 min_velocity: Some(10.0),
                 min_lateral_distance: None,
                 max_relative_velocity: None,
+                max_lateral_acceleration: 2.0,
                 coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
                 reference_line: None,
             };

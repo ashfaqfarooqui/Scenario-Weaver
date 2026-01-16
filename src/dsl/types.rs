@@ -403,6 +403,10 @@ pub struct ScenarioSpec {
     /// Optional maximum relative velocity constraint (m/s)
     #[serde(default)]
     pub max_relative_velocity: Option<f64>,
+    /// Maximum lateral acceleration during lane changes (m/s²)
+    /// Default: 2.0 m/s² for comfortable driving
+    #[serde(default = "default_max_lateral_acceleration")]
+    pub max_lateral_acceleration: f64,
     /// Coordinate system (default: Frenet)
     #[serde(default)]
     pub coordinate_system: CoordinateSystem,
@@ -414,6 +418,11 @@ pub struct ScenarioSpec {
 /// Default lane width for backward compatibility
 fn default_lane_width() -> f64 {
     3.5
+}
+
+/// Default maximum lateral acceleration for lane changes
+fn default_max_lateral_acceleration() -> f64 {
+    2.0 // 2.0 m/s² - comfortable driving
 }
 
 /// Value that can be either fixed or a range for Z3 to solve
@@ -707,6 +716,7 @@ mod tests {
             min_velocity: None,
             min_lateral_distance: None,
             max_relative_velocity: None,
+            max_lateral_acceleration: 2.0,
             coordinate_system: CoordinateSystem::Cartesian,
             reference_line: None,
         }

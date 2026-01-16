@@ -260,18 +260,32 @@ impl<B: Z3Backend> CartesianEncoder<B> {
             return;
         }
 
-        // For each time step in transition, interpolate lateral position
+        // Soft constraints: constrain lateral position near source at start and target at end
+        // Allow Z3 to discover smooth curve trajectory instead of forcing linear interpolation
+        let tolerance = Real::from_rational(5_i64, 10_i64); // 0.5m tolerance
+
+        // Constrain lateral position near source at start (soft)
+        let py_start = &self.positions_y[actor_id][start_step];
+        self.backend.assert(&py_start.ge(&(&source_center - &tolerance)));
+        self.backend.assert(&py_start.le(&(&source_center + &tolerance)));
+
+        // Constrain lateral position near target at end (soft)
+        let py_end = &self.positions_y[actor_id][end_step.min(self.horizon)];
+        self.backend.assert(&py_end.ge(&(&target_center - &tolerance)));
+        self.backend.assert(&py_end.le(&(&target_center + &tolerance)));
+
+        // Constrain lateral velocity for smooth motion during transition
+        let max_vy = Real::from_rational(20_i64, 10_i64); // 2.0 m/s
         for t in start_step..=end_step.min(self.horizon) {
-            let progress = Real::from_rational((t - start_step) as i64, num_steps as i64);
-            let py_var = &self.positions_y[actor_id][t];
+            let vy_t = &self.velocities_y[actor_id][t];
+            self.backend.assert(&vy_t.ge(&-&max_vy));
+            self.backend.assert(&vy_t.le(&max_vy));
+        }
 
-            // Linear interpolation: py = source + progress * (target - source)
-            let delta = &target_center - &source_center;
-            let expected_py = &source_center + &(&delta * &progress);
-            self.backend.assert(&py_var.eq(&expected_py));
-
-            // Keep lane variable at source during transition
+        // Update lane variable during transition
+        for t in start_step..=end_step.min(self.horizon) {
             if t < end_step {
+                // Keep lane variable at source during transition
                 self.backend.assert(&self.lanes[actor_id][t].eq(source_lane));
             } else {
                 // At end of transition, lane equals target
@@ -290,7 +304,9 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         start_step: usize,
         end_step: usize,
     ) {
-        let max_ay = Real::from_rational(20_i64, 10_i64); // 2.0 m/s²
+        // Use configurable max lateral acceleration from spec
+        let max_ay_value = self.spec.max_lateral_acceleration;
+        let max_ay = Real::from_rational((max_ay_value * 10.0) as i64, 10_i64);
 
         for t in start_step..=end_step.min(self.horizon) {
             let ay_t = &self.accelerations_y[actor_id][t];
