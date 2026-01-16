@@ -203,3 +203,24 @@ pub fn export_scenario_to_svg(scenario: &Scenario) -> Result<String> {
 pub fn export_scenario_to_gif(scenario: &Scenario) -> Result<Vec<u8>> {
     scenario::export_to_gif(scenario)
 }
+
+/// Export a scenario to animated GIF format with custom resolution
+///
+/// # Example
+/// ```no_run
+/// use scenario_generator::{generate_single_scenario, export_scenario_to_gif_with_resolution, Resolution};
+///
+/// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
+/// let scenario = generate_single_scenario(&yaml).unwrap();
+/// let gif_bytes = export_scenario_to_gif_with_resolution(&scenario, Resolution::High).unwrap();
+/// std::fs::write("scenario.gif", gif_bytes).unwrap();
+/// ```
+pub fn export_scenario_to_gif_with_resolution(
+    scenario: &Scenario,
+    resolution: scenario::Resolution,
+) -> Result<Vec<u8>> {
+    scenario::export_to_gif_with_resolution(scenario, resolution)
+}
+
+/// Re-export the Resolution type for GIF export configuration
+pub use scenario::Resolution;

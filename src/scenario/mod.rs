@@ -8,7 +8,7 @@ pub mod model;
 pub mod svg_visualizer;
 pub mod xosc_exporter;
 
-pub use gif_animator::export_to_gif;
+pub use gif_animator::{export_to_gif, export_to_gif_with_resolution, Resolution};
 pub use model::{ActorTrajectory, Position, Scenario, State, ValidationInfo, Velocity};
 pub use svg_visualizer::export_to_svg;
 pub use xosc_exporter::export_to_xosc;

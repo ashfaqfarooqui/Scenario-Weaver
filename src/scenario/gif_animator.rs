@@ -14,16 +14,52 @@ use imageproc::drawing::{
 };
 use imageproc::rect::Rect;
 
-// Canvas dimensions
-const CANVAS_WIDTH: u32 = 1200;
-const CANVAS_HEIGHT: u32 = 600;
-const MARGIN: u32 = 80;
-const METRICS_OVERLAY_HEIGHT: u32 = 120;
-const ROAD_AREA_TOP: u32 = METRICS_OVERLAY_HEIGHT;
+// Canvas dimensions - configurable via Resolution preset
+#[derive(Debug, Clone, Copy)]
+pub enum Resolution {
+    High,
+    Medium,
+    Low,
+}
+
+impl Resolution {
+    fn width(&self) -> u32 {
+        match self {
+            Resolution::High => 1200,
+            Resolution::Medium => 900,
+            Resolution::Low => 600,
+        }
+    }
+
+    fn height(&self) -> u32 {
+        match self {
+            Resolution::High => 600,
+            Resolution::Medium => 450,
+            Resolution::Low => 300,
+        }
+    }
+
+    fn margin(&self) -> u32 {
+        match self {
+            Resolution::High => 80,
+            Resolution::Medium => 60,
+            Resolution::Low => 40,
+        }
+    }
+
+    fn metrics_height(&self) -> u32 {
+        match self {
+            Resolution::High => 120,
+            Resolution::Medium => 90,
+            Resolution::Low => 60,
+        }
+    }
+}
 
 // Animation settings
 const _TARGET_FPS: u16 = 10; // For reference: 10 FPS
 const FRAME_DELAY_CENTISECONDS: u16 = 10; // 100ms per frame = 10 FPS
+const MAX_TRAIL_LENGTH: usize = 30; // Limit trail to last 30 positions for performance
 
 // Colors (match SVG visualizer)
 const COLOR_EGO: Rgb<u8> = Rgb([76, 175, 80]); // #4CAF50 Green
@@ -57,7 +93,24 @@ const VEHICLE_WIDTH: u32 = 6;
 /// std::fs::write("scenario.gif", gif_bytes).unwrap();
 /// ```
 pub fn export_to_gif(scenario: &Scenario) -> Result<Vec<u8>> {
-    let animator = GifAnimator::new(scenario)?;
+    let animator = GifAnimator::new(scenario, Resolution::Medium)?;
+    animator.generate()
+}
+
+/// Export a scenario to animated GIF format with custom resolution
+///
+/// # Example
+/// ```no_run
+/// use scenario_generator::{generate_single_scenario, export_scenario_to_gif_with_resolution};
+/// use scenario_generator::scenario::gif_animator::Resolution;
+///
+/// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
+/// let scenario = generate_single_scenario(&yaml).unwrap();
+/// let gif_bytes = export_scenario_to_gif_with_resolution(&scenario, Resolution::High).unwrap();
+/// std::fs::write("scenario.gif", gif_bytes).unwrap();
+/// ```
+pub fn export_to_gif_with_resolution(scenario: &Scenario, resolution: Resolution) -> Result<Vec<u8>> {
+    let animator = GifAnimator::new(scenario, resolution)?;
     animator.generate()
 }
 
@@ -73,10 +126,15 @@ struct AnimatorConfig {
     x_min: f64,
     y_max: f64,
     num_frames: usize,
+    frame_skip: usize,
 }
 
 impl AnimatorConfig {
-    fn from_scenario(scenario: &Scenario) -> Self {
+    fn from_scenario(scenario: &Scenario, resolution: Resolution) -> Self {
+        // Determine frame skip based on scenario duration
+        // For scenarios longer than 5 seconds, skip every 2nd frame
+        let frame_skip = if scenario.duration > 5.0 { 2 } else { 1 };
+
         // Find bounds of all trajectories
         let (mut x_min, mut x_max, mut y_min, mut y_max) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
 
@@ -101,9 +159,15 @@ impl AnimatorConfig {
         y_min -= y_range * 0.1;
         y_max += y_range * 0.1;
 
+        // Get canvas dimensions from resolution
+        let canvas_width = resolution.width();
+        let canvas_height = resolution.height();
+        let margin = resolution.margin();
+        let road_area_top = resolution.metrics_height();
+
         // Compute scales
-        let drawable_width = (CANVAS_WIDTH - 2 * MARGIN) as f64;
-        let drawable_height = (CANVAS_HEIGHT - ROAD_AREA_TOP - MARGIN) as f64;
+        let drawable_width = (canvas_width - 2 * margin) as f64;
+        let drawable_height = (canvas_height - road_area_top - margin) as f64;
         let x_scale = drawable_width / (x_max - x_min);
         let y_scale = drawable_height / (y_max - y_min);
 
@@ -115,15 +179,16 @@ impl AnimatorConfig {
         };
 
         Self {
-            canvas_width: CANVAS_WIDTH,
-            canvas_height: CANVAS_HEIGHT,
-            margin: MARGIN,
-            road_area_top: ROAD_AREA_TOP,
+            canvas_width,
+            canvas_height,
+            margin,
+            road_area_top,
             x_scale,
             y_scale,
             x_min,
             y_max,
             num_frames,
+            frame_skip,
         }
     }
 }
@@ -133,11 +198,12 @@ struct GifAnimator<'a> {
     scenario: &'a Scenario,
     config: AnimatorConfig,
     font: FontArc,
+    _resolution: Resolution, // Stored for potential future use
 }
 
 impl<'a> GifAnimator<'a> {
-    fn new(scenario: &'a Scenario) -> Result<Self> {
-        let config = AnimatorConfig::from_scenario(scenario);
+    fn new(scenario: &'a Scenario, resolution: Resolution) -> Result<Self> {
+        let config = AnimatorConfig::from_scenario(scenario, resolution);
 
         // Load embedded font
         let font_data: &[u8] = include_bytes!("../../assets/DejaVuSans.ttf");
@@ -148,6 +214,7 @@ impl<'a> GifAnimator<'a> {
             scenario,
             config,
             font,
+            _resolution: resolution,
         })
     }
 
@@ -169,14 +236,15 @@ impl<'a> GifAnimator<'a> {
         // Pre-render static background once (road, lanes) for performance
         let static_background = self.render_static_background();
 
-        // Generate frame for each time step
-        for frame_idx in 0..self.config.num_frames {
+        // Generate frame for each time step (with frame skipping for long scenarios)
+        for frame_idx in (0..self.config.num_frames).step_by(self.config.frame_skip) {
             let image = self.render_frame(frame_idx, &static_background);
+            // Increase encoding speed from 10 to 20 for faster generation
             let mut frame = Frame::from_rgb_speed(
                 self.config.canvas_width as u16,
                 self.config.canvas_height as u16,
                 &image.into_raw(),
-                10,
+                20,
             );
             frame.delay = FRAME_DELAY_CENTISECONDS;
             encoder.write_frame(&frame).map_err(|e| {
@@ -335,12 +403,19 @@ impl<'a> GifAnimator<'a> {
     }
 
     /// Draw trajectory trails with fading effect
+    /// Limited to MAX_TRAIL_LENGTH recent positions for performance
     fn draw_trajectory_trails(&self, image: &mut RgbImage, current_frame: usize) {
         for actor in &self.scenario.actors {
             let trail_color = self.get_trail_color(&actor.id);
 
-            // Draw trail from start to current frame
-            for t in 0..=current_frame {
+            // Draw trail from start to current frame, limited to MAX_TRAIL_LENGTH most recent positions
+            let trail_start = if current_frame > MAX_TRAIL_LENGTH {
+                current_frame - MAX_TRAIL_LENGTH
+            } else {
+                0
+            };
+
+            for t in trail_start..=current_frame {
                 if t >= actor.states.len() {
                     break;
                 }
@@ -349,8 +424,10 @@ impl<'a> GifAnimator<'a> {
                 let (px, py) = self.transform_coords(state.position().x, state.position().y);
 
                 // Calculate alpha for fading effect (range 0.3 to 1.0 so oldest positions are visible)
-                let alpha = if current_frame > 0 {
-                    0.3 + 0.7 * (t as f64) / (current_frame as f64)
+                // Normalize based on visible trail length, not current_frame
+                let visible_length = current_frame - trail_start;
+                let alpha = if visible_length > 0 {
+                    0.3 + 0.7 * (t - trail_start) as f64 / (visible_length as f64)
                 } else {
                     1.0
                 };
@@ -665,9 +742,9 @@ mod tests {
     #[test]
     fn test_animator_config_creation() {
         let scenario = create_test_scenario();
-        let config = AnimatorConfig::from_scenario(&scenario);
+        let config = AnimatorConfig::from_scenario(&scenario, Resolution::Medium);
 
-        assert_eq!(config.canvas_width, CANVAS_WIDTH);
+        assert_eq!(config.canvas_width, 900); // Medium resolution width
         assert_eq!(config.num_frames, 2); // 2 states
         assert!(config.x_scale > 0.0);
         assert!(config.y_scale > 0.0);
@@ -676,7 +753,7 @@ mod tests {
     #[test]
     fn test_coordinate_transformation() {
         let scenario = create_test_scenario();
-        let animator = GifAnimator::new(&scenario).unwrap();
+        let animator = GifAnimator::new(&scenario, Resolution::Medium).unwrap();
 
         let (px, py) = animator.transform_coords(5.0, 3.0);
         assert!(px >= animator.config.margin as i32);
@@ -686,7 +763,7 @@ mod tests {
     #[test]
     fn test_vehicle_color_coding() {
         let scenario = create_test_scenario();
-        let animator = GifAnimator::new(&scenario).unwrap();
+        let animator = GifAnimator::new(&scenario, Resolution::Medium).unwrap();
 
         assert_eq!(animator.get_actor_color("ego"), COLOR_EGO);
         assert_eq!(animator.get_actor_color("npc"), COLOR_NPC);
@@ -696,7 +773,7 @@ mod tests {
     #[test]
     fn test_frame_metrics_computation() {
         let scenario = create_test_scenario();
-        let animator = GifAnimator::new(&scenario).unwrap();
+        let animator = GifAnimator::new(&scenario, Resolution::Medium).unwrap();
 
         let (ttc, distance) = animator.compute_frame_metrics(0);
         // Different lanes at frame 0, so metrics should be infinity
@@ -707,7 +784,7 @@ mod tests {
     #[test]
     fn test_violation_time_parsing() {
         let scenario = create_test_scenario();
-        let animator = GifAnimator::new(&scenario).unwrap();
+        let animator = GifAnimator::new(&scenario, Resolution::Medium).unwrap();
 
         let violation = "TTC violation at t=3.5s: ego-npc: 2.1s < 3.0s";
         let time = animator.parse_violation_time(violation);
