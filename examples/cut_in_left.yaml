@@ -1,41 +1,49 @@
 scenario_type: cut_in_left
 
 # Time configuration
-time_step: 0.1 # 0.5 second discretization
-duration: 10.0 # 10 second scenario
+time_step: 0.1
+duration: 10.0
+
 # Road specification
 road:
   num_lanes: 3
   lane_width: 3.5
-  lane_directions: [ 1,1,-1]
+  lane_directions: [1, 1, -1]
 
-# Actor specifications (generic actor system)
+# Coordinate system (default: cartesian)
+coordinate_system: cartesian
+
+# Actor specifications
 actors:
   # Ego vehicle (controlled by AV under test)
-  # Both fixed values and ranges are supported
   - id: ego
     role: ego
-    lane: 1 # right lane
-    position: [0.0, 55.0] # 45-55 meters from start (Z3 chooses)
-    speed: [14.0, 16.0] # 14-16 m/s (Z3 chooses)
+    lane: 1  # right lane
+    position: [0.0, 55.0]
+    speed: [14.0, 16.0]
     direction: 1
-    acceleration: [0.0, 3.0] # -8.0 to 3.0 m/s² (emergency braking to moderate acceleration)
+    acceleration: [-8.0, 3.0]
 
   # NPC vehicle (background actor)
   - id: npc
     role: npc
-    lane: 0 # left lane
-    position: [20.0, 80.0] # start 60-80m from start (Z3 chooses)
-    speed: [16.0, 20.0] # slightly slower (Z3 chooses)
+    lane: 0  # left lane
+    position: [20.0, 80.0]
+    speed: [16.0, 20.0]
     direction: 1
-    acceleration: [0.0, 3.0] # -8.0 to 3.0 m/s²
-    behavior:
-      cut_in_time: [1.4, 3.5] # cut in between 2.5-7.5 seconds
+    acceleration: [-8.0, 3.0]
+
+    # Lane change configuration (replaces behavior.cut_in_time)
+    lane_change:
+      enabled: true
+      direction: right         # NPC cuts from left (lane 0) to right (lane 1)
+      start_time: [1.4, 3.5]  # Lane change starts between 1.4-3.5 seconds
+      duration: [3.0, 4.0]    # Lane change takes 3-4 seconds (smooth transition)
 
 # Safety constraints
-min_ttc: 3.0 # minimum 3 second time-to-collision
-min_distance: 5.0 # minimum 5 meter distance
-lane_width: 3.5 # 3.5 meter lane width
+min_ttc: 3.0
+min_distance: 5.0
+lane_width: 3.5
 
 # Generation settings
-num_scenarios: 5 # generate 1 scenario (change to 5 for multiple)
+num_scenarios: 5

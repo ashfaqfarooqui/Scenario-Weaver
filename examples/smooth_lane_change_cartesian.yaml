@@ -1,0 +1,59 @@
+# Example: Cartesian Coordinate System with Smooth Lane Changes
+#
+# This example demonstrates the Cartesian coordinate system with smooth,
+# gradual lane transitions over multiple time steps.
+#
+# Key features:
+# - coordinate_system: cartesian - Uses Cartesian (x, y) coordinates
+# - lane_change with explicit configuration - Defines start time and duration
+# - Smooth transitions - Lateral position interpolates gradually between lanes
+# - Realistic velocities - Lateral velocity constrained to ~2 m/s
+
+scenario_type: cut_in_left
+time_step: 0.1
+duration: 10.0
+
+# Coordinate system selection
+# - frenet: Uses Frenet coordinates (s, t) with solver-discovered lane changes
+# - cartesian: Uses Cartesian coordinates (x, y) with smooth lane transitions
+coordinate_system: cartesian
+
+road:
+  num_lanes: 3
+  lane_width: 3.5
+  lane_directions: [1, 1, 1]
+
+actors:
+  - id: ego
+    role: ego
+    lane: 1  # Right lane
+    position: [0.0, 55.0]
+    speed: [14.0, 16.0]
+    direction: 1
+    acceleration: [-8.0, 3.0]
+
+  - id: npc
+    role: npc
+    lane: 0  # Left lane
+    position: [20.0, 80.0]
+    speed: [16.0, 20.0]
+    direction: 1
+    acceleration: [-8.0, 3.0]
+
+    # NEW: Explicit lane_change configuration
+    # This enables smooth lane transitions in Cartesian mode
+    lane_change:
+      enabled: true
+      direction: right         # NPC cuts from left (lane 0) to right (lane 1)
+      start_time: [2.5, 3.5]  # Lane change starts between 2.5-3.5 seconds
+      duration: [3.0, 4.0]    # Lane change takes 3-4 seconds (smooth transition)
+
+min_ttc: 3.0
+min_distance: 5.0
+num_scenarios: 3
+
+# Notes:
+# - Lateral velocity will be ~1.17 m/s for 3.5m lane change over 3s (realistic)
+# - Lateral acceleration constrained to 2.0 m/s² during lane change
+# - Before and after lane change, vehicle stays at lane center
+# - Compatible with both lane_change config and legacy behavior.cut_in_time format

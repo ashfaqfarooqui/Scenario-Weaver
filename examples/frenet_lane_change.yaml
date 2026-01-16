@@ -47,9 +47,9 @@ actors:
     # NOTE: Polynomial method removed - solver discovers trajectories
     lane_change:
       enabled: true
-      direction: left           # Lane change direction
+      direction: right          # Lane change direction (lane 0 to lane 1)
       start_time: [4.0, 6.0]    # Range: solver chooses when to start (between 4.0s and 6.0s)
-      duration: [2.5, 3.5]      # Range: solver chooses how long (between 2.5s and 3.5s)
+      duration: [3.0, 4.0]      # Range: solver chooses how long (between 3.0s and 4.0s)
 
 min_ttc: 3.0
 min_distance: 5.0
