@@ -5,10 +5,11 @@
 //! lane-based constraints.
 
 use std::collections::HashMap;
+use std::ops::Add;
 use z3::ast::{Bool, Int, Real};
 use z3::Model;
 
-use crate::dsl::types::{ActorRole, CoordinateSystem, ScenarioSpec};
+use crate::dsl::types::{ActorRole, ScenarioSpec};
 use crate::dsl::types::{
     PEDESTRIAN_MAX_ACCELERATION, PEDESTRIAN_MAX_DECELERATION, PEDESTRIAN_RUN_MAX_SPEED,
     PEDESTRIAN_WALK_MAX_SPEED,
@@ -197,7 +198,7 @@ impl<B: Z3Backend> CartesianEncoder<B> {
             ScenarioGenError::Z3ModelParsing("Failed to evaluate real variable".to_string())
         })?;
 
-        if let Some(rational) = ast.as_real() {
+        if let Some(rational) = ast.as_rational() {
             let (num, denom) = rational;
             Ok(num as f64 / denom as f64)
         } else {
@@ -221,6 +222,80 @@ impl<B: Z3Backend> CartesianEncoder<B> {
                 "Expected integer value, got: {}",
                 ast
             )))
+        }
+    }
+
+    /// Encode smooth lane transition over multiple time steps
+    ///
+    /// Constrains lateral position to gradually transition from source lane center
+    /// to target lane center over the specified time window.
+    fn encode_smooth_lane_transition(
+        &mut self,
+        actor_id: &str,
+        start_step: usize,
+        end_step: usize,
+        direction: &crate::dsl::types::LaneChangeDirection,
+    ) {
+        let lane_width = self.spec.lane_width;
+        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+
+        // Get source lane from step before transition starts
+        let source_lane = &self.lanes[actor_id][start_step.saturating_sub(1)];
+
+        // Calculate target lane
+        let lane_delta = match direction {
+            crate::dsl::types::LaneChangeDirection::Right => 1,
+            crate::dsl::types::LaneChangeDirection::Left => -1,
+        };
+        let target_lane_int = source_lane.add(&Int::from_i64(lane_delta));
+
+        // Get source and target lane centers
+        let half_width = Real::from_rational((lane_width * 5.0) as i64, 10_i64);
+        let source_center = source_lane.to_real() * &lane_width_real + &half_width;
+        let target_center = target_lane_int.to_real() * &lane_width_real + &half_width;
+
+        // Number of transition steps
+        let num_steps = end_step - start_step;
+        if num_steps == 0 {
+            return;
+        }
+
+        // For each time step in transition, interpolate lateral position
+        for t in start_step..=end_step.min(self.horizon) {
+            let progress = Real::from_rational((t - start_step) as i64, num_steps as i64);
+            let py_var = &self.positions_y[actor_id][t];
+
+            // Linear interpolation: py = source + progress * (target - source)
+            let delta = &target_center - &source_center;
+            let expected_py = &source_center + &(&delta * &progress);
+            self.backend.assert(&py_var.eq(&expected_py));
+
+            // Keep lane variable at source during transition
+            if t < end_step {
+                self.backend.assert(&self.lanes[actor_id][t].eq(source_lane));
+            } else {
+                // At end of transition, lane equals target
+                self.backend.assert(&self.lanes[actor_id][t].eq(&target_lane_int));
+            }
+        }
+
+        // Encode lateral acceleration bounds for smoothness
+        self.encode_lateral_acceleration_bounds(actor_id, start_step, end_step);
+    }
+
+    /// Encode lateral acceleration bounds during lane changes
+    fn encode_lateral_acceleration_bounds(
+        &mut self,
+        actor_id: &str,
+        start_step: usize,
+        end_step: usize,
+    ) {
+        let max_ay = Real::from_rational(20_i64, 10_i64); // 2.0 m/s²
+
+        for t in start_step..=end_step.min(self.horizon) {
+            let ay_t = &self.accelerations_y[actor_id][t];
+            self.backend.assert(&ay_t.le(&max_ay));
+            self.backend.assert(&ay_t.ge(&-&max_ay));
         }
     }
 }
@@ -366,17 +441,73 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
             }
         }
 
-        // Lane-position coupling for all time steps (skip pedestrians)
-        let actor_ids: Vec<_> = self
+        // Lane-position coupling with smooth lane change support
+        // Collect actors with lane_change config and their data
+        let lane_change_data: Vec<_> = self
             .spec
             .actors
             .iter()
             .filter(|a| a.role != ActorRole::Pedestrian)
-            .map(|a| a.id.clone())
+            .filter_map(|a| {
+                a.lane_change.as_ref().filter(|lc| lc.enabled).map(|lc| {
+                    let dt = self.spec.time_step;
+                    let start_min = lc.start_time.min();
+                    let start_max = lc.start_time.max();
+                    let duration_min = lc.duration.min();
+                    let duration_max = lc.duration.max();
+
+                    let start_step_min = (start_min / dt) as usize;
+                    let start_step_max = (start_max / dt) as usize;
+                    let duration_steps_min = (duration_min / dt) as usize;
+                    let duration_steps_max = (duration_max / dt) as usize;
+
+                    // Use midpoint for now (TODO: make solver variables)
+                    let start_step = (start_step_min + start_step_max) / 2;
+                    let duration_steps = (duration_steps_min + duration_steps_max) / 2;
+                    let end_step = (start_step + duration_steps).min(self.horizon);
+
+                    (a.id.clone(), lc.direction.clone(), start_step, end_step)
+                })
+            })
             .collect();
-        for actor_id in actor_ids {
-            for t in 0..=self.horizon {
-                self.encode_lane_position_coupling_at_time(&actor_id, t);
+
+        // Collect actor IDs and roles to avoid borrow checker issues
+        let actor_data: Vec<_> = self
+            .spec
+            .actors
+            .iter()
+            .filter(|a| a.role != ActorRole::Pedestrian)
+            .map(|a| (a.id.clone(), a.role))
+            .collect();
+
+        for (actor_id, _role) in actor_data {
+            // Check if this actor has lane_change enabled
+            let lc_data = lane_change_data.iter()
+                .find(|(id, _, _, _)| id == &actor_id);
+
+            if let Some((_, direction, start_step, end_step)) = lc_data {
+                // Before lane change: enforce lane-position coupling
+                for t in 0..(*start_step).min(self.horizon) {
+                    self.encode_lane_position_coupling_at_time(&actor_id, t);
+                }
+
+                // During lane change: encode smooth transition
+                self.encode_smooth_lane_transition(
+                    &actor_id,
+                    *start_step,
+                    *end_step,
+                    direction,
+                );
+
+                // After lane change: enforce lane-position coupling to new lane
+                for t in *end_step..=self.horizon {
+                    self.encode_lane_position_coupling_at_time(&actor_id, t);
+                }
+            } else {
+                // No lane change: enforce coupling at all time steps
+                for t in 0..=self.horizon {
+                    self.encode_lane_position_coupling_at_time(&actor_id, t);
+                }
             }
         }
     }
@@ -662,9 +793,10 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
     }
 
     fn encode_lateral_velocity_bounds(&mut self) {
-        // max_vy allows single-timestep lane changes with 10% buffer
-        // This is much more reasonable than unconstrained (which produced 14+ m/s)
-        let max_vy = (self.spec.lane_width / self.spec.time_step) * 1.1;
+        // Use realistic lateral velocity bound for vehicles
+        // For 3.5m lane change over 3s with dt=0.1s: vy ≈ 1.17 m/s (realistic)
+        // Setting max to 2.0 m/s allows for smooth lane changes
+        let max_vy = 2.0; // m/s
         let max_vy_real = Real::from_rational((max_vy * 10.0) as i64, 10_i64);
         let neg_max_vy_real = Real::from_rational((-max_vy * 10.0) as i64, 10_i64);
 

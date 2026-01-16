@@ -5,10 +5,11 @@
 //! rather than pre-computing them with polynomials.
 
 use std::collections::HashMap;
+use std::ops::Add;
 use z3::ast::{Bool, Int, Real};
 use z3::Model;
 
-use crate::dsl::types::{ActorRole, CoordinateSystem, ScenarioSpec, ValueOrRange};
+use crate::dsl::types::{ActorRole, ScenarioSpec};
 use crate::error::{Result, ScenarioGenError};
 use crate::geometry::FrenetPoint;
 use crate::scenario::model::{
@@ -77,6 +78,54 @@ impl<B: Z3Backend> FrenetEncoder<B> {
         }
     }
 
+    /// Encode lane center bias for lateral position
+    ///
+    /// Adds soft constraints (via bounds) to keep frenet_t near lane centers
+    /// when not actively changing lanes.
+    fn encode_lane_center_bias(
+        &mut self,
+        actor_id: &str,
+        t: usize,
+        lane_var: &Int,
+    ) {
+        let lane_width = self.spec.lane_width;
+        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+
+        // Expected lateral position for this lane
+        let half_width = Real::from_rational((lane_width * 5.0) as i64, 10_i64);
+        let expected_t = lane_var.to_real() * &lane_width_real + &half_width;
+
+        // Allow small deviation (±0.5m from lane center)
+        let tolerance = Real::from_rational(5_i64, 10_i64); // 0.5m
+        let t_var = &self.frenet_t[actor_id][t];
+
+        // Instead of hard equality, use bounds
+        self.backend.assert(&t_var.le(&(&expected_t + &tolerance)));
+        self.backend.assert(&t_var.ge(&(&expected_t - &tolerance)));
+    }
+
+    /// Ensure lane change completes by end of duration
+    fn encode_lane_change_completion(
+        &mut self,
+        actor_id: &str,
+        end_step: usize,
+        direction: &crate::dsl::types::LaneChangeDirection,
+    ) {
+        let lane_var = &self.lanes[actor_id][end_step];
+        let initial_lane = &self.lanes[actor_id][0];
+
+        let lane_delta = match direction {
+            crate::dsl::types::LaneChangeDirection::Right => 1,
+            crate::dsl::types::LaneChangeDirection::Left => -1,
+        };
+        let target_lane = initial_lane.add(&Int::from_i64(lane_delta));
+
+        self.backend.assert(&lane_var.eq(&target_lane));
+
+        // Also ensure lateral position is near target lane center
+        self.encode_lane_center_bias(actor_id, end_step, &target_lane);
+    }
+
     /// Encode smoothness constraints for lane changes
     ///
     /// During a lane change, constrain lateral acceleration and velocity
@@ -103,17 +152,17 @@ impl<B: Z3Backend> FrenetEncoder<B> {
         let duration_steps = (duration_steps_min + duration_steps_max) / 2;
         let end_step = start_step + duration_steps;
 
-        // Smoothness constraints during lane change
+        // Smoothness constraints during lane change (relaxed for realistic lane changes)
         for t in start_step..end_step.min(self.horizon) {
-            // Constrain lateral acceleration for smoothness
+            // Constrain lateral acceleration for smoothness (relaxed to 4.0 m/s²)
             let at_t = &self.frenet_at[actor_id][t];
-            let max_at = Real::from_rational(20_i64, 10_i64); // 2.0 m/s²
+            let max_at = Real::from_rational(40_i64, 10_i64); // 4.0 m/s² (was 2.0)
             self.backend.assert(&at_t.le(&max_at));
             self.backend.assert(&at_t.ge(&-&max_at));
 
-            // Constrain lateral velocity
+            // Constrain lateral velocity (relaxed to 4.0 m/s)
             let vt_t = &self.frenet_vt[actor_id][t];
-            let max_vt = Real::from_rational(25_i64, 10_i64); // 2.5 m/s
+            let max_vt = Real::from_rational(40_i64, 10_i64); // 4.0 m/s (was 2.5)
             self.backend.assert(&vt_t.le(&max_vt));
             self.backend.assert(&vt_t.ge(&-&max_vt));
         }
@@ -203,7 +252,7 @@ impl<B: Z3Backend> FrenetEncoder<B> {
             ScenarioGenError::Z3ModelParsing("Failed to evaluate real variable".to_string())
         })?;
 
-        if let Some(rational) = ast.as_real() {
+        if let Some(rational) = ast.as_rational() {
             let (num, denom) = rational;
             Ok(num as f64 / denom as f64)
         } else {
@@ -317,6 +366,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for FrenetEncoder<B> {
                 } else if actor.role == ActorRole::Ego {
                     // Ego: no lane changes
                     self.backend.assert(&vt_t.eq(&zero));
+                    // Lane center bias applied separately after kinematics loop
                 } else {
                     // Other vehicles: allow lateral movement if lane change enabled
                     if let Some(lc) = &actor.lane_change {
@@ -329,16 +379,50 @@ impl<B: Z3Backend> CoordinateEncoder<B> for FrenetEncoder<B> {
                         } else {
                             // No lane change: vt = 0
                             self.backend.assert(&vt_t.eq(&zero));
+                            // Lane center bias applied separately after kinematics loop
                         }
                     } else {
                         // No lane change config: vt = 0
                         self.backend.assert(&vt_t.eq(&zero));
+                        // Lane center bias applied separately after kinematics loop
                     }
                 }
 
                 // Lateral position update: t[t+1] = t[t] + vt[t] * dt
                 let expected_t = t_t + &(vt_t * &dt_real);
                 self.backend.assert(&t_t1.eq(&expected_t));
+            }
+        }
+
+        // Apply lane center bias for vehicles not changing lanes
+        // Collect data first to avoid borrow checker issues
+        let lane_center_bias_data: Vec<_> = self
+            .spec
+            .actors
+            .iter()
+            .filter(|a| a.role != ActorRole::Pedestrian)
+            .filter_map(|a| {
+                let needs_bias = if a.role == ActorRole::Ego {
+                    true
+                } else if let Some(lc) = &a.lane_change {
+                    !lc.enabled
+                } else {
+                    true
+                };
+
+                if needs_bias {
+                    Some(a.id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Collect lane variables upfront to avoid borrow checker issues
+        for actor_id in lane_center_bias_data {
+            for t in 0..=self.horizon {
+                let lane_var = self.lanes[&actor_id][t].clone();
+                self.encode_lane_center_bias(&actor_id, t, &lane_var);
             }
         }
 
@@ -354,13 +438,29 @@ impl<B: Z3Backend> CoordinateEncoder<B> for FrenetEncoder<B> {
                         && actor.role != ActorRole::Ego
                         && actor.role != ActorRole::Pedestrian
                     {
-                        // Extract min/max from ValueOrRange
+                        let dt = self.spec.time_step;
+                        let start_min = lc.start_time.min();
+                        let start_max = lc.start_time.max();
+                        let duration_min = lc.duration.min();
+                        let duration_max = lc.duration.max();
+
+                        let start_step_min = (start_min / dt) as usize;
+                        let start_step_max = (start_max / dt) as usize;
+                        let duration_steps_min = (duration_min / dt) as usize;
+                        let duration_steps_max = (duration_max / dt) as usize;
+
+                        let start_step = (start_step_min + start_step_max) / 2;
+                        let duration_steps = (duration_steps_min + duration_steps_max) / 2;
+                        let end_step = (start_step + duration_steps).min(self.horizon);
+
                         Some((
                             actor.id.clone(),
-                            lc.start_time.min(),
-                            lc.start_time.max(),
-                            lc.duration.min(),
-                            lc.duration.max(),
+                            lc.direction.clone(),
+                            start_min,
+                            start_max,
+                            duration_min,
+                            duration_max,
+                            end_step,
                         ))
                     } else {
                         None
@@ -371,14 +471,17 @@ impl<B: Z3Backend> CoordinateEncoder<B> for FrenetEncoder<B> {
             })
             .collect();
 
-        for (actor_id, start_min, start_max, duration_min, duration_max) in lane_change_data {
+        for (actor_id, direction, start_min, start_max, duration_min, duration_max, end_step) in &lane_change_data {
             self.encode_lane_change_smoothness(
                 &actor_id,
-                start_min,
-                start_max,
-                duration_min,
-                duration_max,
+                *start_min,
+                *start_max,
+                *duration_min,
+                *duration_max,
             );
+
+            // Ensure lane change completes
+            self.encode_lane_change_completion(&actor_id, *end_step, direction);
         }
 
         // Add explicit bounds on lateral position t to ensure vehicles stay on road
@@ -690,9 +793,10 @@ impl<B: Z3Backend> CoordinateEncoder<B> for FrenetEncoder<B> {
     }
 
     fn encode_lateral_velocity_bounds(&mut self) {
-        // max_vt allows single-timestep lane changes with 10% buffer
-        // This is much more reasonable than unconstrained (which produced 14+ m/s)
-        let max_vt = (self.spec.lane_width / self.spec.time_step) * 1.1;
+        // Use realistic lateral velocity bound for vehicles during lane changes
+        // For 3.5m lane change over 3s with dt=0.1s: vt ≈ 1.17 m/s (realistic)
+        // Setting max to 2.0 m/s allows for smooth lane changes
+        let max_vt = 2.0; // m/s
         let max_vt_real = Real::from_rational((max_vt * 10.0) as i64, 10_i64);
         let neg_max_vt_real = Real::from_rational((-max_vt * 10.0) as i64, 10_i64);
 
