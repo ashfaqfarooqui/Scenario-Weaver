@@ -597,8 +597,15 @@ The encoder system uses a **trait-based plugin architecture**:
   - Maintains coordinate-agnostic logic (LTL encoding, validation metrics)
 
 - **Coordinate-specific implementations**:
-  - `CartesianEncoder<B>`: (x, y) coordinate system with lane-position coupling
-  - `FrenetEncoder<B>`: (s, t) coordinate system with smooth lane change constraints
+  - `CartesianEncoder<B>`: (x, y) coordinate system with smooth lane transition interpolation
+    - Linear interpolation of lateral position during lane changes
+    - Lateral acceleration bounded to 2.0 m/s² during transitions
+    - Lateral velocity bounded to 2.0 m/s (realistic for vehicles)
+  - `FrenetEncoder<B>`: (s, t) coordinate system with solver-discovered smooth trajectories
+    - Lane center bias keeps vehicles within ±0.5m of lane center
+    - Lateral acceleration constrained to 4.0 m/s² during lane changes
+    - Lateral velocity constrained to 4.0 m/s during lane changes
+    - Lane completion enforced by end of duration
 
 **Benefits:**
 - Clean separation of coordinate system logic

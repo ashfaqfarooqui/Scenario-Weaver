@@ -67,6 +67,9 @@ cargo run --release -- -i examples/cut_in_left.yaml -o scenarios/ -n 5
 # Generate adversarial scenarios (violate safety constraints)
 cargo run --release -- -i examples/cut_in_left.yaml -o adversarial/ --adversarial
 
+# Generate scenarios using Frenet coordinate system
+cargo run --release -- -i examples/frenet_lane_change.yaml -o frenet_output/
+
 # Generate junction scenarios
 cargo run --release -- -i examples/t_junction.yaml -o junction_output/
 
@@ -167,15 +170,55 @@ YAML Input → DSL Parser → LTL Generator → Z3 Encoder → Z3 Solver → Sce
 
 ### Data Flow Example (Cut-in Scenario)
 
-1. **Input YAML**: Ego in lane 1 at 50m/15m/s, NPC in lane 0, cuts in between 2.5-7.5s, min_ttc=3.0s
-2. **DSL Parser**: Creates `ScenarioSpec` with ranges for Z3 to choose
+1. **Input YAML**: Ego in lane 1 at 50m/15m/s, NPC in lane 0, smooth lane change between 2.5-3.5s over 3-4s, min_ttc=3.0s
+2. **DSL Parser**: Creates `ScenarioSpec` with `lane_change` configuration for NPC
 3. **LTL Generator**: Creates formula like `G(lane_0) UNTIL cut_in_time AND G(ttc > 3.0)`
 4. **Z3 Encoder**:
-   - Creates variables for 20 time steps (10s / 0.5s)
+   - Creates variables for time steps (e.g., 100 steps for 10s / 0.1s)
    - Encodes kinematics: `px[t+1] = px[t] + vx[t] * dt`
-   - Encodes LTL: `G(ttc > 3.0)` → `ttc[0] > 3.0 ∧ ttc[1] > 3.0 ∧ ... ∧ ttc[20] > 3.0`
+   - **Cartesian mode**: Encodes smooth lane transition with linear interpolation of lateral position
+     - Before lane change: `py = lane * lane_width + lane_width/2`
+     - During transition: `py = source + progress * (target - source)`
+     - After lane change: `py = new_lane * lane_width + lane_width/2`
+   - **Frenet mode**: Encodes lane change with smoothness constraints
+     - Lane center bias: `t` within ±0.5m of lane center when not changing lanes
+     - Lateral acceleration constrained to 4.0 m/s² during lane change
+     - Lateral velocity constrained to 4.0 m/s during lane change
+     - Lane completion enforced: lane must equal target after duration
+   - Encodes LTL: `G(ttc > 3.0)` → `ttc[0] > 3.0 ∧ ttc[1] > 3.0 ∧ ... ∧ ttc[100] > 3.0`
 5. **Z3 Solver**: Finds values for all variables satisfying constraints
 6. **Extractor**: Pulls position/velocity at each time step, validates safety, outputs JSON
+
+### Lane Change Configuration
+
+Actors with lane changes must specify the `lane_change` configuration in the YAML:
+
+```yaml
+actors:
+  - id: npc
+    role: npc
+    lane: 0
+    position: [20.0, 80.0]
+    speed: [16.0, 20.0]
+    direction: 1
+    acceleration: [-8.0, 3.0]
+
+    lane_change:
+      enabled: true
+      direction: right         # Lane change direction (left or right)
+      start_time: [2.5, 3.5]  # When to start the lane change
+      duration: [3.0, 4.0]    # How long the transition takes
+```
+
+**Key behaviors:**
+- **Cartesian system**: Lateral position linearly interpolates between lane centers over the duration
+  - Lateral velocity: ~1.2 m/s for 3.5m lane change over 3s (realistic)
+  - Lateral acceleration bounded to 2.0 m/s²
+- **Frenet system**: Solver discovers trajectories with smoothness constraints
+  - Lateral position stays within ±0.5m of lane center when not changing lanes
+  - Lateral acceleration constrained to 4.0 m/s² during lane change
+  - Lateral velocity constrained to 4.0 m/s during lane change
+  - Lane completion enforced by end of duration
 
 ## Key Design Patterns
 
