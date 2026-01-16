@@ -31,8 +31,11 @@ actors:
     speed: [12.0, 14.0]
     direction: 1
     acceleration: [-8.0, 3.0]
-    behavior:
-      cut_in_time: [2.5, 7.5]
+    lane_change:
+      enabled: true
+      direction: right
+      start_time: [2.5, 7.5]
+      duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -119,8 +122,11 @@ actors:
     speed: 16.0
     direction: 1
     acceleration: [-2.0, 0.0]
-    behavior:
-      cut_in_time: [2.5, 7.5]
+    lane_change:
+      enabled: true
+      direction: right
+      start_time: [2.5, 7.5]
+      duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -192,8 +198,11 @@ actors:
     speed: 18.0
     direction: 1
     acceleration: [-2.0, 0.0]
-    behavior:
-      cut_in_time: [2.5, 7.5]
+    lane_change:
+      enabled: true
+      direction: right
+      start_time: [2.5, 7.5]
+      duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -255,8 +264,11 @@ actors:
     speed: [12.0, 14.0]
     direction: 1
     acceleration: [-8.0, 3.0]
-    behavior:
-      cut_in_time: [2.5, 7.5]
+    lane_change:
+      enabled: true
+      direction: right
+      start_time: [2.5, 7.5]
+      duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -342,8 +354,11 @@ actors:
     speed: [18.0, 22.0]
     direction: 1
     acceleration: [-8.0, 3.0]
-    behavior:
-      cut_in_time: [2.5, 7.5]
+    lane_change:
+      enabled: true
+      direction: right
+      start_time: [2.5, 7.5]
+      duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -398,8 +413,11 @@ actors:
     speed: 14.0
     direction: 1
     acceleration: [-2.0, 0.0]
-    behavior:
-      cut_in_time: [2.5, 7.5]
+    lane_change:
+      enabled: true
+      direction: right
+      start_time: [2.5, 7.5]
+      duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0

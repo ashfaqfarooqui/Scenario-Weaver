@@ -29,7 +29,7 @@ impl LTLGenerator {
 mod tests {
     use super::*;
     use crate::dsl::types::{
-        ActorRole, ActorSpec, ConstraintModes, OptimizationTarget, ValueOrRange,
+        ActorRole, ActorSpec, ConstraintModes, LaneChangeConfig, LaneChangeDirection, OptimizationTarget, ValueOrRange,
     };
     use crate::ltl::formula::LTLFormula;
     use std::collections::HashMap;
@@ -60,12 +60,13 @@ mod tests {
                     speed: ValueOrRange::Range([12.0, 14.0]),
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
-                    behavior: {
-                        let mut map = HashMap::new();
-                        map.insert("cut_in_time".to_string(), serde_json::json!([2.5, 7.5]));
-                        map
-                    },
-                    lane_change: None,
+                    behavior: HashMap::new(),
+                    lane_change: Some(LaneChangeConfig {
+                        enabled: true,
+                        direction: LaneChangeDirection::Right,
+                        start_time: ValueOrRange::Range([2.5, 7.5]),
+                        duration: ValueOrRange::Range([3.0, 4.0]),
+                    }),
                 },
             ],
             min_ttc: 3.0,

@@ -53,7 +53,7 @@ fn test_parse_example_yaml() {
     assert_eq!(npcs.len(), 1);
     let npc = npcs[0];
     assert_eq!(npc.lane, 0);
-    assert_eq!(npc.position.min(), 60.0);
+    assert_eq!(npc.position.min(), 20.0);
     assert_eq!(npc.position.max(), 80.0);
     assert!(!npc.position.is_fixed());
 }
@@ -101,7 +101,7 @@ fn test_generate_single_scenario_integration() {
     // Verify NPC initial conditions
     let npc_initial = &npc.states[0];
     assert_eq!(npc_initial.lane(), 0);
-    assert!(npc_initial.position().x >= 60.0 && npc_initial.position().x <= 80.0);
+    assert!(npc_initial.position().x >= 20.0 && npc_initial.position().x <= 80.0);
     assert!(npc_initial.velocity().vx >= 16.0 && npc_initial.velocity().vx <= 20.0);
 
     // Verify NPC is initially ahead of ego
@@ -420,8 +420,11 @@ actors:
     position: 70.0
     speed: 15.0
     acceleration: [-8.0, 3.0]
-    behavior:
-      cut_in_time: [2.0, 3.0]
+    lane_change:
+      enabled: true
+      direction: right
+      start_time: [2.0, 3.0]
+      duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -503,8 +506,7 @@ actors:
     acceleration: [-8.0, 3.0]
     lane_change:
       enabled: true
-      method: polynomial
-      direction: left
+      direction: right
       start_time: 2.0
       duration: 4.0
 
@@ -579,8 +581,7 @@ actors:
     acceleration: [-8.0, 3.0]
     lane_change:
       enabled: true
-      method: polynomial
-      direction: left
+      direction: right
       start_time: 2.0
       duration: 4.0
 

@@ -213,14 +213,11 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorRole, ActorSpec, RoadSpec, ScenarioType, ValueOrRange};
+    use crate::dsl::types::{ActorRole, ActorSpec, LaneChangeConfig, LaneChangeDirection, RoadSpec, ScenarioType, ValueOrRange};
     use crate::ltl::generator::LTLGenerator;
     use std::collections::HashMap;
 
     fn create_test_spec() -> ScenarioSpec {
-        let mut npc_behavior = HashMap::new();
-        npc_behavior.insert("cut_in_time".to_string(), serde_json::json!([2.5, 7.5]));
-
         ScenarioSpec {
             scenario_type: ScenarioType::CutInLeft,
             time_step: 0.5,
@@ -245,8 +242,13 @@ mod tests {
                     speed: ValueOrRange::Range([12.0, 14.0]),
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
-                    behavior: npc_behavior,
-                    lane_change: None,
+                    behavior: HashMap::new(),
+                    lane_change: Some(LaneChangeConfig {
+                        enabled: true,
+                        direction: LaneChangeDirection::Right,
+                        start_time: ValueOrRange::Range([2.5, 7.5]),
+                        duration: ValueOrRange::Range([3.0, 4.0]),
+                    }),
                 },
             ],
             min_ttc: 3.0,
