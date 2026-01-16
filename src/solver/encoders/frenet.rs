@@ -623,6 +623,92 @@ impl<B: Z3Backend> CoordinateEncoder<B> for FrenetEncoder<B> {
         &self.lanes[actor_id][time]
     }
 
+    fn get_lateral_vel(&self, actor_id: &str, time: usize) -> &Real {
+        &self.frenet_vt[actor_id][time]
+    }
+
+    fn encode_lane_velocity_constraints(&mut self) {
+        let zero = Real::from_rational(0_i64, 1_i64);
+
+        for actor in &self.spec.actors {
+            let actor_id = &actor.id;
+
+            // Skip pedestrians - they don't follow lane-based kinematics
+            if actor.role == ActorRole::Pedestrian {
+                continue;
+            }
+
+            // Use actor's direction (independent of lane direction)
+            let direction = actor.direction;
+
+            for t in 0..=self.horizon {
+                let vs_t = &self.frenet_vs[actor_id][t];
+
+                if direction == 1 {
+                    // Forward: vs >= 0
+                    self.backend.assert(&vs_t.ge(&zero));
+                } else {
+                    // Backward: vs <= 0
+                    self.backend.assert(&vs_t.le(&zero));
+                }
+            }
+        }
+
+        // Add lane bounds: 0 <= lane < num_lanes for all actors and time steps
+        let num_lanes = self.spec.get_num_lanes();
+        let max_lane = Int::from_i64((num_lanes - 1) as i64);
+        let zero_lane = Int::from_i64(0);
+
+        for actor in &self.spec.actors {
+            let actor_id = &actor.id;
+            for t in 0..=self.horizon {
+                let lane_var = &self.lanes[actor_id][t];
+                self.backend.assert(&lane_var.ge(&zero_lane));
+                self.backend.assert(&lane_var.le(&max_lane));
+            }
+        }
+
+        // Add single-lane-jump constraint: |lane[t+1] - lane[t]| <= 1
+        // Prevents vehicles from jumping multiple lanes at once
+        let one = Int::from_i64(1);
+        let neg_one = Int::from_i64(-1);
+
+        for actor in &self.spec.actors {
+            if actor.role != ActorRole::Ego {
+                // Ego already constrained (vt = 0, lane never changes)
+                let actor_id = &actor.id;
+                for t in 0..self.horizon {
+                    let lane_t = &self.lanes[actor_id][t];
+                    let lane_t1 = &self.lanes[actor_id][t + 1];
+                    let diff = lane_t1 - lane_t;
+                    // -1 <= diff <= 1
+                    self.backend.assert(&diff.ge(&neg_one));
+                    self.backend.assert(&diff.le(&one));
+                }
+            }
+        }
+    }
+
+    fn encode_lateral_velocity_bounds(&mut self) {
+        // max_vt allows single-timestep lane changes with 10% buffer
+        // This is much more reasonable than unconstrained (which produced 14+ m/s)
+        let max_vt = (self.spec.lane_width / self.spec.time_step) * 1.1;
+        let max_vt_real = Real::from_rational((max_vt * 10.0) as i64, 10_i64);
+        let neg_max_vt_real = Real::from_rational((-max_vt * 10.0) as i64, 10_i64);
+
+        for actor in &self.spec.actors {
+            if actor.role != ActorRole::Ego {
+                // Ego vt already constrained to 0 (no lane changes)
+                let actor_id = &actor.id;
+                for t in 0..=self.horizon {
+                    let vt_t = &self.frenet_vt[actor_id][t];
+                    self.backend.assert(&vt_t.ge(&neg_max_vt_real));
+                    self.backend.assert(&vt_t.le(&max_vt_real));
+                }
+            }
+        }
+    }
+
     fn backend(&self) -> &B {
         &self.backend
     }
