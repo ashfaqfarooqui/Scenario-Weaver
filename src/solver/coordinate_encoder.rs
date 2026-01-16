@@ -83,6 +83,24 @@ pub trait CoordinateEncoder<B: Z3Backend> {
     /// Get lane variable for an actor at a given time
     fn get_lane_var(&self, actor_id: &str, time: usize) -> &Int;
 
+    /// Get lateral velocity variable for an actor at a given time
+    fn get_lateral_vel(&self, actor_id: &str, time: usize) -> &Real;
+
+    // === Lane Constraints ===
+
+    /// Encode lane-based velocity direction constraints
+    ///
+    /// Constrains velocity direction based on actor direction (forward/backward lanes)
+    /// Also adds lane bounds and single-lane-jump constraints
+    fn encode_lane_velocity_constraints(&mut self);
+
+    /// Encode lateral velocity bounds for realistic lane changes
+    ///
+    /// Constrains lateral velocity to allow single-timestep lane changes
+    fn encode_lateral_velocity_bounds(&mut self);
+
+    // === Backend Access ===
+
     /// Get reference to the Z3 backend
     fn backend(&self) -> &B;
 
