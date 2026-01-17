@@ -1,0 +1,42 @@
+# Simplified bicycle lane change for testing
+scenario_type: cut_in_left
+coordinate_system: bicycle
+time_step: 0.5  # Coarser timestep for faster solving
+duration: 5.0   # Shorter duration
+
+bicycle_config:
+  default_wheelbase: 2.7
+  default_max_steering_angle: 0.6
+  default_max_steering_rate: 0.5
+
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, 1]
+
+actors:
+  - id: ego
+    role: ego
+    lane: 1
+    position: 0.0
+    speed: 15.0
+    acceleration: [-8.0, 3.0]
+    direction: 1
+
+  - id: npc
+    role: npc
+    lane: 0
+    position: 50.0
+    speed: 15.0
+    acceleration: [-8.0, 3.0]
+    direction: 1
+
+    lane_change:
+      enabled: true
+      direction: right
+      start_time: 1.5
+      duration: 2.0
+
+min_ttc: 3.0
+min_distance: 10.0
+num_scenarios: 1

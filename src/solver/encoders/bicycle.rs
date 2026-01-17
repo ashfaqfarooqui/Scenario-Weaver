@@ -296,6 +296,145 @@ impl<B: Z3Backend> BicycleEncoder<B> {
             }
         }
     }
+
+    /// Encode lane-position coupling with lane change support
+    fn encode_lane_coupling_with_lane_changes(&mut self) {
+        // Collect actors with lane_change config and their data
+        let lane_change_data: Vec<_> = self
+            .spec
+            .actors
+            .iter()
+            .filter(|a| a.role != ActorRole::Pedestrian)
+            .filter_map(|a| {
+                a.lane_change.as_ref().filter(|lc| lc.enabled).map(|lc| {
+                    let dt = self.spec.time_step;
+                    let start_min = lc.start_time.min();
+                    let start_max = lc.start_time.max();
+                    let duration_min = lc.duration.min();
+                    let duration_max = lc.duration.max();
+
+                    let start_step_min = (start_min / dt) as usize;
+                    let start_step_max = (start_max / dt) as usize;
+                    let duration_steps_min = (duration_min / dt) as usize;
+                    let duration_steps_max = (duration_max / dt) as usize;
+
+                    // Use midpoint for now
+                    let start_step = (start_step_min + start_step_max) / 2;
+                    let duration_steps = (duration_steps_min + duration_steps_max) / 2;
+                    let end_step = (start_step + duration_steps).min(self.horizon);
+
+                    (a.id.clone(), lc.direction.clone(), start_step, end_step)
+                })
+            })
+            .collect();
+
+        // Collect actor IDs to avoid borrow checker issues
+        let actor_data: Vec<_> = self
+            .spec
+            .actors
+            .iter()
+            .filter(|a| a.role != ActorRole::Pedestrian)
+            .map(|a| a.id.clone())
+            .collect();
+
+        for actor_id in actor_data {
+            // Check if this actor has lane_change enabled
+            let lc_data = lane_change_data
+                .iter()
+                .find(|(id, _, _, _)| id == &actor_id);
+
+            if let Some((_, direction, start_step, end_step)) = lc_data {
+                // Before lane change: enforce lane-position coupling
+                for t in 0..(*start_step).min(self.horizon) {
+                    self.encode_lane_position_coupling_at_time(&actor_id, t);
+                }
+
+                // During lane change: encode smooth transition
+                self.encode_smooth_lane_transition_bicycle(
+                    &actor_id,
+                    *start_step,
+                    *end_step,
+                    direction,
+                );
+
+                // After lane change: enforce lane-position coupling to new lane
+                for t in *end_step..=self.horizon {
+                    self.encode_lane_position_coupling_at_time(&actor_id, t);
+                }
+            } else {
+                // No lane change: enforce coupling at all time steps
+                for t in 0..=self.horizon {
+                    self.encode_lane_position_coupling_at_time(&actor_id, t);
+                }
+            }
+        }
+    }
+
+    /// Encode lane-position coupling at a specific time step
+    /// For bicycle model, DON'T enforce strict coupling - let dynamics naturally evolve
+    /// Only track which lane the vehicle is logically in based on lateral position
+    fn encode_lane_position_coupling_at_time(&mut self, _actor_id: &str, _t: usize) {
+        // For bicycle model: No strict coupling needed
+        // The lane variable is used for LTL constraints but doesn't force lateral position
+        // Lateral position naturally evolves from bicycle dynamics (heading, steering)
+        // The lane assignment is determined by initial conditions and lane changes
+    }
+
+    /// Encode smooth lane transition for bicycle model
+    /// Update lane variable AND ensure actual lateral position change
+    fn encode_smooth_lane_transition_bicycle(
+        &mut self,
+        actor_id: &str,
+        start_step: usize,
+        end_step: usize,
+        direction: &crate::dsl::types::LaneChangeDirection,
+    ) {
+        let lane_width = self.spec.lane_width;
+        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+
+        // Get source lane from step before transition starts
+        let source_lane = &self.lanes[actor_id][start_step.saturating_sub(1)];
+
+        // Calculate target lane
+        let lane_delta = match direction {
+            crate::dsl::types::LaneChangeDirection::Right => 1,
+            crate::dsl::types::LaneChangeDirection::Left => -1,
+        };
+        let target_lane_int = source_lane + Int::from_i64(lane_delta);
+
+        // Update lane variable: at end of transition, lane equals target
+        let end_clamped = end_step.min(self.horizon);
+        if end_clamped <= self.horizon {
+            self.backend
+                .assert(&self.lanes[actor_id][end_clamped].eq(&target_lane_int));
+        }
+
+        // Ensure actual lateral position change occurs
+        // Lateral position must move by approximately one lane width in the correct direction
+        let py_start = &self.positions_y[actor_id][start_step];
+        let py_end = &self.positions_y[actor_id][end_clamped];
+        let py_diff = py_end - py_start;
+
+        // Lane change should produce lateral motion of roughly one lane width
+        // Allow some tolerance (50% to 150% of lane width)
+        let min_change = Real::from_rational((lane_width * 5.0) as i64, 10_i64); // 0.5 * lane_width
+        let max_change = Real::from_rational((lane_width * 15.0) as i64, 10_i64); // 1.5 * lane_width
+
+        match direction {
+            crate::dsl::types::LaneChangeDirection::Right => {
+                // Moving to higher lane number = higher y
+                self.backend.assert(&py_diff.ge(&min_change));
+                self.backend.assert(&py_diff.le(&max_change));
+            }
+            crate::dsl::types::LaneChangeDirection::Left => {
+                // Moving to lower lane number = lower y
+                let neg_max_change = Real::from_rational((-lane_width * 15.0) as i64, 10_i64);
+                let neg_min_change = Real::from_rational((-lane_width * 5.0) as i64, 10_i64);
+                self.backend.assert(&py_diff.ge(&neg_max_change));
+                self.backend.assert(&py_diff.le(&neg_min_change));
+            }
+        }
+    }
 }
 
 impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
@@ -388,6 +527,9 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
                 self.backend.assert(&v_t1.eq(&v_next));
             }
         }
+
+        // Encode lane change constraints and lane-position coupling
+        self.encode_lane_coupling_with_lane_changes();
 
         // Encode bicycle-specific constraints
         self.encode_bicycle_constraints();
