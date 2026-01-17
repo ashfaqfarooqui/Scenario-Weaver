@@ -69,6 +69,8 @@ pub enum CoordinateSystem {
     /// Cartesian coordinates (x, y) with discrete lane assignments (default, for backward compatibility)
     #[default]
     Cartesian,
+    /// Bicycle model (x, y, θ, v) with heading tracking and steering constraints
+    Bicycle,
 }
 
 /// Lane change direction
@@ -91,6 +93,74 @@ pub struct LaneChangeConfig {
     pub start_time: ValueOrRange,
     /// Duration (can be a fixed value or range for solver to choose)
     pub duration: ValueOrRange,
+}
+
+/// Bicycle model parameters for a specific actor
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BicycleParams {
+    /// Wheelbase in meters (distance between front and rear axles)
+    pub wheelbase: f64,
+    /// Maximum steering angle in radians (at front wheels)
+    pub max_steering_angle: f64,
+    /// Maximum steering rate in radians per second
+    pub max_steering_rate: f64,
+}
+
+impl BicycleParams {
+    /// Validate bicycle parameters
+    pub fn validate(&self) -> Result<(), String> {
+        if self.wheelbase <= 0.0 {
+            return Err("wheelbase must be positive".to_string());
+        }
+        if self.max_steering_angle <= 0.0 {
+            return Err("max_steering_angle must be positive".to_string());
+        }
+        if self.max_steering_rate <= 0.0 {
+            return Err("max_steering_rate must be positive".to_string());
+        }
+        Ok(())
+    }
+
+    /// Get minimum turn radius (R = L / tan(δ_max) ≈ L / δ_max for small angles)
+    pub fn min_turn_radius(&self) -> f64 {
+        self.wheelbase / self.max_steering_angle
+    }
+}
+
+/// Scenario-level bicycle configuration (default parameters for all actors)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BicycleConfig {
+    /// Default wheelbase for actors without specific bicycle_params
+    pub default_wheelbase: f64,
+    /// Default max steering angle for actors without specific bicycle_params
+    pub default_max_steering_angle: f64,
+    /// Default max steering rate for actors without specific bicycle_params
+    pub default_max_steering_rate: f64,
+}
+
+impl BicycleConfig {
+    /// Validate bicycle configuration
+    pub fn validate(&self) -> Result<(), String> {
+        if self.default_wheelbase <= 0.0 {
+            return Err("default_wheelbase must be positive".to_string());
+        }
+        if self.default_max_steering_angle <= 0.0 {
+            return Err("default_max_steering_angle must be positive".to_string());
+        }
+        if self.default_max_steering_rate <= 0.0 {
+            return Err("default_max_steering_rate must be positive".to_string());
+        }
+        Ok(())
+    }
+
+    /// Convert to BicycleParams
+    pub fn to_params(&self) -> BicycleParams {
+        BicycleParams {
+            wheelbase: self.default_wheelbase,
+            max_steering_angle: self.default_max_steering_angle,
+            max_steering_rate: self.default_max_steering_rate,
+        }
+    }
 }
 
 /// Configuration for how constraints should be enforced
@@ -360,6 +430,9 @@ pub struct ActorSpec {
     /// Lane change configuration (optional, for smooth lane changes)
     #[serde(default)]
     pub lane_change: Option<LaneChangeConfig>,
+    /// Bicycle model parameters (optional, overrides scenario-level bicycle_config)
+    #[serde(default)]
+    pub bicycle_params: Option<BicycleParams>,
 }
 
 /// Root scenario specification
@@ -413,6 +486,9 @@ pub struct ScenarioSpec {
     /// Reference line for Frenet coordinate conversion (computed during parsing)
     #[serde(skip)]
     pub reference_line: Option<crate::geometry::ReferenceLine>,
+    /// Bicycle model configuration (optional, provides default parameters for all actors)
+    #[serde(default)]
+    pub bicycle_config: Option<BicycleConfig>,
 }
 
 /// Default lane width for backward compatibility
@@ -498,6 +574,14 @@ impl ScenarioSpec {
     /// Get number of lanes (backward compatible)
     pub fn get_num_lanes(&self) -> usize {
         self.road.as_ref().map(|r| r.num_lanes).unwrap_or(2) // Default: 2 lanes
+    }
+
+    /// Get bicycle parameters for an actor (uses actor-specific params or scenario defaults)
+    pub fn get_bicycle_params(&self, actor: &ActorSpec) -> Option<BicycleParams> {
+        actor
+            .bicycle_params
+            .clone()
+            .or_else(|| self.bicycle_config.as_ref().map(|cfg| cfg.to_params()))
     }
 
     /// Validate the specification
@@ -619,6 +703,49 @@ impl ScenarioSpec {
             eprintln!("WARNING: Adversarial mode enabled - constraints will be violated");
         }
 
+        // Validate bicycle configuration
+        if self.coordinate_system == CoordinateSystem::Bicycle {
+            // Validate scenario-level bicycle config if present
+            if let Some(ref bicycle_config) = self.bicycle_config {
+                bicycle_config.validate()?;
+            }
+
+            // Ensure all actors have bicycle params (either from actor or scenario defaults)
+            for actor in &self.actors {
+                if actor.role != ActorRole::Pedestrian {
+                    let params = self.get_bicycle_params(actor);
+                    if params.is_none() {
+                        return Err(format!(
+                            "Actor {} requires bicycle_params when coordinate_system is bicycle \
+                             (either specify bicycle_params for the actor or bicycle_config at scenario level)",
+                            actor.id
+                        ));
+                    }
+                    // Validate actor-specific params if present
+                    if let Some(ref params) = actor.bicycle_params {
+                        params.validate()?;
+                    }
+                }
+            }
+        }
+
+        // Validate bicycle params are only used with bicycle coordinate system
+        if self.coordinate_system != CoordinateSystem::Bicycle {
+            if self.bicycle_config.is_some() {
+                return Err(
+                    "bicycle_config can only be used with coordinate_system: bicycle".to_string(),
+                );
+            }
+            for actor in &self.actors {
+                if actor.bicycle_params.is_some() {
+                    return Err(format!(
+                        "Actor {} has bicycle_params but coordinate_system is not bicycle",
+                        actor.id
+                    ));
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -685,6 +812,7 @@ mod tests {
                     direction: 1,
                     behavior: HashMap::new(),
                     lane_change: None,
+                    bicycle_params: None,
                 },
                 ActorSpec {
                     id: "npc".to_string(),
@@ -701,6 +829,7 @@ mod tests {
                         start_time: ValueOrRange::Range([2.5, 7.5]),
                         duration: ValueOrRange::Range([3.0, 4.0]),
                     }),
+                    bicycle_params: None,
                 },
             ],
             min_ttc: 3.0,
@@ -719,6 +848,7 @@ mod tests {
             max_lateral_acceleration: 2.0,
             coordinate_system: CoordinateSystem::Cartesian,
             reference_line: None,
+            bicycle_config: None,
         }
     }
 

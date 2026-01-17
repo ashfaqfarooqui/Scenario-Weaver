@@ -6,6 +6,7 @@ use z3::SatResult;
 use crate::dsl::types::{ConstraintMode, CoordinateSystem, ScenarioSpec};
 use crate::solver::backend::{SolverBackend, Z3Backend};
 use crate::solver::coordinate_encoder::CoordinateEncoder;
+use crate::solver::encoders::bicycle::BicycleEncoder;
 use crate::solver::encoders::cartesian::CartesianEncoder;
 use crate::solver::encoders::frenet::FrenetEncoder;
 
@@ -51,6 +52,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 Box::new(CartesianEncoder::new(spec.clone(), backend))
             }
             CoordinateSystem::Frenet => Box::new(FrenetEncoder::new(spec.clone(), backend)),
+            CoordinateSystem::Bicycle => Box::new(BicycleEncoder::new(spec.clone(), backend)),
         };
 
         Self {
