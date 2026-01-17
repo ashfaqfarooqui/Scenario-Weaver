@@ -109,30 +109,46 @@ impl<B: Z3Backend> BicycleEncoder<B> {
 
     /// Helper: Extract real value from Z3 model
     fn extract_real(&self, model: &Model, var: &Real) -> Result<f64> {
-        let eval = model
-            .eval(var, true)
-            .ok_or_else(|| ScenarioGenError::Z3ModelParsing("Failed to evaluate Real".to_string()))?;
+        let ast = model.eval(var, true).ok_or_else(|| {
+            ScenarioGenError::Z3ModelParsing("Failed to evaluate real variable".to_string())
+        })?;
 
-        eval.as_rational()
-            .and_then(|(num, den)| {
-                if den == 0 {
-                    None
-                } else {
-                    Some(num as f64 / den as f64)
-                }
-            })
-            .ok_or_else(|| ScenarioGenError::Z3ModelParsing("Failed to parse Real value".to_string()))
+        // First try to extract as rational directly
+        if let Some(rational) = ast.as_rational() {
+            let (num, denom) = rational;
+            return Ok(num as f64 / denom as f64);
+        }
+
+        // If not a simple rational, try as_real() which handles more complex expressions
+        #[allow(deprecated)]
+        if let Some((num, denom)) = ast.as_real() {
+            return Ok(num as f64 / denom as f64);
+        }
+
+        // As a last resort, use Z3's decimal approximation for complex expressions
+        let decimal_str = ast.approx(10); // 10 decimal places precision
+        decimal_str.parse::<f64>().map_err(|e| {
+            ScenarioGenError::Z3ModelParsing(format!(
+                "Failed to parse decimal approximation '{}' for expression {}: {}",
+                decimal_str, ast, e
+            ))
+        })
     }
 
     /// Helper: Extract int value from Z3 model
     fn extract_int(&self, model: &Model, var: &Int) -> Result<usize> {
-        let eval = model
-            .eval(var, true)
-            .ok_or_else(|| ScenarioGenError::Z3ModelParsing("Failed to evaluate Int".to_string()))?;
+        let ast = model.eval(var, true).ok_or_else(|| {
+            ScenarioGenError::Z3ModelParsing("Failed to evaluate int variable".to_string())
+        })?;
 
-        eval.as_i64()
-            .and_then(|v| if v >= 0 { Some(v as usize) } else { None })
-            .ok_or_else(|| ScenarioGenError::Z3ModelParsing("Failed to parse Int value".to_string()))
+        if let Some(val) = ast.as_i64() {
+            Ok(val as usize)
+        } else {
+            Err(ScenarioGenError::Z3ModelParsing(format!(
+                "Expected integer value, got: {}",
+                ast
+            )))
+        }
     }
 
     /// Encode initial state for a single actor (Bicycle-specific)
