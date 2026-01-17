@@ -7,6 +7,8 @@ Automatically generate diverse, safety-critical driving test scenarios from high
 - **Declarative YAML-based scenario specifications**
 - **Automatic constraint solving with Z3**
 - **Built-in safety validation** (TTC, minimum distance)
+- **Multiple coordinate systems** - Cartesian (x, y), Frenet (s, t), and Bicycle (x, y, θ, v) models
+- **Kinematic bicycle model** - Realistic vehicle dynamics with heading tracking and steering constraints
 - **Multiple diverse scenario generation**
 - **Adversarial scenario generation** - Generate scenarios that violate safety constraints for testing edge cases
 - **Per-constraint control** - Enforce, violate, or ignore each constraint independently
@@ -106,6 +108,62 @@ constraint_modes: enforce_all
 - **Compliance testing** - Document safety system behavior under hazards (ISO 26262)
 
 **📖 See [README_ADVERSARIAL.md](README_ADVERSARIAL.md) for detailed documentation, architecture, and extension guide.**
+
+---
+
+## Coordinate Systems
+
+The generator supports three coordinate systems for modeling vehicle dynamics:
+
+### Cartesian (x, y) - Default
+
+Point-mass model with separate x and y velocities. Best for general use and backward compatibility.
+
+```yaml
+coordinate_system: cartesian  # or omit (default)
+```
+
+### Frenet (s, t)
+
+Road-aligned coordinates with smooth lane changes. Longitudinal (s) and lateral (t) coordinates relative to a reference line.
+
+```yaml
+coordinate_system: frenet
+```
+
+### Bicycle Model (x, y, θ, v) - NEW!
+
+Kinematic bicycle model with heading tracking and steering constraints. Provides realistic vehicle dynamics with turn radius enforcement.
+
+```yaml
+coordinate_system: bicycle
+
+bicycle_config:
+  default_wheelbase: 2.7              # meters (typical sedan)
+  default_max_steering_angle: 0.6     # radians (~34°)
+  default_max_steering_rate: 0.5      # rad/s
+
+actors:
+  - id: ego
+    # ... standard configuration ...
+    # Uses defaults from bicycle_config
+
+  - id: npc
+    # Optional: Override defaults per actor
+    bicycle_params:
+      wheelbase: 2.9              # Larger vehicle (SUV)
+      max_steering_angle: 0.5     # Less maneuverable
+      max_steering_rate: 0.4      # Slower steering
+```
+
+**Bicycle model dynamics** (small angle approximation):
+- State: (x, y, θ, v) - position, heading angle, speed
+- Controls: (a, δ) - acceleration, steering angle
+- Enforces steering limits, heading bounds (±30°), and minimum turn radius
+
+**Examples:**
+- `examples/bicycle_lane_change.yaml` - Highway cut-in with bicycle dynamics
+- `examples/bicycle_straight.yaml` - Simple scenario with bicycle model
 
 ---
 

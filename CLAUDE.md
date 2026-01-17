@@ -70,6 +70,9 @@ cargo run --release -- -i examples/cut_in_left.yaml -o adversarial/ --adversaria
 # Generate scenarios using Frenet coordinate system
 cargo run --release -- -i examples/frenet_lane_change.yaml -o frenet_output/
 
+# Generate scenarios using Bicycle model (kinematic with heading tracking)
+cargo run --release -- -i examples/bicycle_lane_change.yaml -o bicycle_output/
+
 # Generate junction scenarios
 cargo run --release -- -i examples/t_junction.yaml -o junction_output/
 
@@ -159,6 +162,7 @@ YAML Input → DSL Parser → LTL Generator → Z3 Encoder → Z3 Solver → Sce
    - **Variables**: Position, velocity, and lane variables for each actor at each time step
      - Cartesian: `positions_x`, `positions_y`, `velocities_x`, `velocities_y`, `lanes`
      - Frenet: `frenet_s`, `frenet_t`, `frenet_vs`, `frenet_vt`, `frenet_lane`
+     - Bicycle: `positions_x`, `positions_y`, `heading_theta`, `speed_v`, `steering_delta`, `accelerations`, `lanes`
    - **Velocity Direction Constraints**: `encode_lane_velocity_constraints()` enforces lane direction (forward: longitudinal vel >= 0, backward: <= 0)
 
 4. **Scenario Module** (`src/scenario/`)
@@ -219,6 +223,92 @@ actors:
   - Lateral acceleration constrained to 4.0 m/s² during lane change
   - Lateral velocity constrained to 4.0 m/s during lane change
   - Lane completion enforced by end of duration
+
+### Bicycle Model Configuration
+
+Actors using the bicycle coordinate system model vehicle dynamics with heading tracking and steering constraints.
+
+**YAML configuration** for bicycle scenarios:
+```yaml
+# Select bicycle coordinate system
+coordinate_system: bicycle
+
+# Scenario-level defaults for all actors
+bicycle_config:
+  default_wheelbase: 2.7              # meters (typical sedan)
+  default_max_steering_angle: 0.6     # radians (~34°)
+  default_max_steering_rate: 0.5      # rad/s
+
+actors:
+  - id: ego
+    role: ego
+    lane: 1
+    position: 50.0
+    speed: 15.0
+    acceleration: [-8.0, 3.0]
+    direction: 1
+    # Uses defaults from bicycle_config
+
+  - id: npc
+    role: npc
+    lane: 0
+    position: [60.0, 80.0]
+    speed: [16.0, 20.0]
+    acceleration: [-8.0, 3.0]
+    direction: 1
+    # Optional: Override default bicycle params for this actor
+    bicycle_params:
+      wheelbase: 2.9              # Larger vehicle (SUV)
+      max_steering_angle: 0.5     # Less maneuverable
+      max_steering_rate: 0.4      # Slower steering
+
+    lane_change:
+      enabled: true
+      direction: right
+      start_time: [2.5, 3.5]
+      duration: [3.0, 4.0]
+```
+
+**Kinematic bicycle model dynamics** (small angle approximation):
+- State: `(x, y, θ, v)` where θ is heading angle, v is speed
+- Controls: `(a, δ)` where a is longitudinal acceleration, δ is steering angle
+- Equations:
+  ```
+  dx/dt = v * cos(θ) ≈ v        (small angle: cos(θ) ≈ 1)
+  dy/dt = v * sin(θ) ≈ v * θ    (small angle: sin(θ) ≈ θ)
+  dθ/dt = (v/L) * tan(δ) ≈ (v/L) * δ    (small angle: tan(δ) ≈ δ)
+  dv/dt = a
+  ```
+
+**Constraints enforced**:
+- Steering angle bounds: `-δ_max ≤ δ ≤ δ_max`
+- Heading angle bounds: `-π/6 ≤ θ ≤ π/6` (±30° for small angle validity)
+- Steering rate: `|δ[t+1] - δ[t]| ≤ max_steering_rate * dt`
+- Speed: `v ≥ 0` (always positive)
+- Turn radius: `R_min = L / δ_max` (e.g., 2.7m / 0.6 rad ≈ 4.5m)
+
+**Validation**:
+- If `coordinate_system: bicycle` but no `bicycle_params` (neither default nor per-actor) → error
+- If `wheelbase <= 0` or `max_steering_angle <= 0` → error
+- Pedestrians in bicycle scenarios use simplified model (no steering)
+
+**Trajectory output**:
+- Extracts (x, y, θ, v, δ) from Z3 model
+- Converts to Cartesian velocities: `vx ≈ v`, `vy ≈ v * θ` (small angle)
+- JSON output format unchanged (still has `position: {x, y}`, `velocity: {vx, vy}`)
+
+**Use cases**:
+- Realistic vehicle dynamics with heading tracking
+- Scenarios requiring minimum turn radius constraints
+- Testing with physical steering angle limitations
+- Highway lane changes with smooth heading transitions
+
+**Limitations**:
+- Valid for |θ| < 30° (small angle approximation)
+- May return UNSAT if lane change duration too short for turn radius
+- Lateral acceleration in output set to 0 (could be computed from v²*θ/L if needed)
+
+See `examples/bicycle_lane_change.yaml` and `examples/bicycle_straight.yaml` for complete examples.
 
 ## Key Design Patterns
 
@@ -293,6 +383,11 @@ The encoder system uses a **trait-based plugin architecture** to support multipl
     - Variables: `frenet_s`, `frenet_t`, `frenet_vs`, `frenet_vt`, `frenet_lane`
     - Smooth lane changes with lateral velocity constraints
     - Use case: Road-based scenarios with lane changes
+  - `bicycle.rs`: BicycleEncoder for (x, y, θ, v) kinematic bicycle model
+    - Variables: `positions_x`, `positions_y`, `heading_theta`, `speed_v`, `steering_delta`, `accelerations`, `lanes`
+    - Dynamics (small angle approximation): dx/dt = v, dy/dt = v*θ, dθ/dt = (v/L)*δ, dv/dt = a
+    - Constraints: Steering angle bounds, heading angle bounds (±30°), steering rate limits, turn radius enforcement
+    - Use case: Realistic vehicle dynamics with heading tracking and steering constraints
 
 **Benefits:**
 - Clean separation of coordinate system logic
@@ -657,13 +752,14 @@ we plan to commit regularly dependeing on the feature implemented with relavant 
 - `src/solver/coordinate_encoder.rs`: CoordinateEncoder trait defining encoder interface
 - `src/solver/encoders/cartesian.rs`: CartesianEncoder for (x, y) coordinate system
 - `src/solver/encoders/frenet.rs`: FrenetEncoder for (s, t) coordinate system
+- `src/solver/encoders/bicycle.rs`: BicycleEncoder for (x, y, θ, v) kinematic bicycle model
 - `src/dsl/road_network.rs`: Road network types (`RoadNetwork`, `ExtendedRoadSpec`, `Junction`, `RoadConnection`)
 - `src/scenario/xosc_exporter.rs`: OpenSCENARIO export module
 - `src/scenario/xodr_exporter.rs`: OpenDRIVE export module (road networks, junctions)
 - `src/scenario/svg_visualizer.rs`: SVG static visualization module (multi-road, junctions)
 - `src/scenario/gif_animator.rs`: GIF animation export module (multi-road, junctions)
 - `assets/DejaVuSans.ttf`: Embedded font for GIF text rendering
-- `examples/`: YAML specification examples (including t_junction.yaml, crossroads.yaml)
+- `examples/`: YAML specification examples (including bicycle_lane_change.yaml, bicycle_straight.yaml, t_junction.yaml, crossroads.yaml)
 - `roads/`: Reusable road specification templates
 - `tests/`: Integration tests with fixture files
 - `plans/`: Implementation plan documentation (historical)
