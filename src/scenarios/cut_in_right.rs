@@ -4,7 +4,7 @@
 //! ahead of ego vehicle in left lane (lane 0), and eventually
 //! changes lanes to cut in front of the ego vehicle.
 
-use crate::dsl::types::{ScenarioSpec, ValueOrRange};
+use crate::dsl::types::ScenarioSpec;
 use crate::error::{Result, ScenarioGenError};
 use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;
@@ -24,10 +24,10 @@ impl ScenarioModel for CutInRightModel {
 
         let npc = &spec.npcs()[0];
 
-        // Validate behavior parameters exist
-        if !npc.behavior.contains_key("cut_in_time") {
+        // Both coordinate systems now require lane_change config
+        if npc.lane_change.is_none() || !npc.lane_change.as_ref().unwrap().enabled {
             return Err(ScenarioGenError::InvalidSpec(
-                "NPC missing 'cut_in_time' in behavior map".to_string(),
+                "Cut-in-right requires lane_change configuration with enabled=true".to_string(),
             ));
         }
 
@@ -52,77 +52,13 @@ impl ScenarioModel for CutInRightModel {
 
     fn add_z3_constraints(
         &self,
-        spec: &ScenarioSpec,
-        encoder: &crate::solver::Z3Encoder,
-        backend: &dyn crate::solver::Z3Backend,
-        horizon: usize,
+        _spec: &ScenarioSpec,
+        _encoder: &crate::solver::Z3Encoder,
+        _backend: &dyn crate::solver::Z3Backend,
+        _horizon: usize,
     ) -> Result<()> {
-        use z3::ast::Int;
-
-        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
-        let npc = &spec.npcs()[0];
-        let target_lane = ego.lane;
-        let npc_id = &npc.id;
-        let initial_lane = npc.lane;
-
-        // Parse cut_in_time from behavior
-        let cut_in_time_json = npc.behavior.get("cut_in_time").ok_or_else(|| {
-            ScenarioGenError::InvalidSpec("NPC missing 'cut_in_time' in behavior".to_string())
-        })?;
-
-        let cut_in_time: ValueOrRange =
-            serde_json::from_value(cut_in_time_json.clone()).map_err(|e| {
-                ScenarioGenError::Z3Encoding(format!("Failed to parse cut_in_time: {}", e))
-            })?;
-
-        let time_step = spec.time_step;
-        let (min_time, max_time) = match cut_in_time {
-            ValueOrRange::Value(t) => (t, t),
-            ValueOrRange::Range([min, max]) => (min, max),
-        };
-
-        // Convert time to time step indices
-        let min_step = (min_time / time_step).ceil() as usize;
-        let max_step = (max_time / time_step).floor() as usize;
-
-        // Constraint: NPC must be in initial lane before cut_in_time_min
-        let initial_val = Int::from_i64(initial_lane as i64);
-        for t in 0..min_step.saturating_sub(1) {
-            let lane_t = encoder.get_lane_var(npc_id, t);
-            backend.assert(&lane_t.eq(&initial_val));
-        }
-
-        // Constraint: NPC must be in target lane after cut_in_time_max
-        let target_val = Int::from_i64(target_lane as i64);
-        for t in max_step..=horizon {
-            let lane_t = encoder.get_lane_var(npc_id, t);
-            backend.assert(&lane_t.eq(&target_val));
-        }
-
-        // Lane persistence: once NPC is in target lane, it must stay there
-        // This is critical because the UNTIL operator only requires reaching the target
-        // lane once, but doesn't enforce staying there.
-        //
-        // We enforce: for all pairs of consecutive time steps, if we're in target at t,
-        // we cannot transition back to initial lane at t+1
-        for t in 0..horizon {
-            let lane_t = encoder.get_lane_var(npc_id, t);
-            let lane_t1 = encoder.get_lane_var(npc_id, t + 1);
-
-            // If lane[t] == target_lane, then lane[t+1] != initial_lane
-            // (This is stronger than just requiring lane[t+1] == target)
-            let in_target = lane_t.eq(&target_val);
-            let not_back_to_initial = lane_t1.eq(&initial_val).not();
-            let no_return = in_target.implies(&not_back_to_initial);
-
-            backend.assert(&no_return);
-
-            // Also add the positive constraint: if in target, stay in target
-            let stays_in_target = lane_t1.eq(&target_val);
-            let persistence = in_target.implies(&stays_in_target);
-            backend.assert(&persistence);
-        }
-
+        // Lane change constraints are now handled by the encoder
+        // based on lane_change config in the actor spec
         Ok(())
     }
 }
@@ -173,14 +109,20 @@ impl CutInRightModel {
 mod tests {
     use super::*;
     use crate::dsl::types::{
-        ActorRole, ActorSpec, ConstraintModes, OptimizationTarget, ValueOrRange,
+        ActorRole, ActorSpec, ConstraintModes, LaneChangeConfig, LaneChangeDirection,
+        OptimizationTarget, ValueOrRange,
     };
     use std::collections::HashMap;
 
     fn create_test_spec() -> ScenarioSpec {
         let ego_behavior = HashMap::new();
-        let mut npc_behavior = HashMap::new();
-        npc_behavior.insert("cut_in_time".to_string(), serde_json::json!([2.5, 7.5]));
+
+        let npc_lane_change = LaneChangeConfig {
+            enabled: true,
+            direction: LaneChangeDirection::Left,
+            start_time: ValueOrRange::Range([2.5, 7.5]),
+            duration: ValueOrRange::Range([3.0, 4.0]),
+        };
 
         ScenarioSpec {
             scenario_type: crate::dsl::types::ScenarioType::CutInRight,
@@ -207,8 +149,8 @@ mod tests {
                     speed: ValueOrRange::Range([12.0, 14.0]),
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
-                    behavior: npc_behavior,
-                    lane_change: None,
+                    behavior: HashMap::new(),
+                    lane_change: Some(npc_lane_change),
                     bicycle_params: None,
                 },
             ],
@@ -239,10 +181,10 @@ mod tests {
     }
 
     #[test]
-    fn test_cut_in_right_validate_missing_cut_in_time() {
+    fn test_cut_in_right_validate_missing_lane_change() {
         let model = CutInRightModel;
         let mut spec = create_test_spec();
-        spec.actors[1].behavior.clear(); // Remove cut_in_time
+        spec.actors[1].lane_change = None; // Remove lane_change
         assert!(model.validate(&spec).is_err());
     }
 

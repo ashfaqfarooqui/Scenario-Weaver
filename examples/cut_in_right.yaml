@@ -29,8 +29,13 @@ actors:
     speed: [12.0, 14.0]      # slightly slower (Z3 chooses)
     direction: 1
     acceleration: [-8.0, 3.0]  # -8.0 to 3.0 m/s²
-    behavior:
-      cut_in_time: [2.5, 7.5]  # cut in between 2.5-7.5 seconds
+
+    # Lane change configuration (replaces behavior.cut_in_time)
+    lane_change:
+      enabled: true
+      direction: left          # NPC cuts from right (lane 1) to left (lane 0)
+      start_time: [2.5, 7.5]  # Lane change starts between 2.5-7.5 seconds
+      duration: [3.0, 4.0]    # Lane change takes 3-4 seconds (smooth transition)
 
 # Safety constraints
 min_ttc: 3.0              # minimum 3 second time-to-collision
