@@ -1,8 +1,8 @@
 //! Scenario model trait and implementations
 
 use crate::dsl::types::{ConstraintMode, ScenarioSpec};
-use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::error::Result;
+use crate::ltl::formula::{LTLFormula, Proposition};
 
 /// Trait for scenario-specific LTL generation and validation
 ///

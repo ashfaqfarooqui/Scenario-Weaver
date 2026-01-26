@@ -6,17 +6,17 @@ This directory contains example YAML specifications demonstrating different coor
 
 The system supports two coordinate systems via the `coordinate_system` field in YAML specifications:
 
-### Frenet (default)
-- Uses longitudinal (s) and lateral (t) coordinates relative to reference line
-- Smooth lane changes using lateral velocity constraints in Z3
-- Better approximates real-world driving behavior
-- Recommended for road-based scenarios
-
-### Cartesian
+### Cartesian (default)
 - Uses traditional x, y coordinates
 - Direct position and velocity variables in Z3
-- Backward compatible with existing YAML files
-- Useful for unstructured environments
+- Smooth lane changes using linear interpolation
+- Useful for general scenarios
+
+### Bicycle
+- Uses kinematic bicycle model with heading tracking (x, y, θ, v)
+- Realistic vehicle dynamics with steering constraints
+- Enforces turn radius and steering rate limits
+- Recommended for realistic vehicle behavior
 
 ## Coordinate System Architecture
 
@@ -25,28 +25,15 @@ The encoder system uses a **trait-based plugin architecture**:
 1. **`CoordinateEncoder<B>` trait**: Defines interface for all coordinate-specific encoders
 2. **`GenericEncoder<B>`**: Facade that dispatches to appropriate encoder based on `coordinate_system` field
 3. **Coordinate-specific implementations**:
-   - `FrenetEncoder`: Z3 variables are `frenet_s`, `frenet_t`, `frenet_vs`, `frenet_vt`, `frenet_lane`
    - `CartesianEncoder`: Z3 variables are `positions_x`, `positions_y`, `velocities_x`, `velocities_y`, `lanes`
+   - `BicycleEncoder`: Z3 variables are `positions_x`, `positions_y`, `heading_theta`, `speed_v`, `steering_delta`, `accelerations`, `lanes`
 
 ## Specifying Coordinate System
 
 Add the `coordinate_system` field to your YAML:
 
 ```yaml
-# Use Frenet coordinates (default)
-coordinate_system: frenet
-
-actors:
-  - id: ego
-    lane: 1
-    position: [0.0, 20.0]
-    speed: 15.0
-```
-
-Or explicitly specify Cartesian:
-
-```yaml
-# Use Cartesian coordinates
+# Use Cartesian coordinates (default)
 coordinate_system: cartesian
 
 actors:
@@ -56,26 +43,28 @@ actors:
     speed: 15.0
 ```
 
-## Frenet Coordinate Details
+Or specify Bicycle model:
 
-When using `coordinate_system: frenet`, the encoder:
+```yaml
+# Use Bicycle model
+coordinate_system: bicycle
 
-1. **Creates Frenet variables**: `frenet_s` (longitudinal), `frenet_t` (lateral), `frenet_vs`, `frenet_vt`
-2. **Encodes kinematics**: `s[t+1] = s[t] + vs[t] * dt`, `t[t+1] = t[t] + vt[t] * dt`
-3. **Applies lateral velocity constraints**: Bounds on `vt` ensure smooth lane changes
-4. **Exports trajectories**: JSON output contains Frenet coordinates converted to Cartesian for visualization
+bicycle_config:
+  default_wheelbase: 2.7
+  default_max_steering_angle: 0.6
+  default_max_steering_rate: 0.5
 
-### Smooth Lane Changes
-
-Smoothness is enforced via Z3 constraints on lateral velocity:
-- **Lateral velocity bounds**: `vt_min <= vt[t] <= vt_max` prevents sudden movements
-- **Integer lane assignment**: Vehicles constrained to discrete lanes
-- **No quintic pre-generation**: Z3 directly solves for all variables (simpler architecture)
+actors:
+  - id: ego
+    lane: 1
+    position: [0.0, 20.0]
+    speed: 15.0
+```
 
 ## Examples
 
 ### cut_in_left.yaml
-Basic cut-in scenario (uses default Frenet coordinates)
+Basic cut-in scenario using Cartesian coordinates
 
 ### t_junction.yaml
 T-junction scenario demonstrating multi-road networks
@@ -85,7 +74,7 @@ Crossroads scenario with four-way intersection
 
 ## Output Format
 
-The JSON output contains coordinates in Cartesian format (for visualization and CARLA), regardless of which coordinate system was used for solving:
+The JSON output contains coordinates in Cartesian format for visualization and CARLA:
 
 ```json
 {
@@ -97,23 +86,17 @@ The JSON output contains coordinates in Cartesian format (for visualization and 
 }
 ```
 
-**Note:** Frenet coordinates are used internally during solving (if `coordinate_system: frenet`), but output is always converted to Cartesian for consistency with visualization tools and CARLA.
+Both coordinate systems (Cartesian and Bicycle) output in this format for consistency with visualization tools and CARLA.
 
 ## Running Examples
 
-Generate a single scenario:
+Generate a single scenario with Cartesian coordinates:
 ```bash
 cargo run --release -- -i examples/cut_in_left.yaml -o output/
 ```
 
-Generate with Frenet coordinates (explicit):
+Generate with Bicycle model:
 ```bash
-# Add to YAML: coordinate_system: frenet
-cargo run --release -- -i examples/your_scenario.yaml -o output/
-```
-
-Generate with Cartesian coordinates:
-```bash
-# Add to YAML: coordinate_system: cartesian
-cargo run --release -- -i examples/your_scenario.yaml -o output/
+# Add to YAML: coordinate_system: bicycle
+cargo run --release -- -i examples/bicycle_lane_change.yaml -o output/
 ```

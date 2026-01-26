@@ -7,7 +7,7 @@ Automatically generate diverse, safety-critical driving test scenarios from high
 - **Declarative YAML-based scenario specifications**
 - **Automatic constraint solving with Z3**
 - **Built-in safety validation** (TTC, minimum distance)
-- **Multiple coordinate systems** - Cartesian (x, y), Frenet (s, t), and Bicycle (x, y, θ, v) models
+- **Multiple coordinate systems** - Cartesian (x, y) and Bicycle (x, y, θ, v) models
 - **Kinematic bicycle model** - Realistic vehicle dynamics with heading tracking and steering constraints
 - **Multiple diverse scenario generation**
 - **Adversarial scenario generation** - Generate scenarios that violate safety constraints for testing edge cases
@@ -123,15 +123,7 @@ Point-mass model with separate x and y velocities. Best for general use and back
 coordinate_system: cartesian  # or omit (default)
 ```
 
-### Frenet (s, t)
-
-Road-aligned coordinates with smooth lane changes. Longitudinal (s) and lateral (t) coordinates relative to a reference line.
-
-```yaml
-coordinate_system: frenet
-```
-
-### Bicycle Model (x, y, θ, v) - NEW!
+### Bicycle Model (x, y, θ, v)
 
 Kinematic bicycle model with heading tracking and steering constraints. Provides realistic vehicle dynamics with turn radius enforcement.
 
@@ -634,8 +626,8 @@ The generator uses a **modular, trait-based plugin system** for both scenario ty
 2. **Scenario Model** (`src/scenarios/`) - Trait-based scenario implementations
 3. **LTL Generator** (`src/ltl/`) - Convert specification to temporal logic constraints
 4. **Z3 Encoder** (`src/solver/`) - Coordinate-specific encoders via trait objects
-   - `GenericEncoder` facade dispatches to `CartesianEncoder` or `FrenetEncoder`
-   - Coordinate-specific logic in `src/solver/encoders/cartesian.rs` and `frenet.rs`
+   - `GenericEncoder` facade dispatches to `CartesianEncoder` or `BicycleEncoder`
+   - Coordinate-specific logic in `src/solver/encoders/cartesian.rs` and `bicycle.rs`
 5. **Scenario Extractor** (`src/scenario/`) - Extract solution as JSON trajectories
 
 ### Encoder Architecture
@@ -659,11 +651,10 @@ The encoder system uses a **trait-based plugin architecture**:
     - Linear interpolation of lateral position during lane changes
     - Lateral acceleration bounded to 2.0 m/s² during transitions
     - Lateral velocity bounded to 2.0 m/s (realistic for vehicles)
-  - `FrenetEncoder<B>`: (s, t) coordinate system with solver-discovered smooth trajectories
-    - Lane center bias keeps vehicles within ±0.5m of lane center
-    - Lateral acceleration constrained to 4.0 m/s² during lane changes
-    - Lateral velocity constrained to 4.0 m/s during lane changes
-    - Lane completion enforced by end of duration
+  - `BicycleEncoder<B>`: (x, y, θ, v) kinematic bicycle model with heading tracking
+    - Steering angle bounds, heading angle bounds (±30°), steering rate limits
+    - Turn radius enforcement based on wheelbase and max steering angle
+    - Small angle approximation for efficient solving
 
 **Benefits:**
 - Clean separation of coordinate system logic

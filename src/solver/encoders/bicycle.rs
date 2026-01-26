@@ -85,20 +85,13 @@ impl<B: Z3Backend> BicycleEncoder<B> {
 
     /// Get bicycle parameters for an actor
     fn get_actor_bicycle_params(&self, actor_id: &str) -> Result<(f64, f64, f64)> {
-        let actor = self
-            .spec
-            .get_actor(actor_id)
-            .ok_or_else(|| ScenarioGenError::InvalidSpec(format!("Actor {} not found", actor_id)))?;
+        let actor = self.spec.get_actor(actor_id).ok_or_else(|| {
+            ScenarioGenError::InvalidSpec(format!("Actor {} not found", actor_id))
+        })?;
 
-        let params = self
-            .spec
-            .get_bicycle_params(actor)
-            .ok_or_else(|| {
-                ScenarioGenError::InvalidSpec(format!(
-                    "No bicycle parameters for actor {}",
-                    actor_id
-                ))
-            })?;
+        let params = self.spec.get_bicycle_params(actor).ok_or_else(|| {
+            ScenarioGenError::InvalidSpec(format!("No bicycle parameters for actor {}", actor_id))
+        })?;
 
         Ok((
             params.wheelbase,
@@ -253,10 +246,8 @@ impl<B: Z3Backend> BicycleEncoder<B> {
                 };
 
             // Steering angle bounds: -δ_max <= δ <= δ_max
-            let delta_max_val =
-                Real::from_rational((max_steering_angle * 100.0) as i64, 100_i64);
-            let delta_min_val =
-                Real::from_rational((-max_steering_angle * 100.0) as i64, 100_i64);
+            let delta_max_val = Real::from_rational((max_steering_angle * 100.0) as i64, 100_i64);
+            let delta_min_val = Real::from_rational((-max_steering_angle * 100.0) as i64, 100_i64);
 
             for t in 0..=self.horizon {
                 let delta_var = &self.steering_delta[actor_id][t];
@@ -557,8 +548,18 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             })
             .collect();
 
-        for (actor_id, lane, pos_min, pos_max, speed_min, speed_max, accel_min, accel_max, role, direction) in
-            actor_data
+        for (
+            actor_id,
+            lane,
+            pos_min,
+            pos_max,
+            speed_min,
+            speed_max,
+            accel_min,
+            accel_max,
+            role,
+            direction,
+        ) in actor_data
         {
             self.encode_actor_initial_state(
                 &actor_id, lane, pos_min, pos_max, speed_min, speed_max, accel_min, accel_max,
@@ -597,13 +598,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         }
     }
 
-    fn encode_ttc_constraint(
-        &self,
-        actor1: &str,
-        actor2: &str,
-        min_ttc: f64,
-        time: usize,
-    ) -> Bool {
+    fn encode_ttc_constraint(&self, actor1: &str, actor2: &str, min_ttc: f64, time: usize) -> Bool {
         let lane1 = &self.lanes[actor1][time];
         let lane2 = &self.lanes[actor2][time];
 
@@ -648,8 +643,14 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         // If same_lane AND collision_possible_1, then ttc_safe_1
         // If same_lane AND collision_possible_2, then ttc_safe_2
         // Otherwise (not same lane OR no collision possible), constraint is automatically satisfied
-        let case1_constraint = Bool::implies(&Bool::and(&[&same_lane, &collision_possible_1]), &ttc_safe_1);
-        let case2_constraint = Bool::implies(&Bool::and(&[&same_lane, &collision_possible_2]), &ttc_safe_2);
+        let case1_constraint = Bool::implies(
+            &Bool::and(&[&same_lane, &collision_possible_1]),
+            &ttc_safe_1,
+        );
+        let case2_constraint = Bool::implies(
+            &Bool::and(&[&same_lane, &collision_possible_2]),
+            &ttc_safe_2,
+        );
 
         Bool::and(&[&case1_constraint, &case2_constraint])
     }
@@ -724,7 +725,6 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
 
             let state = State {
                 time,
-                frenet: None, // Bicycle model uses Cartesian primarily
                 cartesian: Some(CartesianState {
                     position: Position { x: px, y: py },
                     velocity: Velocity { vx, vy },

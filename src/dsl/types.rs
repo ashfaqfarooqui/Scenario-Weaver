@@ -64,8 +64,6 @@ pub enum OptimizationTarget {
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CoordinateSystem {
-    /// Frenet coordinates (s, t) with smooth lane changes
-    Frenet,
     /// Cartesian coordinates (x, y) with discrete lane assignments (default, for backward compatibility)
     #[default]
     Cartesian,
@@ -480,12 +478,9 @@ pub struct ScenarioSpec {
     /// Default: 2.0 m/s² for comfortable driving
     #[serde(default = "default_max_lateral_acceleration")]
     pub max_lateral_acceleration: f64,
-    /// Coordinate system (default: Frenet)
+    /// Coordinate system (default: Cartesian)
     #[serde(default)]
     pub coordinate_system: CoordinateSystem,
-    /// Reference line for Frenet coordinate conversion (computed during parsing)
-    #[serde(skip)]
-    pub reference_line: Option<crate::geometry::ReferenceLine>,
     /// Bicycle model configuration (optional, provides default parameters for all actors)
     #[serde(default)]
     pub bicycle_config: Option<BicycleConfig>,
@@ -847,7 +842,6 @@ mod tests {
             max_relative_velocity: None,
             max_lateral_acceleration: 2.0,
             coordinate_system: CoordinateSystem::Cartesian,
-            reference_line: None,
             bicycle_config: None,
         }
     }

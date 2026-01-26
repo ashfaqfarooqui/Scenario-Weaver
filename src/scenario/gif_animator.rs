@@ -109,7 +109,10 @@ pub fn export_to_gif(scenario: &Scenario) -> Result<Vec<u8>> {
 /// let gif_bytes = export_scenario_to_gif_with_resolution(&scenario, Resolution::High).unwrap();
 /// std::fs::write("scenario.gif", gif_bytes).unwrap();
 /// ```
-pub fn export_to_gif_with_resolution(scenario: &Scenario, resolution: Resolution) -> Result<Vec<u8>> {
+pub fn export_to_gif_with_resolution(
+    scenario: &Scenario,
+    resolution: Resolution,
+) -> Result<Vec<u8>> {
     let animator = GifAnimator::new(scenario, resolution)?;
     animator.generate()
 }
@@ -207,8 +210,9 @@ impl<'a> GifAnimator<'a> {
 
         // Load embedded font
         let font_data: &[u8] = include_bytes!("../../assets/DejaVuSans.ttf");
-        let font = FontArc::try_from_slice(font_data)
-            .map_err(|e| ScenarioGenError::FontLoading(format!("Failed to load embedded font: {}", e)))?;
+        let font = FontArc::try_from_slice(font_data).map_err(|e| {
+            ScenarioGenError::FontLoading(format!("Failed to load embedded font: {}", e))
+        })?;
 
         Ok(Self {
             scenario,
@@ -735,7 +739,6 @@ mod tests {
                 max_deceleration: -3.0,
                 acceleration_violations: vec![],
             },
-            reference_line: None,
         }
     }
 

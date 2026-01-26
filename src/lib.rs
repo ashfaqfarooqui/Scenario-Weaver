@@ -5,7 +5,6 @@
 
 pub mod dsl;
 pub mod error;
-pub mod geometry;
 pub mod ltl;
 pub mod scenario;
 pub mod scenarios;

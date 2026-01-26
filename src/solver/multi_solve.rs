@@ -114,15 +114,13 @@ where
 /// We block based on all non-ego actors' initial conditions (position and velocity at t=0).
 /// This ensures diversity in the generated scenarios across different actor types.
 ///
-/// For Cartesian scenarios: uses position_x and velocity_x
-/// For Frenet scenarios: uses frenet_s (longitudinal position) and frenet_vs (longitudinal velocity)
+/// Uses position_x and velocity_x for all coordinate systems (Cartesian and Bicycle both use x-axis).
 ///
 /// The blocking clause is: !(actor1_equal AND actor2_equal AND ...)
 /// Which is equivalent to: (actor1_differs OR actor2_differs OR ...)
 /// At least one non-ego actor must have different initial conditions from previous scenarios.
 fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool {
     let mut all_blocking_clauses = Vec::new();
-    let use_frenet = encoder.spec.coordinate_system == crate::dsl::types::CoordinateSystem::Frenet;
 
     // Get all non-ego actors from the spec
     for actor in encoder
@@ -139,37 +137,8 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
         // Get actor initial state (t=0)
         let actor_initial = &actor_traj.states[0];
 
-        let blocking_clause = if use_frenet {
-            // For Frenet: block based on longitudinal position and velocity (s, vs)
-            let prev_s0 = actor_initial.frenet.as_ref().map(|f| f.s).unwrap_or(0.0);
-            let prev_vs0 = actor_initial.frenet.as_ref().map(|f| f.vs).unwrap_or(0.0);
-
-            // Get Frenet variables
-            let actor_s0 = encoder.get_frenet_s(&actor.id, 0);
-            let actor_vs0 = encoder.get_frenet_vs(&actor.id, 0);
-
-            let prev_s0_z3 = Real::from_rational((prev_s0 * 10.0) as i64, 10_i64);
-            let prev_vs0_z3 = Real::from_rational((prev_vs0 * 10.0) as i64, 10_i64);
-
-            // Tolerance bands for diversity (block near-duplicates)
-            let pos_tolerance = Real::from_rational(5_i64, 10_i64);  // 0.5m
-            let vel_tolerance = Real::from_rational(2_i64, 10_i64);  // 0.2 m/s
-
-            let s_close = Bool::and(&[
-                &actor_s0.ge(&(&prev_s0_z3 - &pos_tolerance)),
-                &actor_s0.le(&(&prev_s0_z3 + &pos_tolerance))
-            ]);
-
-            let vs_close = Bool::and(&[
-                &actor_vs0.ge(&(&prev_vs0_z3 - &vel_tolerance)),
-                &actor_vs0.le(&(&prev_vs0_z3 + &vel_tolerance))
-            ]);
-
-            // Block if both s and vs are within tolerance
-            let both_close = Bool::and(&[&s_close, &vs_close]);
-            both_close.not()
-        } else {
-            // For Cartesian: block based on position_x and velocity_x
+        // Block based on position_x and velocity_x (works for both Cartesian and Bicycle)
+        let blocking_clause = {
             let prev_px0 = actor_initial.position().x;
             let prev_vx0 = actor_initial.velocity().vx;
 
@@ -180,17 +149,17 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
             let prev_vx0_z3 = Real::from_rational((prev_vx0 * 10.0) as i64, 10_i64);
 
             // Tolerance bands for diversity (block near-duplicates)
-            let pos_tolerance = Real::from_rational(5_i64, 10_i64);  // 0.5m
-            let vel_tolerance = Real::from_rational(2_i64, 10_i64);  // 0.2 m/s
+            let pos_tolerance = Real::from_rational(5_i64, 10_i64); // 0.5m
+            let vel_tolerance = Real::from_rational(2_i64, 10_i64); // 0.2 m/s
 
             let px_close = Bool::and(&[
                 &actor_px0.ge(&(&prev_px0_z3 - &pos_tolerance)),
-                &actor_px0.le(&(&prev_px0_z3 + &pos_tolerance))
+                &actor_px0.le(&(&prev_px0_z3 + &pos_tolerance)),
             ]);
 
             let vx_close = Bool::and(&[
                 &actor_vx0.ge(&(&prev_vx0_z3 - &vel_tolerance)),
-                &actor_vx0.le(&(&prev_vx0_z3 + &vel_tolerance))
+                &actor_vx0.le(&(&prev_vx0_z3 + &vel_tolerance)),
             ]);
 
             // For pedestrians, also block lateral (y-axis) initial conditions
@@ -206,12 +175,12 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
 
                 let py_close = Bool::and(&[
                     &actor_py0.ge(&(&prev_py0_z3 - &pos_tolerance)),
-                    &actor_py0.le(&(&prev_py0_z3 + &pos_tolerance))
+                    &actor_py0.le(&(&prev_py0_z3 + &pos_tolerance)),
                 ]);
 
                 let vy_close = Bool::and(&[
                     &actor_vy0.ge(&(&prev_vy0_z3 - &vel_tolerance)),
-                    &actor_vy0.le(&(&prev_vy0_z3 + &vel_tolerance))
+                    &actor_vy0.le(&(&prev_vy0_z3 + &vel_tolerance)),
                 ]);
 
                 // Block if all four are within tolerance
@@ -242,7 +211,10 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorRole, ActorSpec, LaneChangeConfig, LaneChangeDirection, RoadSpec, ScenarioType, ValueOrRange};
+    use crate::dsl::types::{
+        ActorRole, ActorSpec, LaneChangeConfig, LaneChangeDirection, RoadSpec, ScenarioType,
+        ValueOrRange,
+    };
     use crate::ltl::generator::LTLGenerator;
     use std::collections::HashMap;
 
@@ -262,6 +234,7 @@ mod tests {
                     direction: 1,
                     behavior: HashMap::new(),
                     lane_change: None,
+                    bicycle_params: None,
                 },
                 ActorSpec {
                     id: "npc".to_string(),
@@ -278,6 +251,7 @@ mod tests {
                         start_time: ValueOrRange::Range([2.5, 7.5]),
                         duration: ValueOrRange::Range([3.0, 4.0]),
                     }),
+                    bicycle_params: None,
                 },
             ],
             min_ttc: 3.0,
@@ -300,7 +274,7 @@ mod tests {
             max_relative_velocity: None,
             max_lateral_acceleration: 2.0,
             coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
-            reference_line: None,
+            bicycle_config: None,
         }
     }
 

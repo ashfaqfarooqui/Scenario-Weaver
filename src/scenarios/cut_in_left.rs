@@ -27,7 +27,7 @@ impl ScenarioModel for CutInLeftModel {
         // Both coordinate systems now require lane_change config
         if npc.lane_change.is_none() || !npc.lane_change.as_ref().unwrap().enabled {
             return Err(ScenarioGenError::InvalidSpec(
-                "Cut-in-left requires lane_change configuration with enabled=true".to_string()
+                "Cut-in-left requires lane_change configuration with enabled=true".to_string(),
             ));
         }
 
@@ -109,7 +109,8 @@ impl CutInLeftModel {
 mod tests {
     use super::*;
     use crate::dsl::types::{
-        ActorRole, ActorSpec, ConstraintModes, LaneChangeConfig, LaneChangeDirection, OptimizationTarget, ValueOrRange,
+        ActorRole, ActorSpec, ConstraintModes, LaneChangeConfig, LaneChangeDirection,
+        OptimizationTarget, ValueOrRange,
     };
     use std::collections::HashMap;
 
@@ -138,6 +139,7 @@ mod tests {
                     direction: 1,
                     behavior: ego_behavior,
                     lane_change: None,
+                    bicycle_params: None,
                 },
                 ActorSpec {
                     id: "npc".to_string(),
@@ -149,6 +151,7 @@ mod tests {
                     direction: 1,
                     behavior: HashMap::new(),
                     lane_change: Some(npc_lane_change),
+                    bicycle_params: None,
                 },
             ],
             min_ttc: 3.0,
@@ -166,7 +169,7 @@ mod tests {
             max_relative_velocity: None,
             max_lateral_acceleration: 2.0,
             coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
-            reference_line: None,
+            bicycle_config: None,
         }
     }
 

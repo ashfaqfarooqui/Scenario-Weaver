@@ -38,13 +38,7 @@ pub trait CoordinateEncoder<B: Z3Backend> {
     /// Generate time-to-collision constraint between two actors
     ///
     /// Returns a Bool constraint that is true when TTC >= min_ttc
-    fn encode_ttc_constraint(
-        &self,
-        actor1: &str,
-        actor2: &str,
-        min_ttc: f64,
-        time: usize,
-    ) -> Bool;
+    fn encode_ttc_constraint(&self, actor1: &str, actor2: &str, min_ttc: f64, time: usize) -> Bool;
 
     /// Generate distance constraint between two actors
     ///

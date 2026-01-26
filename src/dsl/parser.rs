@@ -2,7 +2,6 @@
 
 use super::types::ScenarioSpec;
 use crate::error::{Result, ScenarioGenError};
-use crate::geometry::ReferenceLine;
 use std::path::Path;
 
 /// Parse YAML string into ScenarioSpec
@@ -13,7 +12,7 @@ pub fn parse_yaml(yaml_content: &str) -> Result<ScenarioSpec> {
     // Validate the parsed specification
     spec.validate().map_err(ScenarioGenError::InvalidSpec)?;
 
-    // Create ReferenceLine from road specification
+    // Calculate and store road length for consistency
     if let Some(road) = &mut spec.road {
         // Use provided road_length, or calculate based on duration + max speed buffer
         let road_length = road.road_length.unwrap_or_else(|| {
@@ -24,13 +23,7 @@ pub fn parse_yaml(yaml_content: &str) -> Result<ScenarioSpec> {
 
         // Store calculated road_length back in RoadSpec for consistency
         road.road_length = Some(road_length);
-
-        let ref_line = ReferenceLine::straight(0.0, 0.0, road_length, 0.0);
-        spec.reference_line = Some(ref_line);
     }
-
-    // NOTE: Polynomial computation removed - the solver now discovers
-    // lane change trajectories dynamically using smoothness constraints
 
     Ok(spec)
 }
@@ -95,17 +88,21 @@ fn preprocess_imports(yaml_content: &str, base_dir: &Path) -> Result<String> {
         // Currently only supports importing road specs
         if let Some(road) = imported.get("road") {
             if value.get("road").is_none() {
-                let mapping = value
-                    .as_mapping_mut()
-                    .ok_or_else(|| ScenarioGenError::YamlStructure("Expected YAML mapping for import merging".to_string()))?;
+                let mapping = value.as_mapping_mut().ok_or_else(|| {
+                    ScenarioGenError::YamlStructure(
+                        "Expected YAML mapping for import merging".to_string(),
+                    )
+                })?;
                 mapping.insert(serde_yml::Value::String("road".to_string()), road.clone());
             }
         } else if imported.get("num_lanes").is_some() {
             // Import file is a road spec (flat structure)
             if value.get("road").is_none() {
-                let mapping = value
-                    .as_mapping_mut()
-                    .ok_or_else(|| ScenarioGenError::YamlStructure("Expected YAML mapping for import merging".to_string()))?;
+                let mapping = value.as_mapping_mut().ok_or_else(|| {
+                    ScenarioGenError::YamlStructure(
+                        "Expected YAML mapping for import merging".to_string(),
+                    )
+                })?;
                 mapping.insert(
                     serde_yml::Value::String("road".to_string()),
                     imported.clone(),
@@ -116,9 +113,11 @@ fn preprocess_imports(yaml_content: &str, base_dir: &Path) -> Result<String> {
 
     // Remove imports field from final output if it exists
     if value.get("imports").is_some() {
-        let mapping = value
-            .as_mapping_mut()
-            .ok_or_else(|| ScenarioGenError::YamlStructure("Expected YAML mapping to remove imports field".to_string()))?;
+        let mapping = value.as_mapping_mut().ok_or_else(|| {
+            ScenarioGenError::YamlStructure(
+                "Expected YAML mapping to remove imports field".to_string(),
+            )
+        })?;
         mapping.remove(serde_yml::Value::String("imports".to_string()));
     }
 

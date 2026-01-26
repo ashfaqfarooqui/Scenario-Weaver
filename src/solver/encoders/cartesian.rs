@@ -266,13 +266,17 @@ impl<B: Z3Backend> CartesianEncoder<B> {
 
         // Constrain lateral position near source at start (soft)
         let py_start = &self.positions_y[actor_id][start_step];
-        self.backend.assert(&py_start.ge(&(&source_center - &tolerance)));
-        self.backend.assert(&py_start.le(&(&source_center + &tolerance)));
+        self.backend
+            .assert(&py_start.ge(&(&source_center - &tolerance)));
+        self.backend
+            .assert(&py_start.le(&(&source_center + &tolerance)));
 
         // Constrain lateral position near target at end (soft)
         let py_end = &self.positions_y[actor_id][end_step.min(self.horizon)];
-        self.backend.assert(&py_end.ge(&(&target_center - &tolerance)));
-        self.backend.assert(&py_end.le(&(&target_center + &tolerance)));
+        self.backend
+            .assert(&py_end.ge(&(&target_center - &tolerance)));
+        self.backend
+            .assert(&py_end.le(&(&target_center + &tolerance)));
 
         // Constrain lateral velocity for smooth motion during transition
         let max_vy = Real::from_rational(20_i64, 10_i64); // 2.0 m/s
@@ -286,10 +290,12 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         for t in start_step..=end_step.min(self.horizon) {
             if t < end_step {
                 // Keep lane variable at source during transition
-                self.backend.assert(&self.lanes[actor_id][t].eq(source_lane));
+                self.backend
+                    .assert(&self.lanes[actor_id][t].eq(source_lane));
             } else {
                 // At end of transition, lane equals target
-                self.backend.assert(&self.lanes[actor_id][t].eq(&target_lane_int));
+                self.backend
+                    .assert(&self.lanes[actor_id][t].eq(&target_lane_int));
             }
         }
 
@@ -498,7 +504,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
 
         for (actor_id, _role) in actor_data {
             // Check if this actor has lane_change enabled
-            let lc_data = lane_change_data.iter()
+            let lc_data = lane_change_data
+                .iter()
                 .find(|(id, _, _, _)| id == &actor_id);
 
             if let Some((_, direction, start_step, end_step)) = lc_data {
@@ -508,12 +515,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                 }
 
                 // During lane change: encode smooth transition
-                self.encode_smooth_lane_transition(
-                    &actor_id,
-                    *start_step,
-                    *end_step,
-                    direction,
-                );
+                self.encode_smooth_lane_transition(&actor_id, *start_step, *end_step, direction);
 
                 // After lane change: enforce lane-position coupling to new lane
                 for t in *end_step..=self.horizon {
@@ -602,13 +604,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         // This method is a no-op for Cartesian encoder
     }
 
-    fn encode_ttc_constraint(
-        &self,
-        actor1: &str,
-        actor2: &str,
-        min_ttc: f64,
-        time: usize,
-    ) -> Bool {
+    fn encode_ttc_constraint(&self, actor1: &str, actor2: &str, min_ttc: f64, time: usize) -> Bool {
         let lane1 = &self.lanes[actor1][time];
         let lane2 = &self.lanes[actor2][time];
 
@@ -711,7 +707,6 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
 
             let state = State {
                 time,
-                frenet: None,
                 cartesian: Some(CartesianState {
                     position: Position::new(px, py),
                     velocity: Velocity::new(vx, vy),

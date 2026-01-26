@@ -399,8 +399,8 @@ impl<'a> SvgVisualizer<'a> {
                                     .iter()
                                     .find(|s| (s.time - time).abs() < tolerance)
                                 {
-                                    let (svg_x, svg_y) =
-                                        self.transform_coords(state.position().x, state.position().y);
+                                    let (svg_x, svg_y) = self
+                                        .transform_coords(state.position().x, state.position().y);
                                     let marker = Circle::new()
                                         .set("cx", svg_x)
                                         .set("cy", svg_y)
@@ -720,7 +720,6 @@ mod tests {
                 max_deceleration: -3.0,
                 acceleration_violations: vec![],
             },
-            reference_line: None,
         }
     }
 

@@ -8,22 +8,21 @@ use crate::solver::backend::{SolverBackend, Z3Backend};
 use crate::solver::coordinate_encoder::CoordinateEncoder;
 use crate::solver::encoders::bicycle::BicycleEncoder;
 use crate::solver::encoders::cartesian::CartesianEncoder;
-use crate::solver::encoders::frenet::FrenetEncoder;
 
 /// Z3 SMT encoder for scenario constraints (generic over backend)
 ///
 /// This is now a thin facade that dispatches to coordinate-specific encoders
-/// (CartesianEncoder or FrenetEncoder) via the CoordinateEncoder trait.
+/// (CartesianEncoder or BicycleEncoder) via the CoordinateEncoder trait.
 ///
 /// The encoder can work with either `SolverBackend` (SAT checking)
 /// or `OptimizerBackend` (optimization objectives).
 ///
-/// Supports both Cartesian (x, y) and Frenet (s, t) coordinate systems.
+/// Supports both Cartesian (x, y) and Bicycle (x, y, θ, v) coordinate systems.
 ///
 /// Note: In Z3 0.19, the context is managed internally and is implicit
 /// within the `with_z3_config()` callback scope.
 pub struct GenericEncoder<B: Z3Backend> {
-    /// Coordinate-specific encoder (Cartesian or Frenet)
+    /// Coordinate-specific encoder (Cartesian or Bicycle)
     coord_encoder: Box<dyn CoordinateEncoder<B>>,
 
     /// Original scenario specification
@@ -48,10 +47,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
 
         // Dispatch to appropriate encoder based on coordinate system
         let coord_encoder: Box<dyn CoordinateEncoder<B>> = match spec.coordinate_system {
-            CoordinateSystem::Cartesian => {
-                Box::new(CartesianEncoder::new(spec.clone(), backend))
-            }
-            CoordinateSystem::Frenet => Box::new(FrenetEncoder::new(spec.clone(), backend)),
+            CoordinateSystem::Cartesian => Box::new(CartesianEncoder::new(spec.clone(), backend)),
             CoordinateSystem::Bicycle => Box::new(BicycleEncoder::new(spec.clone(), backend)),
         };
 
@@ -92,7 +88,8 @@ impl Z3Encoder {
         &mut self,
         model: &dyn crate::scenarios::ScenarioModel,
     ) -> anyhow::Result<()> {
-        model.add_z3_constraints(&self.spec, self, self.coord_encoder.backend(), self.horizon)
+        model
+            .add_z3_constraints(&self.spec, self, self.coord_encoder.backend(), self.horizon)
             .map_err(|e| anyhow::anyhow!(e))
     }
 }
@@ -102,7 +99,8 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     ///
     /// Delegates to the coordinate-specific encoder.
     pub fn create_variables(&mut self) {
-        self.coord_encoder.create_variables(self.horizon, &self.spec);
+        self.coord_encoder
+            .create_variables(self.horizon, &self.spec);
     }
 
     /// Encode initial conditions from the DSL specification
@@ -164,16 +162,6 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     }
 
     // === Coordinate-specific accessors (for multi_solve.rs blocking clauses) ===
-
-    /// Get Frenet s coordinate (longitudinal position along reference line)
-    pub fn get_frenet_s(&self, actor_id: &str, time: usize) -> &Real {
-        self.get_longitudinal_pos(actor_id, time)
-    }
-
-    /// Get Frenet vs coordinate (longitudinal velocity)
-    pub fn get_frenet_vs(&self, actor_id: &str, time: usize) -> &Real {
-        self.get_longitudinal_vel(actor_id, time)
-    }
 
     /// Get Cartesian x position (maps to longitudinal position)
     pub fn get_position_x(&self, actor_id: &str, time: usize) -> &Real {
@@ -693,7 +681,10 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     ///
     /// Converts the Z3 solution (satisfying assignment) into a Scenario
     /// JSON structure with actor trajectories.
-    pub fn extract_scenario(&self, model: &z3::Model) -> crate::error::Result<crate::scenario::model::Scenario> {
+    pub fn extract_scenario(
+        &self,
+        model: &z3::Model,
+    ) -> crate::error::Result<crate::scenario::model::Scenario> {
         use crate::dsl::types::ActorRole;
 
         // Get RoadSpec from ScenarioSpec (required, should always exist after validation)
@@ -701,7 +692,11 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             .spec
             .road
             .as_ref()
-            .ok_or_else(|| crate::error::ScenarioGenError::ExtractionFailed("RoadSpec is required - should be validated during spec parsing".to_string()))?
+            .ok_or_else(|| {
+                crate::error::ScenarioGenError::ExtractionFailed(
+                    "RoadSpec is required - should be validated during spec parsing".to_string(),
+                )
+            })?
             .clone();
 
         let mut scenario = crate::scenario::model::Scenario::new(
@@ -723,21 +718,6 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             scenario.add_actor(trajectory);
         }
 
-        // Validate extracted Frenet t values are within road boundaries
-        let road_width = (self.spec.get_num_lanes() as f64) * self.spec.lane_width;
-        for trajectory in &scenario.actors {
-            for state in &trajectory.states {
-                if let Some(frenet) = &state.frenet {
-                    if frenet.t < 0.0 || frenet.t > road_width {
-                        eprintln!(
-                            "WARNING: Actor {} at t={:.1}s has lateral position {:.2}m outside road bounds [0, {:.2}]",
-                            trajectory.id, state.time, frenet.t, road_width
-                        );
-                    }
-                }
-            }
-        }
-
         // Compute validation metrics
         self.compute_validation_metrics(&mut scenario)?;
 
@@ -751,11 +731,15 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         actor_id: &str,
         role: &str,
     ) -> crate::error::Result<crate::scenario::model::ActorTrajectory> {
-        self.coord_encoder.extract_actor_trajectory(model, actor_id, role)
+        self.coord_encoder
+            .extract_actor_trajectory(model, actor_id, role)
     }
 
     /// Compute validation metrics from the scenario trajectories
-    fn compute_validation_metrics(&self, scenario: &mut crate::scenario::model::Scenario) -> crate::error::Result<()> {
+    fn compute_validation_metrics(
+        &self,
+        scenario: &mut crate::scenario::model::Scenario,
+    ) -> crate::error::Result<()> {
         let mut min_ttc = f64::INFINITY;
         let mut min_distance = f64::INFINITY;
         let mut violations = Vec::new();
@@ -763,12 +747,12 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         // Compute pairwise metrics for all actor combinations
         for (i, id1) in self.spec.actors.iter().map(|a| a.id.clone()).enumerate() {
             for id2 in self.spec.actors.iter().skip(i + 1).map(|a| a.id.clone()) {
-                let traj1 = scenario
-                    .get_actor(&id1)
-                    .ok_or_else(|| crate::error::ScenarioGenError::ActorNotFound(format!("Actor {} missing", id1)))?;
-                let traj2 = scenario
-                    .get_actor(&id2)
-                    .ok_or_else(|| crate::error::ScenarioGenError::ActorNotFound(format!("Actor {} missing", id2)))?;
+                let traj1 = scenario.get_actor(&id1).ok_or_else(|| {
+                    crate::error::ScenarioGenError::ActorNotFound(format!("Actor {} missing", id1))
+                })?;
+                let traj2 = scenario.get_actor(&id2).ok_or_else(|| {
+                    crate::error::ScenarioGenError::ActorNotFound(format!("Actor {} missing", id2))
+                })?;
 
                 for t in 0..=self.horizon {
                     let state1 = &traj1.states[t];
@@ -894,7 +878,10 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dsl::types::{ActorRole, ActorSpec, LaneChangeConfig, LaneChangeDirection, RoadSpec, ScenarioType, ValueOrRange};
+    use crate::dsl::types::{
+        ActorRole, ActorSpec, LaneChangeConfig, LaneChangeDirection, RoadSpec, ScenarioType,
+        ValueOrRange,
+    };
     use std::collections::HashMap;
     use z3::Config;
 
@@ -914,6 +901,7 @@ mod tests {
                     direction: 1,
                     behavior: HashMap::new(),
                     lane_change: None,
+                    bicycle_params: None,
                 },
                 ActorSpec {
                     id: "npc".to_string(),
@@ -930,6 +918,7 @@ mod tests {
                         start_time: ValueOrRange::Range([2.5, 7.5]),
                         duration: ValueOrRange::Range([3.0, 4.0]),
                     }),
+                    bicycle_params: None,
                 },
             ],
             min_ttc: 3.0,
@@ -952,7 +941,7 @@ mod tests {
             max_relative_velocity: None,
             max_lateral_acceleration: 2.0,
             coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
-            reference_line: None,
+            bicycle_config: None,
         }
     }
 
@@ -1002,15 +991,21 @@ mod tests {
             let model = encoder.get_model().unwrap();
 
             // Ego position should be 50.0
-            let ego_px_0 = model.eval(encoder.get_longitudinal_pos("ego", 0), true).unwrap();
+            let ego_px_0 = model
+                .eval(encoder.get_longitudinal_pos("ego", 0), true)
+                .unwrap();
             println!("Ego initial position: {:?}", ego_px_0);
 
             // NPC position should be in range [60.0, 80.0]
-            let npc_px_0 = model.eval(encoder.get_longitudinal_pos("npc", 0), true).unwrap();
+            let npc_px_0 = model
+                .eval(encoder.get_longitudinal_pos("npc", 0), true)
+                .unwrap();
             println!("NPC initial position: {:?}", npc_px_0);
 
             // Ego speed should be 15.0
-            let ego_vx_0 = model.eval(encoder.get_longitudinal_vel("ego", 0), true).unwrap();
+            let ego_vx_0 = model
+                .eval(encoder.get_longitudinal_vel("ego", 0), true)
+                .unwrap();
             println!("Ego initial speed: {:?}", ego_vx_0);
         });
     }
@@ -1055,9 +1050,15 @@ mod tests {
             let model = encoder.get_model().unwrap();
 
             // Check that position evolves correctly
-            let ego_px_0 = model.eval(encoder.get_longitudinal_pos("ego", 0), true).unwrap();
-            let ego_px_1 = model.eval(encoder.get_longitudinal_pos("ego", 1), true).unwrap();
-            let ego_vx_0 = model.eval(encoder.get_longitudinal_vel("ego", 0), true).unwrap();
+            let ego_px_0 = model
+                .eval(encoder.get_longitudinal_pos("ego", 0), true)
+                .unwrap();
+            let ego_px_1 = model
+                .eval(encoder.get_longitudinal_pos("ego", 1), true)
+                .unwrap();
+            let ego_vx_0 = model
+                .eval(encoder.get_longitudinal_vel("ego", 0), true)
+                .unwrap();
 
             println!("Ego px[0]: {:?}", ego_px_0);
             println!("Ego px[1]: {:?}", ego_px_1);
@@ -1389,6 +1390,7 @@ mod tests {
                     direction: 1,
                     behavior: HashMap::new(),
                     lane_change: None,
+                    bicycle_params: None,
                 }],
                 min_ttc: 3.0,
                 min_distance: 5.0,
@@ -1405,7 +1407,7 @@ mod tests {
                 max_relative_velocity: None,
                 max_lateral_acceleration: 2.0,
                 coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
-                reference_line: None,
+                bicycle_config: None,
             };
 
             let mut encoder = Z3Encoder::new(spec);

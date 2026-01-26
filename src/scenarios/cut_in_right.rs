@@ -27,7 +27,7 @@ impl ScenarioModel for CutInRightModel {
         // Validate behavior parameters exist
         if !npc.behavior.contains_key("cut_in_time") {
             return Err(ScenarioGenError::InvalidSpec(
-                "NPC missing 'cut_in_time' in behavior map".to_string()
+                "NPC missing 'cut_in_time' in behavior map".to_string(),
             ));
         }
 
@@ -66,13 +66,14 @@ impl ScenarioModel for CutInRightModel {
         let initial_lane = npc.lane;
 
         // Parse cut_in_time from behavior
-        let cut_in_time_json = npc
-            .behavior
-            .get("cut_in_time")
-            .ok_or_else(|| ScenarioGenError::InvalidSpec("NPC missing 'cut_in_time' in behavior".to_string()))?;
+        let cut_in_time_json = npc.behavior.get("cut_in_time").ok_or_else(|| {
+            ScenarioGenError::InvalidSpec("NPC missing 'cut_in_time' in behavior".to_string())
+        })?;
 
-        let cut_in_time: ValueOrRange = serde_json::from_value(cut_in_time_json.clone())
-            .map_err(|e| ScenarioGenError::Z3Encoding(format!("Failed to parse cut_in_time: {}", e)))?;
+        let cut_in_time: ValueOrRange =
+            serde_json::from_value(cut_in_time_json.clone()).map_err(|e| {
+                ScenarioGenError::Z3Encoding(format!("Failed to parse cut_in_time: {}", e))
+            })?;
 
         let time_step = spec.time_step;
         let (min_time, max_time) = match cut_in_time {
@@ -196,6 +197,7 @@ mod tests {
                     direction: 1,
                     behavior: ego_behavior,
                     lane_change: None,
+                    bicycle_params: None,
                 },
                 ActorSpec {
                     id: "npc".to_string(),
@@ -207,6 +209,7 @@ mod tests {
                     direction: 1,
                     behavior: npc_behavior,
                     lane_change: None,
+                    bicycle_params: None,
                 },
             ],
             min_ttc: 3.0,
@@ -224,7 +227,7 @@ mod tests {
             max_relative_velocity: None,
             max_lateral_acceleration: 2.0,
             coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
-            reference_line: None,
+            bicycle_config: None,
         }
     }
 

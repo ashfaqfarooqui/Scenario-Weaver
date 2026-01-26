@@ -67,9 +67,6 @@ cargo run --release -- -i examples/cut_in_left.yaml -o scenarios/ -n 5
 # Generate adversarial scenarios (violate safety constraints)
 cargo run --release -- -i examples/cut_in_left.yaml -o adversarial/ --adversarial
 
-# Generate scenarios using Frenet coordinate system
-cargo run --release -- -i examples/frenet_lane_change.yaml -o frenet_output/
-
 # Generate scenarios using Bicycle model (kinematic with heading tracking)
 cargo run --release -- -i examples/bicycle_lane_change.yaml -o bicycle_output/
 
@@ -149,7 +146,7 @@ YAML Input → DSL Parser → LTL Generator → Z3 Encoder → Z3 Solver → Sce
      - `encoder.rs`: GenericEncoder facade that dispatches to coordinate-specific encoders
      - `coordinate_encoder.rs`: CoordinateEncoder trait defining encoder interface
      - `encoders/cartesian.rs`: CartesianEncoder for (x, y) coordinate system
-     - `encoders/frenet.rs`: FrenetEncoder for (s, t) coordinate system
+     - `encoders/bicycle.rs`: BicycleEncoder for (x, y, θ, v) kinematic bicycle model
      - `physics.rs`: Kinematic constraint helpers
      - `multi_solve.rs`: Generate multiple diverse scenarios using blocking clauses
    - **Encoder Architecture**: Trait-based plugin system
@@ -161,7 +158,6 @@ YAML Input → DSL Parser → LTL Generator → Z3 Encoder → Z3 Solver → Sce
      - Layer 2: Direct Z3 assertions (only for `Enforce` mode, skipped for `Violate`/`Ignore`)
    - **Variables**: Position, velocity, and lane variables for each actor at each time step
      - Cartesian: `positions_x`, `positions_y`, `velocities_x`, `velocities_y`, `lanes`
-     - Frenet: `frenet_s`, `frenet_t`, `frenet_vs`, `frenet_vt`, `frenet_lane`
      - Bicycle: `positions_x`, `positions_y`, `heading_theta`, `speed_v`, `steering_delta`, `accelerations`, `lanes`
    - **Velocity Direction Constraints**: `encode_lane_velocity_constraints()` enforces lane direction (forward: longitudinal vel >= 0, backward: <= 0)
 
@@ -184,11 +180,6 @@ YAML Input → DSL Parser → LTL Generator → Z3 Encoder → Z3 Solver → Sce
      - Before lane change: `py = lane * lane_width + lane_width/2`
      - During transition: `py = source + progress * (target - source)`
      - After lane change: `py = new_lane * lane_width + lane_width/2`
-   - **Frenet mode**: Encodes lane change with smoothness constraints
-     - Lane center bias: `t` within ±0.5m of lane center when not changing lanes
-     - Lateral acceleration constrained to 4.0 m/s² during lane change
-     - Lateral velocity constrained to 4.0 m/s during lane change
-     - Lane completion enforced: lane must equal target after duration
    - Encodes LTL: `G(ttc > 3.0)` → `ttc[0] > 3.0 ∧ ttc[1] > 3.0 ∧ ... ∧ ttc[100] > 3.0`
 5. **Z3 Solver**: Finds values for all variables satisfying constraints
 6. **Extractor**: Pulls position/velocity at each time step, validates safety, outputs JSON
@@ -218,11 +209,6 @@ actors:
 - **Cartesian system**: Lateral position linearly interpolates between lane centers over the duration
   - Lateral velocity: ~1.2 m/s for 3.5m lane change over 3s (realistic)
   - Lateral acceleration bounded to 2.0 m/s²
-- **Frenet system**: Solver discovers trajectories with smoothness constraints
-  - Lateral position stays within ±0.5m of lane center when not changing lanes
-  - Lateral acceleration constrained to 4.0 m/s² during lane change
-  - Lateral velocity constrained to 4.0 m/s during lane change
-  - Lane completion enforced by end of duration
 
 ### Bicycle Model Configuration
 
@@ -379,10 +365,6 @@ The encoder system uses a **trait-based plugin architecture** to support multipl
     - Variables: `positions_x`, `positions_y`, `velocities_x`, `velocities_y`, `lanes`
     - Lane coupling: `py = lane * lane_width + lane_width/2`
     - Use case: Unstructured environments, backward compatibility
-  - `frenet.rs`: FrenetEncoder for (s, t) coordinates
-    - Variables: `frenet_s`, `frenet_t`, `frenet_vs`, `frenet_vt`, `frenet_lane`
-    - Smooth lane changes with lateral velocity constraints
-    - Use case: Road-based scenarios with lane changes
   - `bicycle.rs`: BicycleEncoder for (x, y, θ, v) kinematic bicycle model
     - Variables: `positions_x`, `positions_y`, `heading_theta`, `speed_v`, `steering_delta`, `accelerations`, `lanes`
     - Dynamics (small angle approximation): dx/dt = v, dy/dt = v*θ, dθ/dt = (v/L)*δ, dv/dt = a
@@ -417,16 +399,15 @@ To add a new coordinate system:
 2. Implement `CoordinateEncoder<B>` trait for `MyCoordsEncoder<B>`
 3. Add variant to `CoordinateSystem` enum in `src/dsl/types.rs` (if not already present)
 4. Update `GenericEncoder::with_backend` in `src/solver/encoder.rs` to dispatch to your encoder
-5. Implement coordinate conversion in `ReferenceLine` if needed
-6. Add tests to verify encoder works correctly
-7. Update documentation (this file and README.md)
+5. Add tests to verify encoder works correctly
+6. Update documentation (this file and README.md)
 
 **Coordinate System Selection:**
 
 The coordinate system is selected in the YAML specification:
 
 ```yaml
-coordinate_system: frenet  # or cartesian
+coordinate_system: cartesian  # or bicycle
 ```
 
 This determines which encoder is instantiated by `GenericEncoder::with_backend`.
@@ -560,9 +541,9 @@ Follow this sequence (see README_ADVERSARIAL.md §"Extending the System" for det
 3. Add threshold field to `ScenarioSpec`
 4. Add proposition variant to `Proposition` enum in `ltl/formula.rs`
 5. Update `LTLGenerator::safety_constraints()` in `ltl/generator.rs` to handle all three modes
-6. Add Z3 encoding to both coordinate encoders:
+6. Add Z3 encoding to all coordinate encoders:
    - `src/solver/encoders/cartesian.rs`: Implement in `encode_proposition()` and add direct assertions in `encode_safety()` (only for `Enforce` mode)
-   - `src/solver/encoders/frenet.rs`: Implement in `encode_proposition()` and add direct assertions in `encode_safety()` (only for `Enforce` mode)
+   - `src/solver/encoders/bicycle.rs`: Implement in `encode_proposition()` and add direct assertions in `encode_safety()` (only for `Enforce` mode)
    - Use accessor methods like `get_longitudinal_pos()`, `get_lateral_pos()` instead of direct field access
 7. Update YAML example files
 8. Add tests (unit tests for each encoder, integration tests for full pipeline)
@@ -751,7 +732,6 @@ we plan to commit regularly dependeing on the feature implemented with relavant 
 - `src/solver/encoder.rs`: GenericEncoder facade that dispatches to coordinate-specific encoders
 - `src/solver/coordinate_encoder.rs`: CoordinateEncoder trait defining encoder interface
 - `src/solver/encoders/cartesian.rs`: CartesianEncoder for (x, y) coordinate system
-- `src/solver/encoders/frenet.rs`: FrenetEncoder for (s, t) coordinate system
 - `src/solver/encoders/bicycle.rs`: BicycleEncoder for (x, y, θ, v) kinematic bicycle model
 - `src/dsl/road_network.rs`: Road network types (`RoadNetwork`, `ExtendedRoadSpec`, `Junction`, `RoadConnection`)
 - `src/scenario/xosc_exporter.rs`: OpenSCENARIO export module

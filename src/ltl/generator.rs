@@ -29,7 +29,8 @@ impl LTLGenerator {
 mod tests {
     use super::*;
     use crate::dsl::types::{
-        ActorRole, ActorSpec, ConstraintModes, LaneChangeConfig, LaneChangeDirection, OptimizationTarget, ValueOrRange,
+        ActorRole, ActorSpec, ConstraintModes, LaneChangeConfig, LaneChangeDirection,
+        OptimizationTarget, ValueOrRange,
     };
     use crate::ltl::formula::LTLFormula;
     use std::collections::HashMap;
@@ -51,6 +52,7 @@ mod tests {
                     direction: 1,
                     behavior: HashMap::new(),
                     lane_change: None,
+                    bicycle_params: None,
                 },
                 ActorSpec {
                     id: "npc".to_string(),
@@ -67,6 +69,7 @@ mod tests {
                         start_time: ValueOrRange::Range([2.5, 7.5]),
                         duration: ValueOrRange::Range([3.0, 4.0]),
                     }),
+                    bicycle_params: None,
                 },
             ],
             min_ttc: 3.0,
@@ -84,7 +87,7 @@ mod tests {
             max_relative_velocity: None,
             max_lateral_acceleration: 2.0,
             coordinate_system: CoordinateSystem::Cartesian,
-            reference_line: None,
+            bicycle_config: None,
         }
     }
 

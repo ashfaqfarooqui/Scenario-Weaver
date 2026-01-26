@@ -12,4 +12,4 @@ pub use backend::OptimizationTarget as BackendOptimizationTarget;
 pub use backend::{OptimizerBackend, SolverBackend, Z3Backend};
 pub use coordinate_encoder::CoordinateEncoder;
 pub use encoder::Z3Encoder;
-pub use encoders::{CartesianEncoder, FrenetEncoder};
+pub use encoders::{BicycleEncoder, CartesianEncoder};

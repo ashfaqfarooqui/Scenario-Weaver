@@ -20,7 +20,8 @@ pub fn extract_scenario_from_model(
 mod tests {
     use super::*;
     use crate::dsl::types::{
-        ActorRole, ActorSpec, LaneChangeConfig, LaneChangeDirection, RoadSpec, ScenarioSpec, ScenarioType, ValueOrRange,
+        ActorRole, ActorSpec, LaneChangeConfig, LaneChangeDirection, RoadSpec, ScenarioSpec,
+        ScenarioType, ValueOrRange,
     };
     use crate::ltl::generator::LTLGenerator;
     use crate::solver::encoder::Z3Encoder;
@@ -43,6 +44,7 @@ mod tests {
                     direction: 1,
                     behavior: HashMap::new(),
                     lane_change: None,
+                    bicycle_params: None,
                 },
                 ActorSpec {
                     id: "npc".to_string(),
@@ -59,6 +61,7 @@ mod tests {
                         start_time: ValueOrRange::Range([2.5, 7.5]),
                         duration: ValueOrRange::Range([3.0, 4.0]),
                     }),
+                    bicycle_params: None,
                 },
             ],
             min_ttc: 3.0,
@@ -81,7 +84,7 @@ mod tests {
             max_relative_velocity: None,
             max_lateral_acceleration: 2.0,
             coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
-            reference_line: None,
+            bicycle_config: None,
         }
     }
 

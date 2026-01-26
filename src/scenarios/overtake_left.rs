@@ -44,12 +44,12 @@ impl ScenarioModel for OvertakeLeftModel {
         // Validate behavior parameters exist
         if !npc.behavior.contains_key("overtake_start_time") {
             return Err(ScenarioGenError::InvalidSpec(
-                "NPC missing 'overtake_start_time' in behavior map".to_string()
+                "NPC missing 'overtake_start_time' in behavior map".to_string(),
             ));
         }
         if !npc.behavior.contains_key("overtake_end_time") {
             return Err(ScenarioGenError::InvalidSpec(
-                "NPC missing 'overtake_end_time' in behavior map".to_string()
+                "NPC missing 'overtake_end_time' in behavior map".to_string(),
             ));
         }
 
@@ -57,10 +57,14 @@ impl ScenarioModel for OvertakeLeftModel {
         let start_time_json = npc.behavior.get("overtake_start_time").unwrap();
         let end_time_json = npc.behavior.get("overtake_end_time").unwrap();
 
-        let start_time: ValueOrRange = serde_json::from_value(start_time_json.clone())
-            .map_err(|e| ScenarioGenError::InvalidSpec(format!("Failed to parse overtake_start_time: {}", e)))?;
-        let end_time: ValueOrRange = serde_json::from_value(end_time_json.clone())
-            .map_err(|e| ScenarioGenError::InvalidSpec(format!("Failed to parse overtake_end_time: {}", e)))?;
+        let start_time: ValueOrRange =
+            serde_json::from_value(start_time_json.clone()).map_err(|e| {
+                ScenarioGenError::InvalidSpec(format!("Failed to parse overtake_start_time: {}", e))
+            })?;
+        let end_time: ValueOrRange =
+            serde_json::from_value(end_time_json.clone()).map_err(|e| {
+                ScenarioGenError::InvalidSpec(format!("Failed to parse overtake_end_time: {}", e))
+            })?;
 
         // Ensure start_time.max < end_time.min for valid timing
         if start_time.max() >= end_time.min() {
@@ -107,19 +111,21 @@ impl ScenarioModel for OvertakeLeftModel {
         let ego_id = &ego.id;
 
         // Parse timing parameters
-        let start_time_json = npc
-            .behavior
-            .get("overtake_start_time")
-            .ok_or_else(|| ScenarioGenError::InvalidSpec("NPC missing 'overtake_start_time'".to_string()))?;
-        let end_time_json = npc
-            .behavior
-            .get("overtake_end_time")
-            .ok_or_else(|| ScenarioGenError::InvalidSpec("NPC missing 'overtake_end_time'".to_string()))?;
+        let start_time_json = npc.behavior.get("overtake_start_time").ok_or_else(|| {
+            ScenarioGenError::InvalidSpec("NPC missing 'overtake_start_time'".to_string())
+        })?;
+        let end_time_json = npc.behavior.get("overtake_end_time").ok_or_else(|| {
+            ScenarioGenError::InvalidSpec("NPC missing 'overtake_end_time'".to_string())
+        })?;
 
-        let start_time: ValueOrRange = serde_json::from_value(start_time_json.clone())
-            .map_err(|e| ScenarioGenError::InvalidSpec(format!("Failed to parse overtake_start_time: {}", e)))?;
-        let end_time: ValueOrRange = serde_json::from_value(end_time_json.clone())
-            .map_err(|e| ScenarioGenError::InvalidSpec(format!("Failed to parse overtake_end_time: {}", e)))?;
+        let start_time: ValueOrRange =
+            serde_json::from_value(start_time_json.clone()).map_err(|e| {
+                ScenarioGenError::InvalidSpec(format!("Failed to parse overtake_start_time: {}", e))
+            })?;
+        let end_time: ValueOrRange =
+            serde_json::from_value(end_time_json.clone()).map_err(|e| {
+                ScenarioGenError::InvalidSpec(format!("Failed to parse overtake_end_time: {}", e))
+            })?;
 
         let time_step = spec.time_step;
 
@@ -303,6 +309,7 @@ mod tests {
                     direction: 1,
                     behavior: ego_behavior,
                     lane_change: None,
+                    bicycle_params: None,
                 },
                 ActorSpec {
                     id: "npc".to_string(),
@@ -314,6 +321,7 @@ mod tests {
                     direction: 1,
                     behavior: npc_behavior,
                     lane_change: None,
+                    bicycle_params: None,
                 },
             ],
             min_ttc: 2.0,
@@ -331,7 +339,7 @@ mod tests {
             max_relative_velocity: None,
             max_lateral_acceleration: 2.0,
             coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
-            reference_line: None,
+            bicycle_config: None,
         }
     }
 

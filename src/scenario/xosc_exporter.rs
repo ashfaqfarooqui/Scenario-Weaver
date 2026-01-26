@@ -193,7 +193,8 @@ fn build_init_actions(scenario: &Scenario) -> Result<openscenario_rs::types::sce
         })?;
 
         // Calculate speed from velocity magnitude
-        let speed = (initial_state.velocity().vx.powi(2) + initial_state.velocity().vy.powi(2)).sqrt();
+        let speed =
+            (initial_state.velocity().vx.powi(2) + initial_state.velocity().vy.powi(2)).sqrt();
 
         // Calculate heading from velocity
         let heading = compute_heading(initial_state);
