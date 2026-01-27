@@ -117,6 +117,32 @@ fn test_generate_single_scenario_integration() {
     }
     assert!(found_lane_change, "NPC should eventually change to lane 1");
 
+    // Verify velocity ratio constraint during lane change
+    let npc_lane_change_states: Vec<_> = npc
+        .states
+        .iter()
+        .filter(|s| s.velocity().vy.abs() > 0.01)
+        .collect();
+
+    assert!(
+        !npc_lane_change_states.is_empty(),
+        "NPC should perform lane change with lateral velocity"
+    );
+
+    for state in npc_lane_change_states {
+        let vx = state.velocity().vx.abs();
+        let vy = state.velocity().vy.abs();
+        let ratio = vy / vx;
+        assert!(
+            ratio <= 0.16,
+            "At t={:.1}s: Velocity ratio {:.4} should be <= 0.15 (with tolerance) (vx={:.2}, vy={:.2})",
+            state.time,
+            ratio,
+            vx,
+            vy
+        );
+    }
+
     // Verify validation metrics
     assert!(scenario.validation.min_ttc >= 3.0 || scenario.validation.min_ttc > 100.0);
     assert!(scenario.validation.min_distance >= 5.0 || scenario.validation.min_distance > 100.0);

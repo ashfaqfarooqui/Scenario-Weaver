@@ -278,10 +278,34 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         self.backend
             .assert(&py_end.le(&(&target_center + &tolerance)));
 
-        // Constrain lateral velocity for smooth motion during transition
-        let max_vy = Real::from_rational(20_i64, 10_i64); // 2.0 m/s
+        // Constrain lateral velocity using velocity ratio: |vy| <= k * |vx|
+        // This ensures realistic heading angles and prevents sideways-only motion
+        // k = 0.15 corresponds to ~8.5° max heading angle (arctan(0.15) ≈ 8.53°)
+        let k = Real::from_rational(15_i64, 100_i64); // 0.15 ratio
+
+        // Get actor direction to handle forward/backward lanes
+        let actor = self
+            .spec
+            .actors
+            .iter()
+            .find(|a| a.id == actor_id)
+            .expect("Actor must exist");
+
         for t in start_step..=end_step.min(self.horizon) {
+            let vx_t = &self.velocities_x[actor_id][t];
             let vy_t = &self.velocities_y[actor_id][t];
+
+            // Compute |vx| * k for ratio bound
+            // For forward lanes (direction = 1): |vx| = vx (positive)
+            // For backward lanes (direction = -1): |vx| = -vx (make positive)
+            let abs_vx = if actor.direction == 1 {
+                vx_t.clone()
+            } else {
+                -vx_t // Negate to get positive magnitude
+            };
+
+            // Velocity ratio constraint: |vy| <= k * |vx|
+            let max_vy = &abs_vx * &k;
             self.backend.assert(&vy_t.ge(&-&max_vy));
             self.backend.assert(&vy_t.le(&max_vy));
         }
