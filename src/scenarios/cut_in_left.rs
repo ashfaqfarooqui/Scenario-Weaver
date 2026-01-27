@@ -4,7 +4,7 @@
 //! ahead of the ego vehicle in the right lane (lane 1), and eventually
 //! changes lanes to cut in front of the ego vehicle.
 
-use crate::dsl::types::{CoordinateSystem, ScenarioSpec, ValueOrRange};
+use crate::dsl::types::ScenarioSpec;
 use crate::error::{Result, ScenarioGenError};
 use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;

@@ -3,7 +3,7 @@
 use z3::ast::{Bool, Int, Real};
 use z3::SatResult;
 
-use crate::dsl::types::{ConstraintMode, CoordinateSystem, ScenarioSpec};
+use crate::dsl::types::{CoordinateSystem, ScenarioSpec};
 use crate::solver::backend::{SolverBackend, Z3Backend};
 use crate::solver::coordinate_encoder::CoordinateEncoder;
 use crate::solver::encoders::bicycle::BicycleEncoder;
