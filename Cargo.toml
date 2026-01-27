@@ -33,7 +33,7 @@ clap = { version = "4.4", features = ["derive"] }
 # Logging (will be used in Phase 12)
 tracing = "0.1"
 tracing-subscriber = "0.3"
-openscenario-rs = { git = "https://github.com/ashfaqfarooqui/openscenario-rs", version = "0.2.0", features = [
+openscenario-rs = { git = "https://github.com/ashfaqfarooqui/openscenario-rs", version = "0.3.0", features = [
     "builder",
 ] }
 
