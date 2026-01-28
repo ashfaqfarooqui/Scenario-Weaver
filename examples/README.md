@@ -64,13 +64,33 @@ actors:
 ## Examples
 
 ### cut_in_left.yaml
-Basic cut-in scenario using Cartesian coordinates
+Basic cut-in scenario using Cartesian coordinates (default)
 
-### t_junction.yaml
-T-junction scenario demonstrating multi-road networks
+### bicycle_lane_change.yaml
+Lane change scenario using Bicycle kinematic model with heading tracking
 
-### crossroads.yaml
-Crossroads scenario with four-way intersection
+### bicycle_straight.yaml
+Straight-line driving scenario demonstrating Bicycle model dynamics
+
+### cut_in_right.yaml
+Right-side cut-in scenario
+
+### overtake_left.yaml
+Overtaking maneuver scenario
+
+### pedestrian_crossing.yaml
+Pedestrian crossing scenario
+
+### speed_limit_violation.yaml
+Adversarial scenario demonstrating speed limit violation
+
+### school_zone.yaml
+Speed-limited scenario for school zone
+
+### unsafe_following.yaml
+Unsafe following distance scenario
+
+**Note:** Multi-road junction scenarios (t_junction, crossroads) are planned but not yet implemented.
 
 ## Output Format
 

@@ -6,49 +6,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CARLA Scenario Generator: Automatically generate diverse, safety-critical driving test scenarios from YAML specifications using Linear Temporal Logic (LTL) and Z3 SMT solver. Supports both safe scenario generation and adversarial generation (scenarios that intentionally violate safety constraints for testing edge cases).
 
-### Multi-Road Network Support
+### Road Support
 
-THis is something planned but not implemented yet.
-The generator supports complex road networks with multiple named roads, connections, and junctions:
+The generator currently supports **single-road scenarios** with the following features:
 
-- **RoadNetwork**: Define multiple named roads with world positions and headings
-- **ExtendedRoadSpec**: Each road has id, lanes, origin (x, y), heading, and length
-- **RoadConnection**: Define predecessor/successor relationships between roads
-- **Junctions**: T-junctions and crossroads with automatic geometry calculation
-- **Lane Direction Constraints**: Automatic velocity constraints based on lane direction
-- **OpenDRIVE Export**: Full road network exported to .xodr format
+- **RoadSpec**: Single road with configurable lanes, width, and directions
+- **Bidirectional lanes**: Each lane can have forward (+1) or backward (-1) direction
+- **Lane Direction Constraints**: Automatic velocity constraints based on lane direction (forward lanes require vx >= 0, backward lanes require vx <= 0)
+- **Dynamic road length**: Auto-calculated based on scenario duration if not specified
 
-Example multi-road specification:
+Example single-road specification:
 
 ```yaml
-roads:
-  roads:
-    - id: main_road
-      num_lanes: 4
-      lane_width: 3.5
-      lane_directions: [1, 1, -1, -1]  # 2 forward, 2 backward
-      length: 400.0
-      origin: { x: 0.0, y: 0.0 }
-      heading: 0.0  # East
-
-    - id: side_road
-      num_lanes: 2
-      lane_width: 3.0
-      lane_directions: [1, -1]
-      length: 150.0
-      origin: { x: 200.0, y: -50.0 }
-      heading: 1.5708  # North
-
-  junctions:
-    - id: t_junction_1
-      junction_type: t_junction
-      main_road: main_road
-      incoming_roads: [side_road]
-      position: 200.0
-      side: right
+road:
+  num_lanes: 4
+  lane_width: 3.5
+  lane_directions: [1, 1, -1, -1]  # 2 forward, 2 backward
+  road_length: 400.0  # Optional - auto-calculated if omitted
 ```
 
-See `examples/t_junction.yaml` and `examples/crossroads.yaml` for junction examples.
+**Note**: Multi-road networks with junctions are planned but not yet implemented. Future support would include:
+- Multiple named roads with world positions and headings
+- Road connections and junctions (T-junctions, crossroads)
+- OpenDRIVE (.xodr) export for complex road networks
 
 ## Common Commands
 
@@ -58,7 +38,7 @@ See `examples/t_junction.yaml` and `examples/crossroads.yaml` for junction examp
 # Build project
 cargo build --release
 
-# Generate single scenario (creates output/scenario.json, .xosc, .xodr, .svg, .gif)
+# Generate single scenario (creates output/scenario.json, .xosc, .svg, .gif)
 cargo run --release -- -i examples/cut_in_left.yaml -o output/
 
 # Generate multiple scenarios (creates quintuplets for each)
@@ -69,9 +49,6 @@ cargo run --release -- -i examples/cut_in_left.yaml -o adversarial/ --adversaria
 
 # Generate scenarios using Bicycle model (kinematic with heading tracking)
 cargo run --release -- -i examples/bicycle_lane_change.yaml -o bicycle_output/
-
-# Generate junction scenarios
-cargo run --release -- -i examples/t_junction.yaml -o junction_output/
 
 # Enable verbose logging
 cargo run --release -- -i examples/cut_in_left.yaml -o output/ -v
@@ -124,11 +101,9 @@ YAML Input → DSL Parser → LTL Generator → Z3 Encoder → Z3 Solver → Sce
    - **Key files**:
      - `types.rs`: Core data structures (`ScenarioSpec`, `ActorSpec`, `RoadSpec`, `ConstraintModes`)
      - `parser.rs`: YAML parsing logic
-     - `road_network.rs`: Multi-road network types (`RoadNetwork`, `ExtendedRoadSpec`, `Junction`, `RoadConnection`)
    - **Important**: Supports both fixed values and ranges (e.g., `position: 50.0` or `position: [45.0, 55.0]`)
    - **Constraint modes**: `Enforce` (default safe), `Violate` (adversarial), `Ignore` (unconstrained)
-   - **Road Network**: `RoadNetwork` contains named roads with world positions, connections, and junctions
-   - **Junction Types**: `TJunction` (main + incoming road) and `Crossroads` (3+ roads meeting)
+   - **Road Support**: Single `RoadSpec` with lanes, width, directions, and optional length
 
 2. **LTL Module** (`src/ltl/`)
    - **Purpose**: Convert high-level specifications to temporal logic formulas
@@ -621,12 +596,12 @@ Future extensions would add new scenario types by:
 
 ## Output Formats
 
-The generator produces scenarios in **five formats** automatically:
+The generator produces scenarios in **four formats** automatically:
 
 ### JSON Output
 
 - **Metadata**: scenario_id (UUID), type, duration, time_step
-- **Actor trajectories**: Position, velocity, lane, road_id at each time step
+- **Actor trajectories**: Position, velocity, lane at each time step
 - **Validation metrics**: min_ttc, min_distance, all_constraints_satisfied
 - **Safety violations**: List of violations with timestamps (for adversarial scenarios)
 
@@ -639,25 +614,12 @@ The generator produces scenarios in **five formats** automatically:
   - `export_to_xosc_with_road_file(scenario, xodr_path) -> Result<String>`
 - **Structure**:
   - FileHeader with scenario metadata and author "CARLA Scenario Generator"
-  - RoadNetwork section with link to OpenDRIVE file
+  - RoadNetwork section (optional reference to OpenDRIVE file)
   - Entities section with vehicle definitions
   - Storyboard with trajectory-based actions for each actor
   - StopTrigger based on scenario duration
-- **Usage**: Automatically generated with reference to .xodr file; also available via public API
-
-### OpenDRIVE (.xodr) Output
-
-- **Format**: Valid OpenDRIVE 1.7 XML
-- **Module**: `src/scenario/xodr_exporter.rs`
-- **Function**: `export_to_xodr(scenario: &Scenario, spec: &ScenarioSpec) -> Result<String>`
-- **Structure**:
-  - Header with revision info and bounding box
-  - Road definitions with geometry (straight lines)
-  - Lane sections with proper left/right/center structure
-  - Road links for connected roads
-  - Junction definitions for T-junctions and crossroads
-- **Usage**: Automatically generated; referenced by .xosc file for complete scenario
- this is planned but not implemented
+- **Usage**: Automatically generated; also available via public API
+- **Note**: Pedestrians are exported as vehicles due to openscenario-rs library limitations
 
 ### SVG Visualization (.svg) Output
 
@@ -665,14 +627,13 @@ The generator produces scenarios in **five formats** automatically:
 - **Module**: `src/scenario/svg_visualizer.rs`
 - **Function**: `export_to_svg(scenario: &Scenario) -> Result<String>`
 - **Structure**:
-  - Multi-road surface with lane markings
-  - Junction boxes for T-junctions and crossroads
+  - Single-road surface with lane markings
   - Complete vehicle trajectories from start to end
   - Vehicle markers at initial and final positions
   - Metrics bar with safety information (TTC, distance, status)
   - Legend with color key
   - Violation markers if constraints violated
-- **Usage**: Automatically generated alongside JSON/XOSC/XODR; also available via public API `export_scenario_to_svg()`
+- **Usage**: Automatically generated alongside JSON/XOSC/GIF; also available via public API `export_scenario_to_svg()`
 
 ### GIF Animation (.gif) Output
 
@@ -684,8 +645,7 @@ The generator produces scenarios in **five formats** automatically:
   - Fading trajectory trails showing motion history
   - Real-time metrics overlay (current time, TTC, distance, status)
   - Violation highlighting with red circles
-  - Multi-road surface with lane markings
-  - Junction rendering (T-junctions and crossroads)
+  - Road surface with lane markings
   - Vehicle rectangles with heading arrows
   - Infinite loop playback
 - **Implementation**:
@@ -698,58 +658,56 @@ The generator produces scenarios in **five formats** automatically:
 - **File Size**: ~900KB for typical 10-second scenario (101 frames)
 - **Usage**: Automatically generated alongside JSON/XOSC/SVG; also available via public API `export_scenario_to_gif()`
 
+### Planned: OpenDRIVE (.xodr) Export
+
+OpenDRIVE export for road networks is planned but not yet implemented. Future support would include:
+- Road definitions with geometry
+- Lane sections with proper structure
+- Support for multi-road networks and junctions
+
 ### Visualization Export Implementation Details
 
 **OpenSCENARIO (xosc_exporter.rs):**
 
 - Creates complete OpenSCENARIO structure using openscenario-rs builder
 - Trajectory-based actions for each actor
-- References OpenDRIVE road file via RoadNetwork section
+- Optional reference to OpenDRIVE road file via RoadNetwork section
 - Key functions: `export_to_xosc()`, `export_to_xosc_with_road_file()`, `build_trajectory()`, `build_init_actions()`
-
-**OpenDRIVE (xodr_exporter.rs):**
-
-- Uses `opendrive` crate for XML generation
-- Supports single roads and multi-road networks
-- Lane mapping: forward lanes → right side (negative IDs), backward → left side (positive IDs)
-- Junction generation for T-junctions and crossroads with lane links
-- Key functions: `export_to_xodr()`, `build_opendrive_from_network()`, `build_junction()`
+- Limitation: Pedestrians exported as vehicles (openscenario-rs library constraint)
 
 **SVG (svg_visualizer.rs):**
 
 - 1200x600 canvas with configurable margins
-- Dynamic bounds calculation from trajectory data (supports multi-road networks)
-- Junction rendering as filled polygons
+- Dynamic bounds calculation from trajectory data
+- Single-road rendering with lane markings
 - Coordinate transformation: scenario coords → SVG viewport
-- Color scheme: Green (ego), Blue (NPC), Red (violations), Gray (junctions)
+- Color scheme: Green (ego), Blue (NPC), Red (violations)
+- Displays metrics, legend, and violation markers
 
 **GIF (gif_animator.rs):**
 
 - Reuses SVG coordinate system and color scheme
 - `GifAnimator` struct with embedded font and configuration
-- Junction rendering support for multi-road scenarios
-- Frame rendering pipeline: background → roads → junctions → lanes → trails → vehicles → violations → metrics
+- Single-road rendering with lane markings
+- Frame rendering pipeline: background → road → lanes → trails → vehicles → violations → metrics
 - Error handling via `ScenarioGenError::GifExport` variant
 
 **Testing:**
 
 - Unit tests verify export functionality and coordinate transformations
 - Integration tests verify end-to-end export for single and multiple scenarios
-- Junction geometry tests for T-junctions and crossroads
+- Physics tests verify vehicle dynamics (velocity ratios, acceleration bounds)
 
 ## Dependencies
 
 - **z3 0.13**: SMT solver (requires system Z3 library)
 - **serde/serde_yaml/serde_json**: YAML input, JSON output
 - **openscenario-rs 0.2.0**: OpenSCENARIO XML generation (builder feature)
-- **opendrive**: OpenDRIVE XML generation for road networks
 - **svg 0.17**: SVG generation for static visualizations
 - **image 0.25**: Image manipulation for GIF frames
 - **gif 0.13**: GIF encoding
 - **imageproc 0.25**: Text rendering on images
 - **ab_glyph 0.2**: Font loading (compatible with imageproc)
-- **uom**: Units of measurement for OpenDRIVE (Length, Angle)
-- **vec1**: Non-empty vector type required by opendrive crate
 - **clap**: CLI argument parsing
 - **tracing**: Structured logging
 - **uuid, chrono**: IDs and timestamps
@@ -763,9 +721,9 @@ When making changes:
 3. Add/update tests
 4. Run `cargo test` to verify
 5. Test with example YAML files: `cargo run -- -i examples/cut_in_left.yaml -o test_output/`
-6. Verify all 5 outputs are generated in the directory: JSON, XOSC, XODR, SVG, and GIF
-7. For junction scenarios, test: `cargo run -- -i examples/t_junction.yaml -o junction_output/`
-8. For adversarial changes, test both modes: normal and `--adversarial`
+6. Verify all 4 outputs are generated in the directory: JSON, XOSC, SVG, and GIF
+7. For adversarial changes, test both modes: normal and `--adversarial`
+8. For bicycle model scenarios, test: `cargo run -- -i examples/bicycle_lane_change.yaml -o bicycle_output/`
 
 # commiting the code
 
@@ -773,23 +731,21 @@ we plan to commit regularly dependeing on the feature implemented with relavant 
 
 ## File Organization
 
-- `src/main.rs`: CLI entry point with quintuplet JSON/XOSC/XODR/SVG/GIF output
-- `src/lib.rs`: Public API (`generate_single_scenario`, `generate_multiple_scenarios`, `export_scenario_to_xosc`, `export_scenario_to_xosc_with_road_file`, `export_scenario_to_xodr`, `export_scenario_to_svg`, `export_scenario_to_gif`)
+- `src/main.rs`: CLI entry point with JSON/XOSC/SVG/GIF output
+- `src/lib.rs`: Public API (`generate_single_scenario`, `generate_multiple_scenarios`, `export_scenario_to_xosc`, `export_scenario_to_xosc_with_road_file`, `export_scenario_to_svg`, `export_scenario_to_gif`)
 - `src/solver/encoder.rs`: GenericEncoder facade that dispatches to coordinate-specific encoders
 - `src/solver/coordinate_encoder.rs`: CoordinateEncoder trait defining encoder interface
 - `src/solver/encoders/cartesian.rs`: CartesianEncoder for (x, y) coordinate system
 - `src/solver/encoders/bicycle.rs`: BicycleEncoder for (x, y, θ, v) kinematic bicycle model
-- `src/dsl/road_network.rs`: Road network types (`RoadNetwork`, `ExtendedRoadSpec`, `Junction`, `RoadConnection`)
+- `src/dsl/types.rs`: DSL data structures including `RoadSpec` for single-road scenarios
+- `src/dsl/parser.rs`: YAML parsing and validation
 - `src/scenario/xosc_exporter.rs`: OpenSCENARIO export module
-- `src/scenario/xodr_exporter.rs`: OpenDRIVE export module (road networks, junctions)
-- `src/scenario/svg_visualizer.rs`: SVG static visualization module (multi-road, junctions)
-- `src/scenario/gif_animator.rs`: GIF animation export module (multi-road, junctions)
+- `src/scenario/svg_visualizer.rs`: SVG static visualization module (single-road)
+- `src/scenario/gif_animator.rs`: GIF animation export module (single-road)
 - `assets/DejaVuSans.ttf`: Embedded font for GIF text rendering
-- `examples/`: YAML specification examples (including bicycle_lane_change.yaml, bicycle_straight.yaml, t_junction.yaml, crossroads.yaml)
-- `roads/`: Reusable road specification templates
+- `examples/`: YAML specification examples (cut_in_left.yaml, bicycle_lane_change.yaml, etc.)
 - `tests/`: Integration tests with fixture files
 - `plans/`: Implementation plan documentation (historical)
-- `roadplan/`: Road network implementation plan and reports
 - `README.md`: User-facing documentation
 - `README_ADVERSARIAL.md`: Detailed adversarial generation guide with architecture and extension instructions
 - `CLAUDE.md`: This file - AI assistant contributor guide

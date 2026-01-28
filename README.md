@@ -54,6 +54,69 @@ This creates `scenarios/scenario_0.json`, `scenarios/scenario_1.json`, etc.
 cargo run --release -- -i examples/cut_in_left.yaml -o output/ -v
 ```
 
+## Creating Custom Scenarios
+
+This project supports two levels of customization:
+
+### 1. Creating New Scenario Instances (YAML)
+
+Define new test scenarios by creating YAML specification files. This requires no Rust programming.
+
+**See**: [CREATING_SCENARIOS.md - Part 1: YAML Specification](CREATING_SCENARIOS.md#part-1-yaml-scenario-specification)
+
+Quick example:
+```yaml
+scenario_type: cut_in_left
+time_step: 0.1
+duration: 10.0
+
+actors:
+  - id: ego
+    role: ego
+    lane: 1
+    position: 50.0
+    speed: 15.0
+    direction: 1
+    acceleration: [-8.0, 3.0]
+
+  - id: npc
+    role: npc
+    lane: 0
+    position: [60.0, 80.0]
+    speed: [16.0, 20.0]
+    direction: 1
+    acceleration: [-8.0, 3.0]
+
+    lane_change:
+      enabled: true
+      direction: right
+      start_time: [2.5, 3.5]
+      duration: [3.0, 4.0]
+
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, 1]
+
+min_ttc: 3.0
+min_distance: 5.0
+```
+
+### 2. Implementing New Scenario Types (Rust)
+
+Extend the codebase with entirely new scenario types (e.g., roundabout, parking, intersection).
+
+**See**: [CREATING_SCENARIOS.md - Part 2: Implementing Scenario Types](CREATING_SCENARIOS.md#part-2-implementing-new-scenario-types)
+
+The implementation uses a trait-based plugin architecture - add a new scenario type by:
+1. Adding to `ScenarioType` enum
+2. Implementing `ScenarioModel` trait
+3. Creating YAML examples
+
+**For complete documentation, see [CREATING_SCENARIOS.md](CREATING_SCENARIOS.md).**
+
+---
+
 ## Adversarial Scenario Generation (NEW!)
 
 Generate scenarios that **intentionally violate safety constraints** to test autonomous vehicle edge cases and failure modes.
