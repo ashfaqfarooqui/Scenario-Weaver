@@ -8,7 +8,7 @@ use crate::dsl::types::{ActorRole, ScenarioSpec};
 use crate::error::{Result, ScenarioGenError};
 use crate::ltl::formula::LTLFormula;
 use crate::scenario::model::Scenario;
-use crate::solver::{Z3Backend, Z3Encoder};
+use crate::solver::Z3Encoder;
 use z3::ast::{Bool, Real};
 use z3::{Config, SatResult};
 

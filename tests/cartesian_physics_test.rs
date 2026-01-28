@@ -3,8 +3,8 @@ use std::time::Instant;
 
 #[test]
 fn test_velocity_ratio_during_lane_change() {
-    let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML");
+    let yaml_content =
+        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
 
     let scenario = scenario_generator::generate_single_scenario(&yaml_content)
         .expect("Should generate scenario");
@@ -49,8 +49,8 @@ fn test_velocity_ratio_during_lane_change() {
 
 #[test]
 fn test_no_sideways_only_motion() {
-    let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML");
+    let yaml_content =
+        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
 
     let scenario = scenario_generator::generate_single_scenario(&yaml_content)
         .expect("Should generate scenario");
@@ -80,8 +80,8 @@ fn test_no_sideways_only_motion() {
 
 #[test]
 fn test_heading_angle_during_lane_change() {
-    let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML");
+    let yaml_content =
+        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
 
     let scenario = scenario_generator::generate_single_scenario(&yaml_content)
         .expect("Should generate scenario");
@@ -118,8 +118,8 @@ fn test_heading_angle_during_lane_change() {
 
 #[test]
 fn test_solving_performance_with_ratio_constraint() {
-    let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML");
+    let yaml_content =
+        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
 
     let start = Instant::now();
     let scenario = scenario_generator::generate_single_scenario(&yaml_content)
@@ -150,16 +150,14 @@ fn test_solving_performance_with_ratio_constraint() {
 
 #[test]
 fn test_multiple_scenarios_maintain_physics() {
-    use std::fs;
-    use std::path::Path;
     use tempfile::TempDir;
 
-    let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML");
+    let yaml_content =
+        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
 
     // Use temporary directory for output
     let temp_dir = TempDir::new().expect("Should create temp dir");
-    let output_dir = temp_dir.path();
+    let _output_dir = temp_dir.path();
 
     // Parse spec to create scenarios manually
     let max_ratio = 0.15;
@@ -195,10 +193,6 @@ fn test_multiple_scenarios_maintain_physics() {
             }
         }
 
-        assert!(
-            found_lane_change,
-            "Scenario {} should have lane change",
-            i
-        );
+        assert!(found_lane_change, "Scenario {} should have lane change", i);
     }
 }

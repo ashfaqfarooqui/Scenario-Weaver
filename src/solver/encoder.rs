@@ -781,27 +781,52 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                     }
 
                     // Compute TTC (only when in same lane and approaching)
+                    // Use directed velocity matching Z3 encoding logic
                     if state1.lane() == state2.lane() {
-                        let rel_vel = (state1.velocity().vx - state2.velocity().vx).abs();
+                        let epsilon = 0.01; // m/s threshold to avoid division by zero
 
-                        if rel_vel > 0.01 {
-                            // Someone is catching up
-                            let ttc = distance / rel_vel;
+                        // Case 1: state1 ahead, state2 behind, state2 faster (catching up)
+                        if state1.position().x > state2.position().x {
+                            let rel_vel = state2.velocity().vx - state1.velocity().vx;
+                            if rel_vel > epsilon {
+                                let ttc = distance / rel_vel;
 
-                            if ttc < min_ttc {
-                                min_ttc = ttc;
+                                if ttc < min_ttc {
+                                    min_ttc = ttc;
+                                }
+
+                                if ttc < self.spec.min_ttc {
+                                    violations.push(format!(
+                                        "TTC violation at t={:.1}s: {}-{}: {:.2}s < {:.2}s",
+                                        t as f64 * self.spec.time_step,
+                                        id1,
+                                        id2,
+                                        ttc,
+                                        self.spec.min_ttc
+                                    ));
+                                }
                             }
+                        }
+                        // Case 2: state2 ahead, state1 behind, state1 faster (catching up)
+                        else if state2.position().x > state1.position().x {
+                            let rel_vel = state1.velocity().vx - state2.velocity().vx;
+                            if rel_vel > epsilon {
+                                let ttc = distance / rel_vel;
 
-                            // Check TTC violation
-                            if ttc < self.spec.min_ttc {
-                                violations.push(format!(
-                                    "TTC violation at t={:.1}s: {}-{}: {:.2}s < {:.2}s",
-                                    t as f64 * self.spec.time_step,
-                                    id1,
-                                    id2,
-                                    ttc,
-                                    self.spec.min_ttc
-                                ));
+                                if ttc < min_ttc {
+                                    min_ttc = ttc;
+                                }
+
+                                if ttc < self.spec.min_ttc {
+                                    violations.push(format!(
+                                        "TTC violation at t={:.1}s: {}-{}: {:.2}s < {:.2}s",
+                                        t as f64 * self.spec.time_step,
+                                        id1,
+                                        id2,
+                                        ttc,
+                                        self.spec.min_ttc
+                                    ));
+                                }
                             }
                         }
                     }

@@ -634,6 +634,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
 
         let px1 = &self.positions_x[actor1][time];
         let px2 = &self.positions_x[actor2][time];
+        let py1 = &self.positions_y[actor1][time];
+        let py2 = &self.positions_y[actor2][time];
 
         let vx1 = &self.velocities_x[actor1][time];
         let vx2 = &self.velocities_x[actor2][time];
@@ -641,8 +643,22 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         let min_ttc_val = Real::from_rational((min_ttc * 10.0) as i64, 10_i64);
         let epsilon = Real::from_rational(1_i64, 100_i64); // 0.01 m/s to avoid division by zero
 
-        // Same lane condition
-        let same_lane = lane1.eq(lane2);
+        // Enhanced "same lane" condition: discrete lane match OR y-position proximity
+        // This handles lane change transitions where discrete lane != smooth y-position
+        let same_lane_discrete = lane1.eq(lane2);
+
+        // Y-position proximity: |py1 - py2| < lane_width (vehicles in same lateral space)
+        let lane_width = self.spec.lane_width;
+        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+        let py_diff_pos = py1 - py2;
+        let py_diff_neg = py2 - py1;
+        let y_proximity = Bool::or(&[
+            &py_diff_pos.lt(&lane_width_real),
+            &py_diff_neg.lt(&lane_width_real),
+        ]);
+
+        // Consider "same lane" if either discrete lanes match OR y-positions are close
+        let same_lane = Bool::or(&[&same_lane_discrete, &y_proximity]);
 
         // Determine who is ahead and who is behind
         // If px1 > px2, then actor1 is ahead (lead), actor2 is behind (follow)
@@ -693,11 +709,27 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
 
         let px1 = &self.positions_x[actor1][time];
         let px2 = &self.positions_x[actor2][time];
+        let py1 = &self.positions_y[actor1][time];
+        let py2 = &self.positions_y[actor2][time];
 
         let min_dist_val = Real::from_rational((min_dist * 10.0) as i64, 10_i64);
 
-        // Same lane condition
-        let same_lane = lane1.eq(lane2);
+        // Enhanced "same lane" condition: discrete lane match OR y-position proximity
+        // This handles lane change transitions where discrete lane != smooth y-position
+        let same_lane_discrete = lane1.eq(lane2);
+
+        // Y-position proximity: |py1 - py2| < lane_width (vehicles in same lateral space)
+        let lane_width = self.spec.lane_width;
+        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+        let py_diff_pos = py1 - py2;
+        let py_diff_neg = py2 - py1;
+        let y_proximity = Bool::or(&[
+            &py_diff_pos.lt(&lane_width_real),
+            &py_diff_neg.lt(&lane_width_real),
+        ]);
+
+        // Consider "same lane" if either discrete lanes match OR y-positions are close
+        let same_lane = Bool::or(&[&same_lane_discrete, &y_proximity]);
 
         // Distance constraint: |px1 - px2| >= min_dist
         // Equivalent to: (px1 - px2 >= min_dist) OR (px2 - px1 >= min_dist)
