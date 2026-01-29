@@ -1,11 +1,15 @@
 # OvertakeLeft Scenario Example
 # NPC vehicle overtakes ego from behind using the left lane
 #
-# Phases:
+# The overtake is expressed as two sequential lane changes:
+# 1. Left lane change (into passing lane) at 2-4 seconds
+# 2. Right lane change (back to original lane) at 7-10 seconds
+#
+# Phases (driven by lane_changes):
 # 1. NPC starts behind ego in the same lane
-# 2. NPC changes to left lane (passing lane) at overtake_start_time
+# 2. NPC changes to left lane (passing lane) - first lane change
 # 3. NPC accelerates past ego while in the passing lane
-# 4. NPC returns to original lane at overtake_end_time, now ahead of ego
+# 4. NPC returns to original lane - second lane change, now ahead of ego
 
 scenario_type: overtake_left
 
@@ -30,7 +34,7 @@ actors:
     direction: 1
     acceleration: [-2.0, 1.0]  # Mild acceleration range
 
-  # NPC vehicle - starts behind, overtakes
+  # NPC vehicle - starts behind, overtakes using two lane changes
   - id: npc
     role: npc
     lane: 1            # Same lane as ego (starts behind)
@@ -38,9 +42,17 @@ actors:
     speed: [18.0, 22.0]     # Faster than ego (to catch up)
     direction: 1
     acceleration: [-3.0, 4.0]  # Can accelerate to pass
-    behavior:
-      overtake_start_time: [2.0, 4.0]  # Enter passing lane between 2-4s
-      overtake_end_time: [7.0, 10.0]   # Return to original lane between 7-10s
+
+    # Two sequential lane changes for overtake maneuver
+    lane_changes:
+      # First: move left into passing lane
+      - direction: left
+        start_time: [2.0, 3.0]    # Enter passing lane between 2-3s
+        duration: [1.5, 2.0]      # Lane change takes 1.5-2 seconds
+      # Second: move right back to original lane
+      - direction: right
+        start_time: [7.0, 8.0]    # Return to original lane between 7-8s
+        duration: [1.5, 2.0]      # Lane change takes 1.5-2 seconds
 
 # Safety constraints
 min_ttc: 2.0        # 2 second minimum time-to-collision

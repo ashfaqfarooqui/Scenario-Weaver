@@ -276,7 +276,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-3.0, 2.0]),
                     direction: 1,
                     behavior: ego_behavior,
-                    lane_change: None,
+                    lane_changes: vec![],
                     bicycle_params: None,
                 },
                 ActorSpec {
@@ -288,7 +288,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-1.0, 1.0]),
                     direction: 1,
                     behavior: pedestrian_behavior,
-                    lane_change: None,
+                    lane_changes: vec![],
                     bicycle_params: None,
                 },
             ],

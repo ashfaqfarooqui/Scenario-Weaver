@@ -24,10 +24,10 @@ impl ScenarioModel for CutInLeftModel {
 
         let npc = &spec.npcs()[0];
 
-        // Both coordinate systems now require lane_change config
-        if npc.lane_change.is_none() || !npc.lane_change.as_ref().unwrap().enabled {
+        // Both coordinate systems now require lane_changes config
+        if npc.lane_changes.is_empty() {
             return Err(ScenarioGenError::InvalidSpec(
-                "Cut-in-left requires lane_change configuration with enabled=true".to_string(),
+                "Cut-in-left requires at least one lane_change in lane_changes".to_string(),
             ));
         }
 
@@ -117,12 +117,11 @@ mod tests {
     fn create_test_spec() -> ScenarioSpec {
         let ego_behavior = HashMap::new();
 
-        let npc_lane_change = LaneChangeConfig {
-            enabled: true,
+        let npc_lane_changes = vec![LaneChangeConfig {
             direction: LaneChangeDirection::Right,
             start_time: ValueOrRange::Range([2.5, 7.5]),
             duration: ValueOrRange::Range([3.0, 4.0]),
-        };
+        }];
 
         ScenarioSpec {
             scenario_type: crate::dsl::types::ScenarioType::CutInLeft,
@@ -138,7 +137,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: ego_behavior,
-                    lane_change: None,
+                    lane_changes: vec![],
                     bicycle_params: None,
                 },
                 ActorSpec {
@@ -150,7 +149,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
-                    lane_change: Some(npc_lane_change),
+                    lane_changes: npc_lane_changes,
                     bicycle_params: None,
                 },
             ],
@@ -181,10 +180,10 @@ mod tests {
     }
 
     #[test]
-    fn test_cut_in_left_validate_missing_lane_change() {
+    fn test_cut_in_left_validate_missing_lane_changes() {
         let model = CutInLeftModel;
         let mut spec = create_test_spec();
-        spec.actors[1].lane_change = None; // Remove lane_change
+        spec.actors[1].lane_changes = vec![]; // Remove lane_changes
         assert!(model.validate(&spec).is_err());
     }
 

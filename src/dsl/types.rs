@@ -83,9 +83,11 @@ pub enum LaneChangeDirection {
 ///
 /// The solver discovers lane change trajectories dynamically using smoothness
 /// constraints, rather than pre-computing them with polynomials.
+///
+/// Note: Multiple lane changes can be specified as a Vec<LaneChangeConfig>.
+/// Presence in the vec implies enabled (no explicit enabled field needed).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LaneChangeConfig {
-    pub enabled: bool,
     pub direction: LaneChangeDirection,
     /// Start time (can be a fixed value or range for solver to choose)
     pub start_time: ValueOrRange,
@@ -425,9 +427,10 @@ pub struct ActorSpec {
     /// Scenario-specific behavior parameters
     #[serde(default)]
     pub behavior: std::collections::HashMap<String, serde_json::Value>,
-    /// Lane change configuration (optional, for smooth lane changes)
+    /// Lane change configurations (multiple sequential lane changes supported)
+    /// Empty vec means no lane changes. Presence in vec implies enabled.
     #[serde(default)]
-    pub lane_change: Option<LaneChangeConfig>,
+    pub lane_changes: Vec<LaneChangeConfig>,
     /// Bicycle model parameters (optional, overrides scenario-level bicycle_config)
     #[serde(default)]
     pub bicycle_params: Option<BicycleParams>,
@@ -806,7 +809,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
-                    lane_change: None,
+                    lane_changes: vec![],
                     bicycle_params: None,
                 },
                 ActorSpec {
@@ -818,12 +821,11 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
-                    lane_change: Some(LaneChangeConfig {
-                        enabled: true,
+                    lane_changes: vec![LaneChangeConfig {
                         direction: LaneChangeDirection::Right,
                         start_time: ValueOrRange::Range([2.5, 7.5]),
                         duration: ValueOrRange::Range([3.0, 4.0]),
-                    }),
+                    }],
                     bicycle_params: None,
                 },
             ],

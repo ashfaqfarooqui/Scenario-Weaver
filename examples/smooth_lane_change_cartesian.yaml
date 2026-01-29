@@ -5,7 +5,7 @@
 #
 # Key features:
 # - coordinate_system: cartesian - Uses Cartesian (x, y) coordinates
-# - lane_change with explicit configuration - Defines start time and duration
+# - lane_changes with explicit configuration - Defines start time and duration
 # - Smooth transitions - Lateral position interpolates gradually between lanes
 # - Realistic velocities - Lateral velocity constrained to ~2 m/s
 
@@ -40,13 +40,12 @@ actors:
     direction: 1
     acceleration: [-8.0, 3.0]
 
-    # NEW: Explicit lane_change configuration
+    # Explicit lane_changes configuration
     # This enables smooth lane transitions in Cartesian mode
-    lane_change:
-      enabled: true
-      direction: right         # NPC cuts from left (lane 0) to right (lane 1)
-      start_time: [2.5, 3.5]  # Lane change starts between 2.5-3.5 seconds
-      duration: [3.0, 4.0]    # Lane change takes 3-4 seconds (smooth transition)
+    lane_changes:
+      - direction: right         # NPC cuts from left (lane 0) to right (lane 1)
+        start_time: [2.5, 3.5]  # Lane change starts between 2.5-3.5 seconds
+        duration: [3.0, 4.0]    # Lane change takes 3-4 seconds (smooth transition)
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -56,4 +55,4 @@ num_scenarios: 3
 # - Lateral velocity will be ~1.17 m/s for 3.5m lane change over 3s (realistic)
 # - Lateral acceleration constrained to 2.0 m/s² during lane change
 # - Before and after lane change, vehicle stays at lane center
-# - Compatible with both lane_change config and legacy behavior.cut_in_time format
+# - lane_changes supports multiple sequential lane changes (e.g., for overtake)

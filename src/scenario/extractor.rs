@@ -43,7 +43,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
-                    lane_change: None,
+                    lane_changes: vec![],
                     bicycle_params: None,
                 },
                 ActorSpec {
@@ -55,12 +55,11 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
-                    lane_change: Some(LaneChangeConfig {
-                        enabled: true,
+                    lane_changes: vec![LaneChangeConfig {
                         direction: LaneChangeDirection::Right,
                         start_time: ValueOrRange::Range([2.5, 7.5]),
                         duration: ValueOrRange::Range([3.0, 4.0]),
-                    }),
+                    }],
                     bicycle_params: None,
                 },
             ],

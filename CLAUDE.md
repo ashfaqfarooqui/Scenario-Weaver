@@ -161,8 +161,9 @@ YAML Input → DSL Parser → LTL Generator → Z3 Encoder → Z3 Solver → Sce
 
 ### Lane Change Configuration
 
-Actors with lane changes must specify the `lane_change` configuration in the YAML:
+Actors with lane changes must specify the `lane_changes` configuration in the YAML. Multiple sequential lane changes are supported, enabling complex maneuvers like overtaking.
 
+**Single lane change (cut-in):**
 ```yaml
 actors:
   - id: npc
@@ -173,14 +174,40 @@ actors:
     direction: 1
     acceleration: [-8.0, 3.0]
 
-    lane_change:
-      enabled: true
-      direction: right         # Lane change direction (left or right)
-      start_time: [2.5, 3.5]  # When to start the lane change
-      duration: [3.0, 4.0]    # How long the transition takes
+    lane_changes:
+      - direction: right         # Lane change direction (left or right)
+        start_time: [2.5, 3.5]  # When to start the lane change
+        duration: [3.0, 4.0]    # How long the transition takes
+```
+
+**Multiple lane changes (overtake):**
+```yaml
+actors:
+  - id: npc
+    role: npc
+    lane: 1                    # Same lane as ego (starts behind)
+    position: [25.0, 35.0]
+    speed: [18.0, 22.0]
+    direction: 1
+    acceleration: [-3.0, 4.0]
+
+    # Two sequential lane changes for overtake maneuver
+    lane_changes:
+      # First: move left into passing lane
+      - direction: left
+        start_time: [2.0, 3.0]
+        duration: [1.5, 2.0]
+      # Second: move right back to original lane
+      - direction: right
+        start_time: [7.0, 8.0]
+        duration: [1.5, 2.0]
 ```
 
 **Key behaviors:**
+- **Empty vec**: No lane changes (actor stays in initial lane)
+- **Presence in vec**: Lane change is enabled (no `enabled` field needed)
+- **Multiple entries**: Sequential lane changes processed in order
+- **Validation**: Lane changes must not overlap (one must end before next starts)
 - **Cartesian system**: Lateral position linearly interpolates between lane centers over the duration
   - Lateral velocity: ~1.2 m/s for 3.5m lane change over 3s (realistic)
   - Lateral acceleration bounded to 2.0 m/s²
