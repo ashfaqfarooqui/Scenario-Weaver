@@ -448,11 +448,10 @@ actors:
     position: 70.0
     speed: 15.0
     acceleration: [-8.0, 3.0]
-    lane_change:
-      enabled: true
-      direction: right
-      start_time: [2.0, 3.0]
-      duration: [3.0, 4.0]
+    lane_changes:
+      - direction: right
+        start_time: [2.0, 3.0]
+        duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0

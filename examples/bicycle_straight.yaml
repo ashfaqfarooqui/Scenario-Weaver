@@ -35,11 +35,10 @@ actors:
     direction: 1
 
     # Required lane change configuration (minimal change)
-    lane_change:
-      enabled: true
-      direction: right
-      start_time: 3.0
-      duration: 1.0
+    lane_changes:
+      - direction: right
+        start_time: 3.0
+        duration: 1.0
 
 min_ttc: 3.0
 min_distance: 10.0

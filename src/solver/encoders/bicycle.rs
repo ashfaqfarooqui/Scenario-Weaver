@@ -290,32 +290,39 @@ impl<B: Z3Backend> BicycleEncoder<B> {
 
     /// Encode lane-position coupling with lane change support
     fn encode_lane_coupling_with_lane_changes(&mut self) {
-        // Collect actors with lane_change config and their data
-        let lane_change_data: Vec<_> = self
+        // Collect actors with lane_changes config and their data
+        // Each actor can have multiple sequential lane changes
+        let lane_changes_data: Vec<_> = self
             .spec
             .actors
             .iter()
             .filter(|a| a.role != ActorRole::Pedestrian)
-            .filter_map(|a| {
-                a.lane_change.as_ref().filter(|lc| lc.enabled).map(|lc| {
-                    let dt = self.spec.time_step;
-                    let start_min = lc.start_time.min();
-                    let start_max = lc.start_time.max();
-                    let duration_min = lc.duration.min();
-                    let duration_max = lc.duration.max();
+            .filter(|a| !a.lane_changes.is_empty())
+            .map(|a| {
+                let dt = self.spec.time_step;
+                let changes: Vec<_> = a
+                    .lane_changes
+                    .iter()
+                    .map(|lc| {
+                        let start_min = lc.start_time.min();
+                        let start_max = lc.start_time.max();
+                        let duration_min = lc.duration.min();
+                        let duration_max = lc.duration.max();
 
-                    let start_step_min = (start_min / dt) as usize;
-                    let start_step_max = (start_max / dt) as usize;
-                    let duration_steps_min = (duration_min / dt) as usize;
-                    let duration_steps_max = (duration_max / dt) as usize;
+                        let start_step_min = (start_min / dt) as usize;
+                        let start_step_max = (start_max / dt) as usize;
+                        let duration_steps_min = (duration_min / dt) as usize;
+                        let duration_steps_max = (duration_max / dt) as usize;
 
-                    // Use midpoint for now
-                    let start_step = (start_step_min + start_step_max) / 2;
-                    let duration_steps = (duration_steps_min + duration_steps_max) / 2;
-                    let end_step = (start_step + duration_steps).min(self.horizon);
+                        // Use midpoint for now
+                        let start_step = (start_step_min + start_step_max) / 2;
+                        let duration_steps = (duration_steps_min + duration_steps_max) / 2;
+                        let end_step = (start_step + duration_steps).min(self.horizon);
 
-                    (a.id.clone(), lc.direction.clone(), start_step, end_step)
-                })
+                        (lc.direction.clone(), start_step, end_step)
+                    })
+                    .collect();
+                (a.id.clone(), changes)
             })
             .collect();
 
@@ -329,31 +336,50 @@ impl<B: Z3Backend> BicycleEncoder<B> {
             .collect();
 
         for actor_id in actor_data {
-            // Check if this actor has lane_change enabled
-            let lc_data = lane_change_data
+            // Check if this actor has lane_changes
+            let lc_data = lane_changes_data
                 .iter()
-                .find(|(id, _, _, _)| id == &actor_id);
+                .find(|(id, _)| id == &actor_id);
 
-            if let Some((_, direction, start_step, end_step)) = lc_data {
-                // Before lane change: enforce lane-position coupling
-                for t in 0..(*start_step).min(self.horizon) {
-                    self.encode_lane_position_coupling_at_time(&actor_id, t);
-                }
+            if let Some((_, changes)) = lc_data {
+                if changes.is_empty() {
+                    // No lane changes: enforce coupling at all time steps
+                    for t in 0..=self.horizon {
+                        self.encode_lane_position_coupling_at_time(&actor_id, t);
+                    }
+                } else {
+                    // Multiple lane changes: encode phases
+                    let first_start = changes[0].1;
 
-                // During lane change: encode smooth transition
-                self.encode_smooth_lane_transition_bicycle(
-                    &actor_id,
-                    *start_step,
-                    *end_step,
-                    direction,
-                );
+                    // Before first lane change: enforce lane-position coupling
+                    for t in 0..first_start.min(self.horizon) {
+                        self.encode_lane_position_coupling_at_time(&actor_id, t);
+                    }
 
-                // After lane change: enforce lane-position coupling to new lane
-                for t in *end_step..=self.horizon {
-                    self.encode_lane_position_coupling_at_time(&actor_id, t);
+                    // Process each lane change and intermediate phases
+                    for (i, (direction, start_step, end_step)) in changes.iter().enumerate() {
+                        // Encode smooth transition for this lane change
+                        self.encode_smooth_lane_transition_bicycle(
+                            &actor_id,
+                            *start_step,
+                            *end_step,
+                            direction,
+                        );
+
+                        // After this lane change: enforce coupling until next change or end
+                        let next_start = if i + 1 < changes.len() {
+                            changes[i + 1].1
+                        } else {
+                            self.horizon + 1
+                        };
+
+                        for t in (*end_step + 1)..next_start.min(self.horizon + 1) {
+                            self.encode_lane_position_coupling_at_time(&actor_id, t);
+                        }
+                    }
                 }
             } else {
-                // No lane change: enforce coupling at all time steps
+                // No lane changes: enforce coupling at all time steps
                 for t in 0..=self.horizon {
                     self.encode_lane_position_coupling_at_time(&actor_id, t);
                 }
@@ -381,7 +407,7 @@ impl<B: Z3Backend> BicycleEncoder<B> {
         direction: &crate::dsl::types::LaneChangeDirection,
     ) {
         let lane_width = self.spec.lane_width;
-        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+        let _lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
 
         // Get source lane from step before transition starts
         let source_lane = &self.lanes[actor_id][start_step.saturating_sub(1)];
@@ -604,6 +630,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
 
         let px1 = &self.positions_x[actor1][time];
         let px2 = &self.positions_x[actor2][time];
+        let py1 = &self.positions_y[actor1][time];
+        let py2 = &self.positions_y[actor2][time];
 
         // For bicycle model, use speed (always positive) with heading to determine velocity
         // Small angle approximation: vx ≈ v * cos(θ) ≈ v
@@ -613,8 +641,22 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         let min_ttc_val = Real::from_rational((min_ttc * 10.0) as i64, 10_i64);
         let epsilon = Real::from_rational(1_i64, 100_i64); // 0.01 m/s to avoid division by zero
 
-        // Same lane condition
-        let same_lane = lane1.eq(lane2);
+        // Enhanced "same lane" condition: discrete lane match OR y-position proximity
+        // This handles lane change transitions where discrete lane != smooth y-position
+        let same_lane_discrete = lane1.eq(lane2);
+
+        // Y-position proximity: |py1 - py2| < lane_width (vehicles in same lateral space)
+        let lane_width = self.spec.lane_width;
+        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+        let py_diff_pos = py1 - py2;
+        let py_diff_neg = py2 - py1;
+        let y_proximity = Bool::or(&[
+            &py_diff_pos.lt(&lane_width_real),
+            &py_diff_neg.lt(&lane_width_real),
+        ]);
+
+        // Consider "same lane" if either discrete lanes match OR y-positions are close
+        let same_lane = Bool::or(&[&same_lane_discrete, &y_proximity]);
 
         // Determine who is ahead and who is behind
         // Case 1: actor1 ahead, actor2 behind, actor2 faster
@@ -667,11 +709,27 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
 
         let px1 = &self.positions_x[actor1][time];
         let px2 = &self.positions_x[actor2][time];
+        let py1 = &self.positions_y[actor1][time];
+        let py2 = &self.positions_y[actor2][time];
 
         let min_dist_val = Real::from_rational((min_dist * 10.0) as i64, 10_i64);
 
-        // Same lane condition
-        let same_lane = lane1.eq(lane2);
+        // Enhanced "same lane" condition: discrete lane match OR y-position proximity
+        // This handles lane change transitions where discrete lane != smooth y-position
+        let same_lane_discrete = lane1.eq(lane2);
+
+        // Y-position proximity: |py1 - py2| < lane_width (vehicles in same lateral space)
+        let lane_width = self.spec.lane_width;
+        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+        let py_diff_pos = py1 - py2;
+        let py_diff_neg = py2 - py1;
+        let y_proximity = Bool::or(&[
+            &py_diff_pos.lt(&lane_width_real),
+            &py_diff_neg.lt(&lane_width_real),
+        ]);
+
+        // Consider "same lane" if either discrete lanes match OR y-positions are close
+        let same_lane = Bool::or(&[&same_lane_discrete, &y_proximity]);
 
         // Distance constraint: |px1 - px2| >= min_dist
         // Equivalent to: (px1 - px2 >= min_dist) OR (px2 - px1 >= min_dist)

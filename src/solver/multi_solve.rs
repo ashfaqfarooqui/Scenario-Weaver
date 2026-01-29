@@ -8,7 +8,7 @@ use crate::dsl::types::{ActorRole, ScenarioSpec};
 use crate::error::{Result, ScenarioGenError};
 use crate::ltl::formula::LTLFormula;
 use crate::scenario::model::Scenario;
-use crate::solver::{Z3Backend, Z3Encoder};
+use crate::solver::Z3Encoder;
 use z3::ast::{Bool, Real};
 use z3::{Config, SatResult};
 
@@ -233,7 +233,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
-                    lane_change: None,
+                    lane_changes: vec![],
                     bicycle_params: None,
                 },
                 ActorSpec {
@@ -245,12 +245,11 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
-                    lane_change: Some(LaneChangeConfig {
-                        enabled: true,
+                    lane_changes: vec![LaneChangeConfig {
                         direction: LaneChangeDirection::Right,
                         start_time: ValueOrRange::Range([2.5, 7.5]),
                         duration: ValueOrRange::Range([3.0, 4.0]),
-                    }),
+                    }],
                     bicycle_params: None,
                 },
             ],

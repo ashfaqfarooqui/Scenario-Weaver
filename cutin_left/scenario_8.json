@@ -1,0 +1,939 @@
+{
+  "scenario_id": "631536ad-40dc-4157-8443-b1e57a8bd60d",
+  "scenario_type": "overtake_left",
+  "time_step": 0.5,
+  "duration": 12.0,
+  "road": {
+    "num_lanes": 3,
+    "lane_width": 3.5,
+    "lane_directions": [
+      1,
+      1,
+      1
+    ],
+    "road_length": 360.0
+  },
+  "actors": [
+    {
+      "id": "ego",
+      "role": "ego",
+      "states": [
+        {
+          "time": 0.0,
+          "cartesian": {
+            "position": {
+              "x": 50.0,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 16.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 1.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 0.5,
+          "cartesian": {
+            "position": {
+              "x": 58.0,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 16.5,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 1.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 1.0,
+          "cartesian": {
+            "position": {
+              "x": 66.25,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 17.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 1.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 1.5,
+          "cartesian": {
+            "position": {
+              "x": 74.75,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 17.5,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 1.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 2.0,
+          "cartesian": {
+            "position": {
+              "x": 83.5,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 18.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 1.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 2.5,
+          "cartesian": {
+            "position": {
+              "x": 92.5,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 18.5,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 1.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 3.0,
+          "cartesian": {
+            "position": {
+              "x": 101.75,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 19.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 1.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 3.5,
+          "cartesian": {
+            "position": {
+              "x": 111.25,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 19.5,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 1.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 4.0,
+          "cartesian": {
+            "position": {
+              "x": 121.0,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 20.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -2.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 4.5,
+          "cartesian": {
+            "position": {
+              "x": 131.0,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 19.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -2.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 5.0,
+          "cartesian": {
+            "position": {
+              "x": 140.5,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 18.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -2.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 5.5,
+          "cartesian": {
+            "position": {
+              "x": 149.5,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 17.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -2.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 6.0,
+          "cartesian": {
+            "position": {
+              "x": 158.0,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 16.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -2.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 6.5,
+          "cartesian": {
+            "position": {
+              "x": 166.0,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 15.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -2.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 7.0,
+          "cartesian": {
+            "position": {
+              "x": 173.5,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 14.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -2.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 7.5,
+          "cartesian": {
+            "position": {
+              "x": 180.5,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 13.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 1.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 8.0,
+          "cartesian": {
+            "position": {
+              "x": 187.0,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 13.5,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 1.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 8.5,
+          "cartesian": {
+            "position": {
+              "x": 193.75,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 14.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 1.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 9.0,
+          "cartesian": {
+            "position": {
+              "x": 200.75,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 14.5,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -2.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 9.5,
+          "cartesian": {
+            "position": {
+              "x": 208.0,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 13.5,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -2.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 10.0,
+          "cartesian": {
+            "position": {
+              "x": 214.75,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 12.5,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -2.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 10.5,
+          "cartesian": {
+            "position": {
+              "x": 221.0,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 11.5,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 1.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 11.0,
+          "cartesian": {
+            "position": {
+              "x": 226.75,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 12.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -2.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 11.5,
+          "cartesian": {
+            "position": {
+              "x": 232.75,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 11.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -2.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 12.0,
+          "cartesian": {
+            "position": {
+              "x": 238.25,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 10.0,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 0.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "npc",
+      "role": "npc",
+      "states": [
+        {
+          "time": 0.0,
+          "cartesian": {
+            "position": {
+              "x": 35.0,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 20.712,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -3.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 0.5,
+          "cartesian": {
+            "position": {
+              "x": 45.356,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 19.212,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -3.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 1.0,
+          "cartesian": {
+            "position": {
+              "x": 54.962,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 17.712,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -1.8,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 1.5,
+          "cartesian": {
+            "position": {
+              "x": 63.818,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 16.812,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 1.472,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 2.0,
+          "cartesian": {
+            "position": {
+              "x": 72.224,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 17.548,
+              "vy": -1.0
+            },
+            "acceleration": {
+              "ax": -3.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 2.5,
+          "cartesian": {
+            "position": {
+              "x": 80.998,
+              "y": 4.7
+            },
+            "velocity": {
+              "vx": 16.048,
+              "vy": -2.0
+            },
+            "acceleration": {
+              "ax": -3.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 3.0,
+          "cartesian": {
+            "position": {
+              "x": 89.022,
+              "y": 3.7
+            },
+            "velocity": {
+              "vx": 14.548,
+              "vy": -1.0428
+            },
+            "acceleration": {
+              "ax": -3.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 3.5,
+          "cartesian": {
+            "position": {
+              "x": 96.296,
+              "y": 3.1786
+            },
+            "velocity": {
+              "vx": 13.048,
+              "vy": -1.9572
+            },
+            "acceleration": {
+              "ax": 4.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 4.0,
+          "cartesian": {
+            "position": {
+              "x": 102.82,
+              "y": 2.2
+            },
+            "velocity": {
+              "vx": 15.048,
+              "vy": -1.0
+            },
+            "acceleration": {
+              "ax": 4.0,
+              "ay": 0.0
+            },
+            "lane": 0
+          }
+        },
+        {
+          "time": 4.5,
+          "cartesian": {
+            "position": {
+              "x": 110.344,
+              "y": 1.7
+            },
+            "velocity": {
+              "vx": 17.048,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 4.0,
+              "ay": 0.0
+            },
+            "lane": 0
+          }
+        },
+        {
+          "time": 5.0,
+          "cartesian": {
+            "position": {
+              "x": 118.868,
+              "y": 1.7
+            },
+            "velocity": {
+              "vx": 19.048,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 4.0,
+              "ay": 0.0
+            },
+            "lane": 0
+          }
+        },
+        {
+          "time": 5.5,
+          "cartesian": {
+            "position": {
+              "x": 128.392,
+              "y": 1.7
+            },
+            "velocity": {
+              "vx": 21.048,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 4.0,
+              "ay": 0.0
+            },
+            "lane": 0
+          }
+        },
+        {
+          "time": 6.0,
+          "cartesian": {
+            "position": {
+              "x": 138.916,
+              "y": 1.7
+            },
+            "velocity": {
+              "vx": 23.048,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 4.0,
+              "ay": 0.0
+            },
+            "lane": 0
+          }
+        },
+        {
+          "time": 6.5,
+          "cartesian": {
+            "position": {
+              "x": 150.44,
+              "y": 1.7
+            },
+            "velocity": {
+              "vx": 25.048,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 4.0,
+              "ay": 0.0
+            },
+            "lane": 0
+          }
+        },
+        {
+          "time": 7.0,
+          "cartesian": {
+            "position": {
+              "x": 162.964,
+              "y": 1.7
+            },
+            "velocity": {
+              "vx": 27.048,
+              "vy": 1.0
+            },
+            "acceleration": {
+              "ax": 4.0,
+              "ay": 0.0
+            },
+            "lane": 0
+          }
+        },
+        {
+          "time": 7.5,
+          "cartesian": {
+            "position": {
+              "x": 176.488,
+              "y": 2.2
+            },
+            "velocity": {
+              "vx": 29.048,
+              "vy": 1.0
+            },
+            "acceleration": {
+              "ax": -3.0,
+              "ay": 0.0
+            },
+            "lane": 0
+          }
+        },
+        {
+          "time": 8.0,
+          "cartesian": {
+            "position": {
+              "x": 191.012,
+              "y": 2.7
+            },
+            "velocity": {
+              "vx": 27.548,
+              "vy": 2.0
+            },
+            "acceleration": {
+              "ax": -3.0,
+              "ay": 0.0
+            },
+            "lane": 0
+          }
+        },
+        {
+          "time": 8.5,
+          "cartesian": {
+            "position": {
+              "x": 204.786,
+              "y": 3.7
+            },
+            "velocity": {
+              "vx": 26.048,
+              "vy": 2.0
+            },
+            "acceleration": {
+              "ax": -3.0,
+              "ay": 0.0
+            },
+            "lane": 0
+          }
+        },
+        {
+          "time": 9.0,
+          "cartesian": {
+            "position": {
+              "x": 217.81,
+              "y": 4.7
+            },
+            "velocity": {
+              "vx": 24.548,
+              "vy": 1.0
+            },
+            "acceleration": {
+              "ax": 4.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 9.5,
+          "cartesian": {
+            "position": {
+              "x": 230.084,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 26.548,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -3.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 10.0,
+          "cartesian": {
+            "position": {
+              "x": 243.358,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 25.048,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -3.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 10.5,
+          "cartesian": {
+            "position": {
+              "x": 255.882,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 23.548,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 4.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 11.0,
+          "cartesian": {
+            "position": {
+              "x": 267.656,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 25.548,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -3.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 11.5,
+          "cartesian": {
+            "position": {
+              "x": 280.43,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 24.048,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": -3.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 12.0,
+          "cartesian": {
+            "position": {
+              "x": 292.454,
+              "y": 5.2
+            },
+            "velocity": {
+              "vx": 22.548,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 0.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "min_ttc": 3.1833616298811545,
+    "min_distance": 10.932000000000002,
+    "all_constraints_satisfied": true,
+    "safety_violations": [],
+    "max_acceleration": 4.0,
+    "max_deceleration": -3.0,
+    "acceleration_violations": []
+  }
+}

@@ -31,11 +31,10 @@ actors:
     speed: [12.0, 14.0]
     direction: 1
     acceleration: [-8.0, 3.0]
-    lane_change:
-      enabled: true
-      direction: right
-      start_time: [2.5, 7.5]
-      duration: [3.0, 4.0]
+    lane_changes:
+      - direction: right
+        start_time: [2.5, 7.5]
+        duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -89,9 +88,19 @@ num_scenarios: 1
     );
 }
 
-// NOTE: This test is commented out because cut_in_left scenario type
-// has specific lane constraints that conflict with opposite-direction traffic.
-// The test demonstrates the road system works, but requires a different scenario type.
+// NOTE: This test is ignored because the cut_in_left scenario type uses the "Ahead"
+// proposition which assumes forward motion (positive x-direction). When actors are in
+// backward lanes (direction = -1), they move in the negative x-direction, causing the
+// "ahead" relationship to become inverted.
+//
+// LIMITATION: The cut_in_left scenario type's LTL formulas make directional assumptions
+// that are incompatible with backward lane traffic. The bidirectional road system itself
+// works correctly (as demonstrated by test_simple_bidirectional_scenario and
+// test_three_lane_highway), but scenarios involving lane changes in backward lanes
+// require a different scenario type.
+//
+// FUTURE WORK: Create a generic "lane_change" scenario type that doesn't make directional
+// assumptions, allowing lane changes in both forward and backward lanes.
 #[test]
 #[ignore]
 fn test_backward_lane_velocity() {
@@ -122,11 +131,10 @@ actors:
     speed: 16.0
     direction: 1
     acceleration: [-2.0, 0.0]
-    lane_change:
-      enabled: true
-      direction: right
-      start_time: [2.5, 7.5]
-      duration: [3.0, 4.0]
+    lane_changes:
+      - direction: right
+        start_time: [2.5, 7.5]
+        duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -165,9 +173,9 @@ num_scenarios: 1
     }
 }
 
-// NOTE: This test is commented out because cut_in_left scenario type
-// has specific lane constraints that conflict with opposite-direction traffic.
-// The test demonstrates the road system works, but requires a different scenario type.
+// NOTE: Same limitation as test_backward_lane_velocity above.
+// The cut_in_left scenario type's "Ahead" proposition assumes forward motion,
+// making it incompatible with backward lane traffic. See comment above for details.
 #[test]
 #[ignore]
 fn test_lane_direction_consistency() {
@@ -198,11 +206,10 @@ actors:
     speed: 18.0
     direction: 1
     acceleration: [-2.0, 0.0]
-    lane_change:
-      enabled: true
-      direction: right
-      start_time: [2.5, 7.5]
-      duration: [3.0, 4.0]
+    lane_changes:
+      - direction: right
+        start_time: [2.5, 7.5]
+        duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -264,11 +271,10 @@ actors:
     speed: [12.0, 14.0]
     direction: 1
     acceleration: [-8.0, 3.0]
-    lane_change:
-      enabled: true
-      direction: right
-      start_time: [2.5, 7.5]
-      duration: [3.0, 4.0]
+    lane_changes:
+      - direction: right
+        start_time: [2.5, 7.5]
+        duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -354,11 +360,10 @@ actors:
     speed: [18.0, 22.0]
     direction: 1
     acceleration: [-8.0, 3.0]
-    lane_change:
-      enabled: true
-      direction: right
-      start_time: [2.5, 7.5]
-      duration: [3.0, 4.0]
+    lane_changes:
+      - direction: right
+        start_time: [2.5, 7.5]
+        duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -380,9 +385,9 @@ num_scenarios: 1
     }
 }
 
-// NOTE: This test is commented out because cut_in_left scenario type
-// has specific lane constraints that conflict with opposite-direction traffic.
-// The test demonstrates the road system works, but requires a different scenario type.
+// NOTE: Same limitation as test_backward_lane_velocity above.
+// The cut_in_left scenario type's "Ahead" proposition assumes forward motion,
+// making it incompatible with backward lane traffic. See comment above for details.
 #[test]
 #[ignore]
 fn test_narrow_rural_road() {
@@ -413,11 +418,10 @@ actors:
     speed: 14.0
     direction: 1
     acceleration: [-2.0, 0.0]
-    lane_change:
-      enabled: true
-      direction: right
-      start_time: [2.5, 7.5]
-      duration: [3.0, 4.0]
+    lane_changes:
+      - direction: right
+        start_time: [2.5, 7.5]
+        duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
