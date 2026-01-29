@@ -1,4 +1,4 @@
-# CARLA Scenario Generator
+# Scenario Generator
 
 Automatically generate diverse, safety-critical driving test scenarios from high-level specifications using Linear Temporal Logic (LTL) and Z3 SMT solver.
 
@@ -12,7 +12,7 @@ Automatically generate diverse, safety-critical driving test scenarios from high
 - **Multiple diverse scenario generation**
 - **Adversarial scenario generation** - Generate scenarios that violate safety constraints for testing edge cases
 - **Per-constraint control** - Enforce, violate, or ignore each constraint independently
-- **JSON output** compatible with CARLA simulator
+- **JSON output**  
 
 ## Quick Start
 
@@ -21,7 +21,7 @@ Automatically generate diverse, safety-critical driving test scenarios from high
 ```bash
 # Clone repository
 git clone <repo-url>
-cd carla-scenario-generator
+cd scenario-generator
 
 # Build
 cargo build --release
@@ -34,6 +34,7 @@ cargo run --release -- -i examples/cut_in_left.yaml -o output/
 ```
 
 This will:
+
 1. Parse the YAML specification
 2. Generate LTL constraints
 3. Solve with Z3
@@ -149,11 +150,13 @@ actors:
 ```
 
 **Bicycle model dynamics** (small angle approximation):
+
 - State: (x, y, θ, v) - position, heading angle, speed
 - Controls: (a, δ) - acceleration, steering angle
 - Enforces steering limits, heading bounds (±30°), and minimum turn radius
 
 **Examples:**
+
 - `examples/bicycle_lane_change.yaml` - Highway cut-in with bicycle dynamics
 - `examples/bicycle_straight.yaml` - Simple scenario with bicycle model
 
@@ -212,12 +215,14 @@ The generator automatically produces scenarios in **four formats**: JSON, OpenSC
 ### Quad Output
 
 **Single scenario mode:**
+
 ```bash
 cargo run --release -- -i examples/cut_in_left.yaml -o output/
 # Creates: output/scenario.json + scenario.xosc + scenario.svg + scenario.gif
 ```
 
 **Multiple scenario mode:**
+
 ```bash
 cargo run --release -- -i examples/cut_in_left.yaml -o scenarios/ -n 5
 # Creates: scenarios/scenario_0.json + scenario_0.xosc + scenario_0.svg + scenario_0.gif
@@ -267,6 +272,7 @@ Complete actor trajectories with validation metrics:
 ### OpenSCENARIO Format (.xosc)
 
 Valid OpenSCENARIO XML files for simulator compatibility:
+
 - Standard OpenSCENARIO 1.0+ structure
 - File header with scenario metadata
 - Vehicle entities for all actors
@@ -274,8 +280,9 @@ Valid OpenSCENARIO XML files for simulator compatibility:
 - Compatible with CARLA and other OpenSCENARIO-compliant simulators
 
 **Programmatic export:**
+
 ```rust
-use carla_scenario_generator::{generate_single_scenario, export_scenario_to_xosc};
+use scenario_generator::{generate_single_scenario, export_scenario_to_xosc};
 
 let yaml = std::fs::read_to_string("scenario.yaml")?;
 let scenario = generate_single_scenario(&yaml)?;
@@ -288,6 +295,7 @@ std::fs::write("scenario.xosc", xosc_xml)?;
 ### SVG Visualization Format (.svg)
 
 Static vector graphic showing the complete scenario trajectory:
+
 - **Road layout** with lane markings
 - **Complete trajectories** for all actors from start to end
 - **Vehicle positions** at initial and final states
@@ -296,13 +304,15 @@ Static vector graphic showing the complete scenario trajectory:
 - **Scalable vector graphics** - perfect quality at any zoom level
 
 Features:
+
 - Opens in any web browser or image viewer
 - Ideal for documentation and reports
 - Shows the "big picture" of the scenario
 
 **Programmatic export:**
+
 ```rust
-use carla_scenario_generator::{generate_single_scenario, export_scenario_to_svg};
+use scenario_generator::{generate_single_scenario, export_scenario_to_svg};
 
 let yaml = std::fs::read_to_string("scenario.yaml")?;
 let scenario = generate_single_scenario(&yaml)?;
@@ -315,6 +325,7 @@ std::fs::write("scenario.svg", svg)?;
 ### GIF Animation Format (.gif)
 
 Animated visualization showing vehicles moving through the scenario in real-time:
+
 - **10 FPS animation** showing trajectory evolution over time
 - **Fading trajectory trails** showing motion history
 - **Real-time metrics overlay** (current time, TTC, distance, status)
@@ -324,6 +335,7 @@ Animated visualization showing vehicles moving through the scenario in real-time
 - **Infinite loop** playback
 
 Features:
+
 - Works everywhere (browsers, Slack, GitHub, email, etc.)
 - ~900KB file size for typical 10-second scenarios
 - No player required - animates automatically
@@ -331,8 +343,9 @@ Features:
 - Ideal for sharing and presentations
 
 **Programmatic export:**
+
 ```rust
-use carla_scenario_generator::{generate_single_scenario, export_scenario_to_gif};
+use scenario_generator::{generate_single_scenario, export_scenario_to_gif};
 
 let yaml = std::fs::read_to_string("scenario.yaml")?;
 let scenario = generate_single_scenario(&yaml)?;
@@ -345,7 +358,7 @@ std::fs::write("scenario.gif", gif_bytes)?;
 ## CLI Options
 
 ```bash
-carla-scenario-gen [OPTIONS] --input <FILE> --output <DIR>
+scenario-gen [OPTIONS] --input <FILE> --output <DIR>
 
 Options:
   -i, --input <FILE>     Input YAML specification file
@@ -364,6 +377,7 @@ The scenario generator uses a **plugin system** that makes adding new scenario t
 ### Overview
 
 Each scenario type implements the `ScenarioModel` trait, which defines:
+
 - **Validation**: Scenario-specific requirements (e.g., number of actors, behavior parameters)
 - **Behavior LTL**: Temporal logic defining the scenario behavior
 - **Safety**: Optional custom safety constraints (default: pairwise TTC/distance)
@@ -568,6 +582,7 @@ fn add_z3_constraints(
 ### Examples
 
 See existing implementations for reference:
+
 - **Cut-in left**: `src/scenarios/cut_in_left.rs` - NPC cuts in from left lane
 - **Cut-in right**: `src/scenarios/cut_in_right.rs` - NPC cuts in from right lane
 
@@ -657,6 +672,7 @@ The encoder system uses a **trait-based plugin architecture**:
     - Small angle approximation for efficient solving
 
 **Benefits:**
+
 - Clean separation of coordinate system logic
 - Easy to add new coordinate systems (just implement the trait)
 - Type-safe dispatch at construction time
