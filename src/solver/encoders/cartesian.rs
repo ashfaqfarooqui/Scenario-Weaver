@@ -14,12 +14,13 @@ use crate::dsl::types::{
     PEDESTRIAN_MAX_ACCELERATION, PEDESTRIAN_MAX_DECELERATION, PEDESTRIAN_RUN_MAX_SPEED,
     PEDESTRIAN_WALK_MAX_SPEED,
 };
-use crate::error::{Result, ScenarioGenError};
+use crate::error::Result;
 use crate::scenario::model::{
     Acceleration, ActorTrajectory, CartesianState, Position, State, Velocity,
 };
 use crate::solver::backend::Z3Backend;
 use crate::solver::coordinate_encoder::CoordinateEncoder;
+use crate::solver::encoder_utils::{collect_lane_change_data, extract_int, extract_real};
 
 /// Cartesian coordinate system encoder
 ///
@@ -190,39 +191,6 @@ impl<B: Z3Backend> CartesianEncoder<B> {
 
         // Encode initial lane-position coupling
         self.encode_lane_position_coupling_at_time(actor_id, 0);
-    }
-
-    /// Extract a real value from Z3 model
-    fn extract_real(&self, model: &Model, var: &Real) -> Result<f64> {
-        let ast = model.eval(var, true).ok_or_else(|| {
-            ScenarioGenError::Z3ModelParsing("Failed to evaluate real variable".to_string())
-        })?;
-
-        if let Some(rational) = ast.as_rational() {
-            let (num, denom) = rational;
-            Ok(num as f64 / denom as f64)
-        } else {
-            Err(ScenarioGenError::Z3ModelParsing(format!(
-                "Expected rational value, got: {}",
-                ast
-            )))
-        }
-    }
-
-    /// Extract an integer value from Z3 model
-    fn extract_int(&self, model: &Model, var: &Int) -> Result<usize> {
-        let ast = model.eval(var, true).ok_or_else(|| {
-            ScenarioGenError::Z3ModelParsing("Failed to evaluate int variable".to_string())
-        })?;
-
-        if let Some(val) = ast.as_i64() {
-            Ok(val as usize)
-        } else {
-            Err(ScenarioGenError::Z3ModelParsing(format!(
-                "Expected integer value, got: {}",
-                ast
-            )))
-        }
     }
 
     /// Encode smooth lane transition over multiple time steps
@@ -488,41 +456,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         }
 
         // Lane-position coupling with smooth lane change support
-        // Collect actors with lane_changes config and their data
-        // Each actor can have multiple sequential lane changes
-        let lane_changes_data: Vec<_> = self
-            .spec
-            .actors
-            .iter()
-            .filter(|a| a.role != ActorRole::Pedestrian)
-            .filter(|a| !a.lane_changes.is_empty())
-            .map(|a| {
-                let dt = self.spec.time_step;
-                let changes: Vec<_> = a
-                    .lane_changes
-                    .iter()
-                    .map(|lc| {
-                        let start_min = lc.start_time.min();
-                        let start_max = lc.start_time.max();
-                        let duration_min = lc.duration.min();
-                        let duration_max = lc.duration.max();
-
-                        let start_step_min = (start_min / dt) as usize;
-                        let start_step_max = (start_max / dt) as usize;
-                        let duration_steps_min = (duration_min / dt) as usize;
-                        let duration_steps_max = (duration_max / dt) as usize;
-
-                        // Use midpoint for now (TODO: make solver variables)
-                        let start_step = (start_step_min + start_step_max) / 2;
-                        let duration_steps = (duration_steps_min + duration_steps_max) / 2;
-                        let end_step = (start_step + duration_steps).min(self.horizon);
-
-                        (lc.direction.clone(), start_step, end_step)
-                    })
-                    .collect();
-                (a.id.clone(), changes)
-            })
-            .collect();
+        // Use shared utility to collect lane change data
+        let lane_changes_data = collect_lane_change_data(&self.spec, self.horizon);
 
         // Collect actor IDs and roles to avoid borrow checker issues
         let actor_data: Vec<_> = self
@@ -535,11 +470,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
 
         for (actor_id, _role) in actor_data {
             // Check if this actor has lane_changes
-            let lc_data = lane_changes_data
-                .iter()
-                .find(|(id, _)| id == &actor_id);
-
-            if let Some((_, changes)) = lc_data {
+            if let Some(changes) = lane_changes_data.get(&actor_id) {
                 if changes.is_empty() {
                     // No lane changes: enforce coupling at all time steps
                     for t in 0..=self.horizon {
@@ -547,7 +478,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                     }
                 } else {
                     // Multiple lane changes: encode phases
-                    let first_start = changes[0].1;
+                    let first_start = changes[0].start_step;
 
                     // Before first lane change: enforce lane-position coupling
                     for t in 0..first_start.min(self.horizon) {
@@ -555,18 +486,23 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                     }
 
                     // Process each lane change and intermediate phases
-                    for (i, (direction, start_step, end_step)) in changes.iter().enumerate() {
+                    for (i, lc) in changes.iter().enumerate() {
                         // Encode smooth transition for this lane change
-                        self.encode_smooth_lane_transition(&actor_id, *start_step, *end_step, direction);
+                        self.encode_smooth_lane_transition(
+                            &actor_id,
+                            lc.start_step,
+                            lc.end_step,
+                            &lc.direction,
+                        );
 
                         // After this lane change: enforce coupling until next change or end
                         let next_start = if i + 1 < changes.len() {
-                            changes[i + 1].1
+                            changes[i + 1].start_step
                         } else {
                             self.horizon + 1
                         };
 
-                        for t in (*end_step + 1)..next_start.min(self.horizon + 1) {
+                        for t in (lc.end_step + 1)..next_start.min(self.horizon + 1) {
                             self.encode_lane_position_coupling_at_time(&actor_id, t);
                         }
                     }
@@ -623,6 +559,10 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
     }
 
     fn encode_velocity_constraints(&mut self) {
+        // NOTE: This method is not currently called by the main encoder pipeline.
+        // Velocity direction constraints are handled by encode_lane_velocity_constraints().
+        // This implementation is kept for potential future use or direct trait usage.
+        //
         // In Cartesian system, velocity direction constraints are based on actor direction
         let zero = Real::from_rational(0_i64, 1_i64);
 
@@ -650,8 +590,9 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
     }
 
     fn encode_acceleration_constraints(&mut self) {
-        // Acceleration constraints are already encoded in encode_kinematics()
-        // This method is a no-op for Cartesian encoder
+        // NOTE: This is a no-op for CartesianEncoder because acceleration constraints
+        // are already encoded within encode_kinematics() for each actor at each timestep.
+        // BicycleEncoder uses this method to enforce acceleration bounds separately.
     }
 
     fn encode_ttc_constraint(&self, actor1: &str, actor2: &str, min_ttc: f64, time: usize) -> Bool {
@@ -674,11 +615,15 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         let same_lane_discrete = lane1.eq(lane2);
 
         // Y-position proximity: |py1 - py2| < lane_width (vehicles in same lateral space)
+        // FIXED: Use AND to properly check |py1 - py2| < lane_width
+        // Both (py1-py2) < lane_width AND (py2-py1) < lane_width must be true
+        // Using OR would be incorrect: if py1-py2 = 5.0 and lane_width = 3.5,
+        // py2-py1 = -5.0 < 3.5 is TRUE, so OR would incorrectly return TRUE
         let lane_width = self.spec.lane_width;
         let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
         let py_diff_pos = py1 - py2;
         let py_diff_neg = py2 - py1;
-        let y_proximity = Bool::or(&[
+        let y_proximity = Bool::and(&[
             &py_diff_pos.lt(&lane_width_real),
             &py_diff_neg.lt(&lane_width_real),
         ]);
@@ -745,11 +690,15 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         let same_lane_discrete = lane1.eq(lane2);
 
         // Y-position proximity: |py1 - py2| < lane_width (vehicles in same lateral space)
+        // FIXED: Use AND to properly check |py1 - py2| < lane_width
+        // Both (py1-py2) < lane_width AND (py2-py1) < lane_width must be true
+        // Using OR would be incorrect: if py1-py2 = 5.0 and lane_width = 3.5,
+        // py2-py1 = -5.0 < 3.5 is TRUE, so OR would incorrectly return TRUE
         let lane_width = self.spec.lane_width;
         let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
         let py_diff_pos = py1 - py2;
         let py_diff_neg = py2 - py1;
-        let y_proximity = Bool::or(&[
+        let y_proximity = Bool::and(&[
             &py_diff_pos.lt(&lane_width_real),
             &py_diff_neg.lt(&lane_width_real),
         ]);
@@ -778,14 +727,14 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         for t in 0..=self.horizon {
             let time = t as f64 * self.spec.time_step;
 
-            // Extract Cartesian values
-            let px = self.extract_real(model, &self.positions_x[actor_id][t])?;
-            let py = self.extract_real(model, &self.positions_y[actor_id][t])?;
-            let vx = self.extract_real(model, &self.velocities_x[actor_id][t])?;
-            let vy = self.extract_real(model, &self.velocities_y[actor_id][t])?;
-            let ax = self.extract_real(model, &self.accelerations_x[actor_id][t])?;
-            let ay = self.extract_real(model, &self.accelerations_y[actor_id][t])?;
-            let lane = self.extract_int(model, &self.lanes[actor_id][t])?;
+            // Extract Cartesian values using shared utilities
+            let px = extract_real(model, &self.positions_x[actor_id][t])?;
+            let py = extract_real(model, &self.positions_y[actor_id][t])?;
+            let vx = extract_real(model, &self.velocities_x[actor_id][t])?;
+            let vy = extract_real(model, &self.velocities_y[actor_id][t])?;
+            let ax = extract_real(model, &self.accelerations_x[actor_id][t])?;
+            let ay = extract_real(model, &self.accelerations_y[actor_id][t])?;
+            let lane = extract_int(model, &self.lanes[actor_id][t])?;
 
             let state = State {
                 time,

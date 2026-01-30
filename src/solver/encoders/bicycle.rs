@@ -26,6 +26,7 @@ use crate::scenario::model::{
 };
 use crate::solver::backend::Z3Backend;
 use crate::solver::coordinate_encoder::CoordinateEncoder;
+use crate::solver::encoder_utils::{collect_lane_change_data, extract_int, extract_real};
 
 /// Bicycle model coordinate system encoder
 ///
@@ -62,6 +63,10 @@ pub struct BicycleEncoder<B: Z3Backend> {
 
     /// Lane numbers (integer)
     lanes: HashMap<String, Vec<Int>>,
+
+    /// Derived lateral velocities (vy ≈ v * θ using small angle approximation)
+    /// These are computed during kinematics encoding, not independent variables
+    velocities_y: HashMap<String, Vec<Real>>,
 }
 
 impl<B: Z3Backend> BicycleEncoder<B> {
@@ -80,6 +85,7 @@ impl<B: Z3Backend> BicycleEncoder<B> {
             steering_delta: HashMap::new(),
             accelerations: HashMap::new(),
             lanes: HashMap::new(),
+            velocities_y: HashMap::new(),
         }
     }
 
@@ -98,50 +104,6 @@ impl<B: Z3Backend> BicycleEncoder<B> {
             params.max_steering_angle,
             params.max_steering_rate,
         ))
-    }
-
-    /// Helper: Extract real value from Z3 model
-    fn extract_real(&self, model: &Model, var: &Real) -> Result<f64> {
-        let ast = model.eval(var, true).ok_or_else(|| {
-            ScenarioGenError::Z3ModelParsing("Failed to evaluate real variable".to_string())
-        })?;
-
-        // First try to extract as rational directly
-        if let Some(rational) = ast.as_rational() {
-            let (num, denom) = rational;
-            return Ok(num as f64 / denom as f64);
-        }
-
-        // If not a simple rational, try as_real() which handles more complex expressions
-        #[allow(deprecated)]
-        if let Some((num, denom)) = ast.as_real() {
-            return Ok(num as f64 / denom as f64);
-        }
-
-        // As a last resort, use Z3's decimal approximation for complex expressions
-        let decimal_str = ast.approx(10); // 10 decimal places precision
-        decimal_str.parse::<f64>().map_err(|e| {
-            ScenarioGenError::Z3ModelParsing(format!(
-                "Failed to parse decimal approximation '{}' for expression {}: {}",
-                decimal_str, ast, e
-            ))
-        })
-    }
-
-    /// Helper: Extract int value from Z3 model
-    fn extract_int(&self, model: &Model, var: &Int) -> Result<usize> {
-        let ast = model.eval(var, true).ok_or_else(|| {
-            ScenarioGenError::Z3ModelParsing("Failed to evaluate int variable".to_string())
-        })?;
-
-        if let Some(val) = ast.as_i64() {
-            Ok(val as usize)
-        } else {
-            Err(ScenarioGenError::Z3ModelParsing(format!(
-                "Expected integer value, got: {}",
-                ast
-            )))
-        }
     }
 
     /// Encode initial state for a single actor (Bicycle-specific)
@@ -290,41 +252,8 @@ impl<B: Z3Backend> BicycleEncoder<B> {
 
     /// Encode lane-position coupling with lane change support
     fn encode_lane_coupling_with_lane_changes(&mut self) {
-        // Collect actors with lane_changes config and their data
-        // Each actor can have multiple sequential lane changes
-        let lane_changes_data: Vec<_> = self
-            .spec
-            .actors
-            .iter()
-            .filter(|a| a.role != ActorRole::Pedestrian)
-            .filter(|a| !a.lane_changes.is_empty())
-            .map(|a| {
-                let dt = self.spec.time_step;
-                let changes: Vec<_> = a
-                    .lane_changes
-                    .iter()
-                    .map(|lc| {
-                        let start_min = lc.start_time.min();
-                        let start_max = lc.start_time.max();
-                        let duration_min = lc.duration.min();
-                        let duration_max = lc.duration.max();
-
-                        let start_step_min = (start_min / dt) as usize;
-                        let start_step_max = (start_max / dt) as usize;
-                        let duration_steps_min = (duration_min / dt) as usize;
-                        let duration_steps_max = (duration_max / dt) as usize;
-
-                        // Use midpoint for now
-                        let start_step = (start_step_min + start_step_max) / 2;
-                        let duration_steps = (duration_steps_min + duration_steps_max) / 2;
-                        let end_step = (start_step + duration_steps).min(self.horizon);
-
-                        (lc.direction.clone(), start_step, end_step)
-                    })
-                    .collect();
-                (a.id.clone(), changes)
-            })
-            .collect();
+        // Use shared utility to collect lane change data
+        let lane_changes_data = collect_lane_change_data(&self.spec, self.horizon);
 
         // Collect actor IDs to avoid borrow checker issues
         let actor_data: Vec<_> = self
@@ -337,11 +266,7 @@ impl<B: Z3Backend> BicycleEncoder<B> {
 
         for actor_id in actor_data {
             // Check if this actor has lane_changes
-            let lc_data = lane_changes_data
-                .iter()
-                .find(|(id, _)| id == &actor_id);
-
-            if let Some((_, changes)) = lc_data {
+            if let Some(changes) = lane_changes_data.get(&actor_id) {
                 if changes.is_empty() {
                     // No lane changes: enforce coupling at all time steps
                     for t in 0..=self.horizon {
@@ -349,7 +274,7 @@ impl<B: Z3Backend> BicycleEncoder<B> {
                     }
                 } else {
                     // Multiple lane changes: encode phases
-                    let first_start = changes[0].1;
+                    let first_start = changes[0].start_step;
 
                     // Before first lane change: enforce lane-position coupling
                     for t in 0..first_start.min(self.horizon) {
@@ -357,23 +282,23 @@ impl<B: Z3Backend> BicycleEncoder<B> {
                     }
 
                     // Process each lane change and intermediate phases
-                    for (i, (direction, start_step, end_step)) in changes.iter().enumerate() {
+                    for (i, lc) in changes.iter().enumerate() {
                         // Encode smooth transition for this lane change
                         self.encode_smooth_lane_transition_bicycle(
                             &actor_id,
-                            *start_step,
-                            *end_step,
-                            direction,
+                            lc.start_step,
+                            lc.end_step,
+                            &lc.direction,
                         );
 
                         // After this lane change: enforce coupling until next change or end
                         let next_start = if i + 1 < changes.len() {
-                            changes[i + 1].1
+                            changes[i + 1].start_step
                         } else {
                             self.horizon + 1
                         };
 
-                        for t in (*end_step + 1)..next_start.min(self.horizon + 1) {
+                        for t in (lc.end_step + 1)..next_start.min(self.horizon + 1) {
                             self.encode_lane_position_coupling_at_time(&actor_id, t);
                         }
                     }
@@ -407,7 +332,6 @@ impl<B: Z3Backend> BicycleEncoder<B> {
         direction: &crate::dsl::types::LaneChangeDirection,
     ) {
         let lane_width = self.spec.lane_width;
-        let _lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
 
         // Get source lane from step before transition starts
         let source_lane = &self.lanes[actor_id][start_step.saturating_sub(1)];
@@ -467,6 +391,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             let mut delta_vars = Vec::new();
             let mut a_vars = Vec::new();
             let mut lane_vars = Vec::new();
+            let mut vy_vars = Vec::new();
 
             for t in 0..=horizon {
                 px_vars.push(Real::new_const(format!("{}__px_{}", actor_id, t)));
@@ -476,6 +401,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
                 delta_vars.push(Real::new_const(format!("{}__delta_{}", actor_id, t)));
                 a_vars.push(Real::new_const(format!("{}__a_{}", actor_id, t)));
                 lane_vars.push(Int::new_const(format!("{}__lane_{}", actor_id, t)));
+                // Derived lateral velocity: vy ≈ v * θ (computed during kinematics)
+                vy_vars.push(Real::new_const(format!("{}__vy_{}", actor_id, t)));
             }
 
             self.positions_x.insert(actor_id.clone(), px_vars);
@@ -485,6 +412,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             self.steering_delta.insert(actor_id.clone(), delta_vars);
             self.accelerations.insert(actor_id.clone(), a_vars);
             self.lanes.insert(actor_id.clone(), lane_vars);
+            self.velocities_y.insert(actor_id.clone(), vy_vars);
         }
     }
 
@@ -515,6 +443,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
                 let v_t = &self.speed_v[actor_id][t];
                 let delta_t = &self.steering_delta[actor_id][t];
                 let a_t = &self.accelerations[actor_id][t];
+                let vy_t = &self.velocities_y[actor_id][t];
 
                 let px_t1 = &self.positions_x[actor_id][t + 1];
                 let py_t1 = &self.positions_y[actor_id][t + 1];
@@ -527,12 +456,16 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
                 // dθ/dt = (v/L) * tan(δ) ≈ (v/L) * δ (tan(δ) ≈ δ)
                 // dv/dt = a
 
+                // vy[t] = v[t] * θ[t] (derived lateral velocity for get_lateral_vel)
+                let vy_derived = v_t * theta_t;
+                self.backend.assert(&vy_t.eq(&vy_derived));
+
                 // px[t+1] = px[t] + v[t] * dt
                 let px_next = px_t + &(v_t * &dt_val);
                 self.backend.assert(&px_t1.eq(&px_next));
 
-                // py[t+1] = py[t] + v[t] * θ[t] * dt
-                let py_next = py_t + &(v_t * theta_t * &dt_val);
+                // py[t+1] = py[t] + vy[t] * dt (using derived lateral velocity)
+                let py_next = py_t + &(vy_t * &dt_val);
                 self.backend.assert(&py_t1.eq(&py_next));
 
                 // θ[t+1] = θ[t] + (v[t] / L) * δ[t] * dt
@@ -543,6 +476,13 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
                 let v_next = v_t + &(a_t * &dt_val);
                 self.backend.assert(&v_t1.eq(&v_next));
             }
+
+            // Also constrain vy at the last time step (horizon)
+            let v_last = &self.speed_v[actor_id][self.horizon];
+            let theta_last = &self.heading_theta[actor_id][self.horizon];
+            let vy_last = &self.velocities_y[actor_id][self.horizon];
+            let vy_last_derived = v_last * theta_last;
+            self.backend.assert(&vy_last.eq(&vy_last_derived));
         }
 
         // Encode lane change constraints and lane-position coupling
@@ -646,11 +586,15 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         let same_lane_discrete = lane1.eq(lane2);
 
         // Y-position proximity: |py1 - py2| < lane_width (vehicles in same lateral space)
+        // FIXED: Use AND to properly check |py1 - py2| < lane_width
+        // Both (py1-py2) < lane_width AND (py2-py1) < lane_width must be true
+        // Using OR would be incorrect: if py1-py2 = 5.0 and lane_width = 3.5,
+        // py2-py1 = -5.0 < 3.5 is TRUE, so OR would incorrectly return TRUE
         let lane_width = self.spec.lane_width;
         let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
         let py_diff_pos = py1 - py2;
         let py_diff_neg = py2 - py1;
-        let y_proximity = Bool::or(&[
+        let y_proximity = Bool::and(&[
             &py_diff_pos.lt(&lane_width_real),
             &py_diff_neg.lt(&lane_width_real),
         ]);
@@ -719,11 +663,15 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         let same_lane_discrete = lane1.eq(lane2);
 
         // Y-position proximity: |py1 - py2| < lane_width (vehicles in same lateral space)
+        // FIXED: Use AND to properly check |py1 - py2| < lane_width
+        // Both (py1-py2) < lane_width AND (py2-py1) < lane_width must be true
+        // Using OR would be incorrect: if py1-py2 = 5.0 and lane_width = 3.5,
+        // py2-py1 = -5.0 < 3.5 is TRUE, so OR would incorrectly return TRUE
         let lane_width = self.spec.lane_width;
         let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
         let py_diff_pos = py1 - py2;
         let py_diff_neg = py2 - py1;
-        let y_proximity = Bool::or(&[
+        let y_proximity = Bool::and(&[
             &py_diff_pos.lt(&lane_width_real),
             &py_diff_neg.lt(&lane_width_real),
         ]);
@@ -759,13 +707,13 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         for t in 0..=self.horizon {
             let time = t as f64 * dt;
 
-            // Extract bicycle state variables
-            let px = self.extract_real(model, &self.positions_x[actor_id][t])?;
-            let py = self.extract_real(model, &self.positions_y[actor_id][t])?;
-            let theta = self.extract_real(model, &self.heading_theta[actor_id][t])?;
-            let v = self.extract_real(model, &self.speed_v[actor_id][t])?;
-            let a = self.extract_real(model, &self.accelerations[actor_id][t])?;
-            let lane = self.extract_int(model, &self.lanes[actor_id][t])?;
+            // Extract bicycle state variables using shared utilities
+            let px = extract_real(model, &self.positions_x[actor_id][t])?;
+            let py = extract_real(model, &self.positions_y[actor_id][t])?;
+            let theta = extract_real(model, &self.heading_theta[actor_id][t])?;
+            let v = extract_real(model, &self.speed_v[actor_id][t])?;
+            let a = extract_real(model, &self.accelerations[actor_id][t])?;
+            let lane = extract_int(model, &self.lanes[actor_id][t])?;
 
             // Convert bicycle state to Cartesian velocities using small angle approximation:
             // vx ≈ v * cos(θ) ≈ v (since cos(θ) ≈ 1 for small θ)
@@ -814,17 +762,16 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
     }
 
     fn get_lateral_vel(&self, actor_id: &str, time: usize) -> &Real {
-        // Bicycle model doesn't have separate lateral velocity variable
-        // Return a reference to a zero (approximation)
-        // TODO: Compute from v * θ if needed
-        &self.speed_v[actor_id][time] // Placeholder
+        // Return the derived lateral velocity (vy = v * θ)
+        // This is constrained during kinematics encoding
+        &self.velocities_y[actor_id][time]
     }
 
     fn encode_lane_velocity_constraints(&mut self) {
-        // TODO: Implement lane velocity constraints for bicycle model
-        // For now, just encode basic lane bounds
+        // Encode lane bounds and single-lane-jump constraints
         let num_lanes = self.spec.get_num_lanes();
-        let num_lanes_int = Int::from_i64(num_lanes as i64);
+        let max_lane = Int::from_i64((num_lanes - 1) as i64);
+        let zero_lane = Int::from_i64(0);
 
         for actor in &self.spec.actors {
             let actor_id = &actor.id;
@@ -832,10 +779,29 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             for t in 0..=self.horizon {
                 let lane_var = &self.lanes[actor_id][t];
 
-                // Lane bounds: 0 <= lane < num_lanes
-                let zero = Int::from_i64(0);
-                self.backend.assert(&lane_var.ge(&zero));
-                self.backend.assert(&lane_var.lt(&num_lanes_int));
+                // Lane bounds: 0 <= lane <= (num_lanes - 1)
+                self.backend.assert(&lane_var.ge(&zero_lane));
+                self.backend.assert(&lane_var.le(&max_lane));
+            }
+        }
+
+        // Add single-lane-jump constraint: |lane[t+1] - lane[t]| <= 1
+        // Prevents vehicles from jumping multiple lanes at once
+        let one = Int::from_i64(1);
+        let neg_one = Int::from_i64(-1);
+
+        for actor in &self.spec.actors {
+            if actor.role != ActorRole::Ego {
+                // Ego typically doesn't change lanes in these scenarios
+                let actor_id = &actor.id;
+                for t in 0..self.horizon {
+                    let lane_t = &self.lanes[actor_id][t];
+                    let lane_t1 = &self.lanes[actor_id][t + 1];
+                    let diff = lane_t1 - lane_t;
+                    // -1 <= diff <= 1
+                    self.backend.assert(&diff.ge(&neg_one));
+                    self.backend.assert(&diff.le(&one));
+                }
             }
         }
     }

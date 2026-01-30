@@ -15,6 +15,22 @@ use crate::solver::backend::Z3Backend;
 ///
 /// Each coordinate system (Cartesian, Frenet) implements this trait
 /// to provide its own variable creation, kinematics, and constraint encoding.
+///
+/// # Method Usage Notes
+///
+/// Some methods defined in this trait are optional or may be no-ops depending
+/// on the coordinate system implementation:
+///
+/// - `encode_velocity_constraints()`: Not currently called by the main encoder.
+///   CartesianEncoder duplicates this logic in `encode_lane_velocity_constraints()`.
+///   Implementations may leave this as a no-op.
+///
+/// - `encode_acceleration_constraints()`: CartesianEncoder is a no-op because
+///   acceleration constraints are encoded in `encode_kinematics()`. BicycleEncoder
+///   uses this to enforce acceleration bounds separately.
+///
+/// - `encode_lateral_velocity_bounds()`: BicycleEncoder is a no-op because lateral
+///   velocity is implicitly constrained by steering angle and heading bounds.
 pub trait CoordinateEncoder<B: Z3Backend> {
     // === Core Encoding ===
 
@@ -28,9 +44,17 @@ pub trait CoordinateEncoder<B: Z3Backend> {
     fn encode_initial_conditions(&mut self);
 
     /// Encode velocity constraints (min/max bounds)
+    ///
+    /// Note: This method is not currently called by the main encoder pipeline.
+    /// Velocity constraints are typically encoded in `encode_lane_velocity_constraints()`
+    /// or within `encode_kinematics()`. Implementations may leave this as a no-op.
     fn encode_velocity_constraints(&mut self);
 
     /// Encode acceleration constraints (min/max bounds)
+    ///
+    /// Note: For CartesianEncoder, this is a no-op because acceleration constraints
+    /// are encoded within `encode_kinematics()`. For BicycleEncoder, this method
+    /// enforces acceleration bounds on the `accelerations` variable.
     fn encode_acceleration_constraints(&mut self);
 
     // === Collision Detection (coordinate-specific) ===
