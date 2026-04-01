@@ -127,7 +127,7 @@ fn main() -> Result<()> {
     } else {
         // For multiple scenarios, print summary since files already written
         tracing::info!(
-            "Wrote {} scenario quadruplet(s) (JSON+XOSC+SVG+GIF) to directory: {:?}",
+            "Wrote {} scenario quadruplet(s) (JSON+XOSC+SVG+GIF+XODR) to directory: {:?}",
             scenarios.len(),
             cli.output
         );
@@ -169,9 +169,17 @@ fn write_scenario(
     std::fs::write(&json_path, json)?;
     tracing::debug!("Wrote JSON to: {:?}", json_path);
 
-    // Write XOSC
+    // Write XODR first so the filename is ready for the XOSC reference
+    let xodr_filename = format!("{}.xodr", base);
+    let xodr_path = output_dir.join(&xodr_filename);
+    let xodr_xml = scenario_generator::scenario::export_to_xodr(scenario)?;
+    std::fs::write(&xodr_path, xodr_xml)?;
+    tracing::debug!("Wrote XODR to: {:?}", xodr_path);
+
+    // Write XOSC with a relative reference to the companion .xodr file
     let xosc_path = output_dir.join(format!("{}.xosc", base));
-    let xosc_xml = scenario_generator::scenario::export_to_xosc(scenario)?;
+    let xosc_xml =
+        scenario_generator::scenario::export_to_xosc_with_road_file(scenario, &xodr_filename)?;
     std::fs::write(&xosc_path, xosc_xml)?;
     tracing::debug!("Wrote XOSC to: {:?}", xosc_path);
 
@@ -200,7 +208,7 @@ fn write_scenarios(
     }
 
     tracing::info!(
-        "Wrote {} scenario quadruplet(s) (JSON+XOSC+SVG+GIF) to directory: {:?}",
+        "Wrote {} scenario quadruplet(s) (JSON+XOSC+SVG+GIF+XODR) to directory: {:?}",
         scenarios.len(),
         output_dir
     );

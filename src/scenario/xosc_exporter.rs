@@ -18,17 +18,34 @@ use openscenario_rs::ScenarioBuilder;
 /// - Vehicle entities for all actors
 /// - Init actions setting initial positions and velocities
 /// - Storyboard with trajectory following actions for all actors
-///
-/// This implementation uses the full openscenario-rs builder API to create
-/// proper trajectory-based scenarios that can be executed by simulators.
 pub fn export_to_xosc(scenario: &Scenario) -> Result<String> {
+    export_to_xosc_impl(scenario, None)
+}
+
+/// Export a scenario to OpenSCENARIO XML format with an OpenDRIVE road reference
+///
+/// Same as [`export_to_xosc`] but embeds a `<RoadNetwork><LogicFile>` reference to
+/// the given OpenDRIVE file path.  Use a relative path (e.g. `"scenario.xodr"`) so
+/// the .xosc and .xodr files can be moved together without breaking the reference.
+pub fn export_to_xosc_with_road_file(scenario: &Scenario, xodr_path: &str) -> Result<String> {
+    export_to_xosc_impl(scenario, Some(xodr_path))
+}
+
+fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<String> {
     // Build scenario description for the header
     let description = build_scenario_description(scenario);
 
     // Create basic scenario structure with entities
-    let mut builder = ScenarioBuilder::new()
-        .with_header(&description, " Scenario Generator")
-        .with_entities();
+    let header_builder = ScenarioBuilder::new()
+        .with_header(&description, " Scenario Generator");
+
+    let header_builder = if let Some(path) = road_file {
+        header_builder.with_road_file(path)
+    } else {
+        header_builder
+    };
+
+    let mut builder = header_builder.with_entities();
 
     // Add entities for each actor
     // TODO: openscenario-rs library limitation - no direct add_pedestrian() method

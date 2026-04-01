@@ -168,6 +168,17 @@ pub fn export_scenario_to_xosc(scenario: &Scenario) -> Result<String> {
     scenario::export_to_xosc(scenario)
 }
 
+/// Export a scenario to OpenSCENARIO XML format with an OpenDRIVE road reference
+///
+/// Embeds a `<RoadNetwork><LogicFile>` reference to `xodr_path` inside the
+/// generated .xosc.  Use a relative path so the two files stay portable.
+pub fn export_scenario_to_xosc_with_road_file(
+    scenario: &Scenario,
+    xodr_path: &str,
+) -> Result<String> {
+    scenario::export_to_xosc_with_road_file(scenario, xodr_path)
+}
+
 /// Export a scenario to SVG format for visualization
 ///
 /// Generates an SVG file showing vehicle trajectories, lane layout, and safety metrics.
@@ -219,6 +230,17 @@ pub fn export_scenario_to_gif_with_resolution(
     resolution: scenario::Resolution,
 ) -> Result<Vec<u8>> {
     scenario::export_to_gif_with_resolution(scenario, resolution)
+}
+
+/// Export a scenario to OpenDRIVE XML format
+///
+/// Generates an OpenDRIVE 1.7 road network file (.xodr) describing the
+/// single straight road from the scenario's `RoadSpec`.
+///
+/// # Errors
+/// Returns an error if XML serialization fails.
+pub fn export_scenario_to_xodr(scenario: &Scenario) -> Result<String> {
+    scenario::export_to_xodr(scenario)
 }
 
 /// Re-export the Resolution type for GIF export configuration

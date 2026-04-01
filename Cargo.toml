@@ -49,6 +49,11 @@ ab_glyph = "0.2"   # Font loading (compatible with imageproc)
 # Linear algebra for Frenet coordinate transformations
 nalgebra = { version = "0.33", features = ["serde"] }
 
+# OpenDRIVE (.xodr) road network export
+opendrive = "0.1"
+vec1 = "1.8"
+uom = { version = "0.32", features = ["f64"] }
+
 [dev-dependencies]
 pretty_assertions = "1.4" # Better test output
 tempfile = "3.8"          # Temporary files for testing
