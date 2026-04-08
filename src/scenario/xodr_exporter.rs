@@ -10,18 +10,9 @@ use crate::scenario::model::Scenario;
 use opendrive::{
     core::{additional_data::AdditionalData, header::Header, OpenDrive},
     lane::{
-        center::Center,
-        center_lane::CenterLane,
-        lane_choice::LaneChoice,
-        lane_section::LaneSection,
-        lane_type::LaneType,
-        lanes::Lanes,
-        left::Left,
-        left_lane::LeftLane,
-        right::Right,
-        right_lane::RightLane,
-        width::Width,
-        Lane,
+        center::Center, center_lane::CenterLane, lane_choice::LaneChoice,
+        lane_section::LaneSection, lane_type::LaneType, lanes::Lanes, left::Left,
+        left_lane::LeftLane, right::Right, right_lane::RightLane, width::Width, Lane,
     },
     road::{
         geometry::{geometry_type::GeometryType, line::Line, plan_view::PlanView, Geometry},
@@ -29,7 +20,7 @@ use opendrive::{
     },
 };
 use uom::si::{angle::radian, f64::Angle, f64::Length, length::meter};
-use vec1::{vec1, Vec1, Size0Error};
+use vec1::{vec1, Size0Error, Vec1};
 
 /// Export a scenario to OpenDRIVE XML format
 ///
@@ -47,11 +38,7 @@ pub fn export_to_xodr(scenario: &Scenario) -> Result<String> {
         rev_minor: 7,
         name: Some(scenario.scenario_type.clone()),
         version: Some("1.0".to_string()),
-        date: Some(
-            chrono::Utc::now()
-                .format("%Y-%m-%dT%H:%M:%S")
-                .to_string(),
-        ),
+        date: Some(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string()),
         vendor: Some("CARLA Scenario Generator".to_string()),
         ..Default::default()
     };
@@ -182,10 +169,7 @@ fn build_lane_section(scenario: &Scenario) -> Result<LaneSection> {
     for &direction in &road.lane_directions {
         let base = driving_lane(road.lane_width);
         if direction == 1 {
-            right_lanes.push(RightLane {
-                id: right_id,
-                base,
-            });
+            right_lanes.push(RightLane { id: right_id, base });
             right_id += 1; // move inward toward -1
         } else {
             left_lanes.push(LeftLane { id: left_id, base });

@@ -167,7 +167,10 @@ fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
 /// Returns true if any actor changes lane at least once during the scenario.
 fn has_lane_change(scenario: &Scenario) -> bool {
     scenario.actors.iter().any(|actor| {
-        actor.states.windows(2).any(|w| w[0].get_lane() != w[1].get_lane())
+        actor
+            .states
+            .windows(2)
+            .any(|w| w[0].get_lane() != w[1].get_lane())
     })
 }
 
@@ -230,16 +233,11 @@ mod tests {
         let result = export_to_openlabel(&scenario).expect("export should succeed");
         let parsed: serde_json::Value = serde_json::from_str(&result).expect("must be valid JSON");
 
-        assert_eq!(
-            parsed["openlabel"]["metadata"]["schema_version"],
-            "1.0.0"
-        );
-        assert!(
-            parsed["openlabel"]["metadata"]["ScenarioId"]
-                .as_str()
-                .unwrap()
-                .starts_with("SCEN-")
-        );
+        assert_eq!(parsed["openlabel"]["metadata"]["schema_version"], "1.0.0");
+        assert!(parsed["openlabel"]["metadata"]["ScenarioId"]
+            .as_str()
+            .unwrap()
+            .starts_with("SCEN-"));
     }
 
     #[test]
@@ -249,10 +247,7 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let tags = parsed["openlabel"]["tags"].as_object().unwrap();
-        let types: Vec<&str> = tags
-            .values()
-            .map(|t| t["type"].as_str().unwrap())
-            .collect();
+        let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
 
         assert!(types.contains(&"highway"));
         assert!(types.contains(&"cut_in_left"));
@@ -267,10 +262,7 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let tags = parsed["openlabel"]["tags"].as_object().unwrap();
-        let types: Vec<&str> = tags
-            .values()
-            .map(|t| t["type"].as_str().unwrap())
-            .collect();
+        let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
 
         assert!(types.contains(&"safety_critical"));
     }
@@ -282,10 +274,7 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let tags = parsed["openlabel"]["tags"].as_object().unwrap();
-        let types: Vec<&str> = tags
-            .values()
-            .map(|t| t["type"].as_str().unwrap())
-            .collect();
+        let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
 
         assert!(!types.contains(&"safety_critical"));
     }
