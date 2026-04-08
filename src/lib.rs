@@ -80,6 +80,8 @@ fn generate_with_solver(
         // Encode initial conditions and kinematics
         encoder.encode_initial_conditions();
         encoder.encode_kinematics();
+        encoder.encode_velocity_constraints();
+        encoder.encode_acceleration_constraints();
         encoder.encode_lane_velocity_constraints();
         encoder.encode_lateral_velocity_bounds();
 

@@ -52,6 +52,8 @@ where
             encoder.create_variables();
             encoder.encode_initial_conditions();
             encoder.encode_kinematics();
+            encoder.encode_velocity_constraints();
+            encoder.encode_acceleration_constraints();
             encoder.encode_lane_velocity_constraints();
             encoder.encode_lateral_velocity_bounds();
             encoder.encode_ltl(ltl_formula);
@@ -348,6 +350,8 @@ mod tests {
             let ltl_formula = LTLGenerator::generate(&spec).unwrap();
             let scenario_model = spec.scenario_type.get_model();
             encoder.encode_kinematics();
+            encoder.encode_velocity_constraints();
+            encoder.encode_acceleration_constraints();
             encoder.encode_lane_velocity_constraints();
             encoder.encode_lateral_velocity_bounds();
             encoder.encode_ltl(&ltl_formula);
@@ -372,6 +376,8 @@ mod tests {
             enc.create_variables();
             enc.encode_initial_conditions();
             enc.encode_kinematics();
+            enc.encode_velocity_constraints();
+            enc.encode_acceleration_constraints();
             enc.encode_lane_velocity_constraints();
             enc.encode_lateral_velocity_bounds();
             enc.encode_ltl(&ltl_formula);

@@ -652,7 +652,7 @@ impl ScenarioSpec {
             if actor.speed.min() <= 0.0 {
                 return Err(format!("{} speed must be positive", actor.id));
             }
-            if actor.acceleration.min() >= actor.acceleration.max() {
+            if actor.acceleration.min() > actor.acceleration.max() {
                 return Err(format!("{} acceleration range invalid", actor.id));
             }
             if let ValueOrRange::Range([min, max]) = actor.position {

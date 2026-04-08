@@ -113,6 +113,11 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         self.coord_encoder.encode_kinematics(self.spec.time_step);
     }
 
+    /// Encode speed upper bounds for all actors
+    pub fn encode_velocity_constraints(&mut self) {
+        self.coord_encoder.encode_velocity_constraints();
+    }
+
     /// Encode lane-based velocity constraints
     pub fn encode_lane_velocity_constraints(&mut self) {
         self.coord_encoder.encode_lane_velocity_constraints();
