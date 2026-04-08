@@ -31,6 +31,9 @@ pub enum ScenarioGenError {
     #[error("GIF export failed: {0}")]
     GifExport(String),
 
+    #[error("OpenLabel export failed: {0}")]
+    OpenLabelExport(String),
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 

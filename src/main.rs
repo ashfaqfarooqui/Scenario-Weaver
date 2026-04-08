@@ -127,7 +127,7 @@ fn main() -> Result<()> {
     } else {
         // For multiple scenarios, print summary since files already written
         tracing::info!(
-            "Wrote {} scenario quadruplet(s) (JSON+XOSC+SVG+GIF+XODR) to directory: {:?}",
+            "Wrote {} scenario quadruplet(s) (JSON+XOSC+SVG+GIF+XODR+OL+TXT) to directory: {:?}",
             scenarios.len(),
             cli.output
         );
@@ -195,6 +195,17 @@ fn write_scenario(
     std::fs::write(&gif_path, gif_bytes)?;
     tracing::debug!("Wrote GIF to: {:?}", gif_path);
 
+    // Write OpenLabel
+    let openlabel_path = output_dir.join(format!("{}.ol.json", base));
+    let openlabel = scenario_generator::scenario::export_to_openlabel(scenario)?;
+    std::fs::write(&openlabel_path, openlabel)?;
+    tracing::debug!("Wrote OpenLabel to: {:?}", openlabel_path);
+
+    // Write empty TXT
+    let txt_path = output_dir.join(format!("{}.txt", base));
+    std::fs::write(&txt_path, "")?;
+    tracing::debug!("Wrote TXT to: {:?}", txt_path);
+
     Ok(())
 }
 
@@ -208,7 +219,7 @@ fn write_scenarios(
     }
 
     tracing::info!(
-        "Wrote {} scenario quadruplet(s) (JSON+XOSC+SVG+GIF+XODR) to directory: {:?}",
+        "Wrote {} scenario quadruplet(s) (JSON+XOSC+SVG+GIF+XODR+OL+TXT) to directory: {:?}",
         scenarios.len(),
         output_dir
     );
