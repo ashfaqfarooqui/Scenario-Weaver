@@ -243,5 +243,23 @@ pub fn export_scenario_to_xodr(scenario: &Scenario) -> Result<String> {
     scenario::export_to_xodr(scenario)
 }
 
+/// Export a scenario to OpenLabel 1.0.0 JSON format
+///
+/// Generates a minimal OpenLabel file containing scenario metadata and
+/// semantic tags (road type, scenario category, actor roles, behaviors).
+///
+/// # Example
+/// ```no_run
+/// use scenario_generator::{generate_single_scenario, export_scenario_to_openlabel};
+///
+/// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
+/// let scenario = generate_single_scenario(&yaml).unwrap();
+/// let ol_json = export_scenario_to_openlabel(&scenario).unwrap();
+/// std::fs::write("scenario.ol.json", ol_json).unwrap();
+/// ```
+pub fn export_scenario_to_openlabel(scenario: &Scenario) -> Result<String> {
+    scenario::export_to_openlabel(scenario)
+}
+
 /// Re-export the Resolution type for GIF export configuration
 pub use scenario::Resolution;
