@@ -1,0 +1,38 @@
+scenario_type: cut_in_right
+coordinate_system: cartesian
+
+time_step: 0.1
+duration: 10.0
+
+road:
+  num_lanes: 3
+  lane_width: 3.5
+  lane_directions: [1, 1, 1]
+
+actors:
+  - id: ego
+    role: ego
+    lane: 1
+    position: [40.0, 60.0]
+    speed: [14.0, 16.0]
+    direction: 1
+    acceleration: [-8.0, 3.0]
+
+  - id: npc
+    role: npc
+    lane: 2                    # right of ego
+    position: [50.0, 80.0]
+    speed: [16.0, 20.0]
+    direction: 1
+    acceleration: [-8.0, 3.0]
+
+    lane_changes:
+      - direction: left         # NPC cuts from lane 2 into lane 1 (ego's lane)
+        start_time: [2.5, 5.0]
+        duration: [3.0, 4.0]
+
+min_ttc: 3.0
+min_distance: 5.0
+lane_width: 3.5
+
+num_scenarios: 5

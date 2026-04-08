@@ -1,0 +1,54 @@
+# Minimal bicycle model test scenario
+#
+# Designed to be least-restrictive for Z3:
+# - Fixed speeds (not ranges) → v[t] is constant → NRA terms v*θ and v*δ become linear
+# - Zero acceleration → constant speed throughout, no speed-related NRA
+# - Safety constraints ignored → removes 100+ LTL proposition assertions
+# - Short duration → fewer time steps = fewer constraints
+#
+# This should solve in < 5 seconds and produce visually smooth trajectories.
+
+scenario_type: cut_in_left
+coordinate_system: bicycle
+time_step: 0.5
+duration: 5.0
+
+bicycle_config:
+  default_wheelbase: 2.7          # meters (typical sedan)
+  default_max_steering_angle: 0.6 # radians (~34°)
+  default_max_steering_rate: 0.5  # rad/s
+
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, 1]
+
+actors:
+  - id: ego
+    role: ego
+    lane: 1
+    position: 0.0
+    speed: 15.0          # Fixed (not a range) → v[t] constant → no NRA multiplication
+    acceleration: 0.0         # Fixed zero → constant speed
+    direction: 1
+
+  - id: npc
+    role: npc
+    lane: 0
+    position: [40.0, 60.0]   # Range for px is fine (linear constraint)
+    speed: 15.0          # Fixed speed
+    acceleration: [0.0, 0.0]
+    direction: 1
+    lane_changes:
+      - direction: right        # NPC cuts from lane 0 into lane 1
+        start_time: [1.5, 2.5]  # Time range gives Z3 flexibility
+        duration: [1.5, 2.0]
+
+# Thresholds present but constraints ignored → skips all LTL/direct safety assertions
+min_ttc: 1.0
+min_distance: 1.0
+constraint_modes:
+  min_ttc: ignore
+  min_distance: ignore
+
+num_scenarios: 1
