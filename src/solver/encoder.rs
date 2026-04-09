@@ -4,7 +4,7 @@ use z3::ast::{Bool, Int, Real};
 use z3::SatResult;
 
 use crate::dsl::types::{CoordinateSystem, ScenarioSpec};
-use crate::solver::backend::{SolverBackend, Z3Backend};
+use crate::solver::backend::{OptimizationTarget, OptimizerBackend, SolverBackend, Z3Backend};
 use crate::solver::coordinate_encoder::CoordinateEncoder;
 use crate::solver::encoders::bicycle::BicycleEncoder;
 use crate::solver::encoders::cartesian::CartesianEncoder;
@@ -902,6 +902,122 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         scenario.validation.safety_violations = violations;
 
         Ok(())
+    }
+}
+
+// === Optimizer-specific methods ===
+
+impl GenericEncoder<OptimizerBackend> {
+    /// Encode optimization objective based on the target.
+    ///
+    /// Creates a Z3 Real variable representing the objective and calls
+    /// minimize/maximize on the backend. Uses minimum same-lane longitudinal
+    /// distance as an LRA proxy for all targets (avoids NRA from TTC division).
+    pub fn encode_objective(&mut self) {
+        let target = self.coord_encoder.backend().target();
+        match target {
+            OptimizationTarget::MinimizeTtc
+            | OptimizationTarget::MinimizeDistance
+            | OptimizationTarget::MinimizeSeverity => {
+                self.encode_minimize_distance_objective();
+            }
+            OptimizationTarget::MaximizeTtc => {
+                self.encode_maximize_distance_objective();
+            }
+        }
+    }
+
+    /// Minimize: find the scenario where the minimum same-lane distance is smallest.
+    ///
+    /// Combines lower-bound constraints (`obj <= effective_dist[t]` for all t) with
+    /// a "choice" constraint (`obj = effective_dist[t]` for at least one t).
+    /// Together these force `obj` to equal the actual minimum distance across all
+    /// time steps. Z3 then minimizes this value by choosing the scenario parameters
+    /// that make the tightest approach as close as possible.
+    fn encode_minimize_distance_objective(&mut self) {
+        let obj = Real::new_const("dist_obj");
+        let zero = Real::from_rational(0, 1);
+        let big_val = Real::from_rational(9999, 1);
+        self.coord_encoder.backend_mut().assert(&obj.ge(&zero));
+
+        let actor_ids: Vec<String> = self.spec.actors.iter().map(|a| a.id.clone()).collect();
+        let mut choices = Vec::new();
+
+        for i in 0..actor_ids.len() {
+            for j in (i + 1)..actor_ids.len() {
+                for t in 0..=self.horizon {
+                    let effective_dist =
+                        self.compute_effective_dist(&actor_ids[i], &actor_ids[j], t, &big_val);
+                    // Lower bound: obj <= effective_dist at every (pair, time)
+                    self.coord_encoder
+                        .backend_mut()
+                        .assert(&obj.le(&effective_dist));
+                    // Choice: obj can equal this particular effective_dist
+                    choices.push(obj.eq(&effective_dist));
+                }
+            }
+        }
+
+        // At least one choice must hold (obj = some effective distance)
+        let refs: Vec<&Bool> = choices.iter().collect();
+        self.coord_encoder.backend_mut().assert(&Bool::or(&refs));
+
+        self.coord_encoder.backend_mut().minimize(&obj);
+        self.coord_encoder.backend_mut().set_objective_var(obj);
+    }
+
+    /// Maximize: find the scenario where the minimum same-lane distance is largest.
+    ///
+    /// Uses the standard lower-bound formulation: obj <= effective_dist at every
+    /// (pair, time), then maximize obj to push it up to the actual minimum.
+    fn encode_maximize_distance_objective(&mut self) {
+        let obj = Real::new_const("dist_obj");
+        let zero = Real::from_rational(0, 1);
+        let big_val = Real::from_rational(9999, 1);
+        self.coord_encoder.backend_mut().assert(&obj.ge(&zero));
+
+        let actor_ids: Vec<String> = self.spec.actors.iter().map(|a| a.id.clone()).collect();
+
+        for i in 0..actor_ids.len() {
+            for j in (i + 1)..actor_ids.len() {
+                for t in 0..=self.horizon {
+                    let effective_dist =
+                        self.compute_effective_dist(&actor_ids[i], &actor_ids[j], t, &big_val);
+                    // obj <= effective_dist at every (pair, time)
+                    self.coord_encoder
+                        .backend_mut()
+                        .assert(&obj.le(&effective_dist));
+                }
+            }
+        }
+
+        self.coord_encoder.backend_mut().maximize(&obj);
+        self.coord_encoder.backend_mut().set_objective_var(obj);
+    }
+
+    /// Compute effective distance between two actors at time t.
+    /// Returns abs(px_i - px_j) if same lane, big_val otherwise.
+    fn compute_effective_dist(&self, aid_i: &str, aid_j: &str, t: usize, big_val: &Real) -> Real {
+        let lane_i = self.get_lane_var(aid_i, t);
+        let lane_j = self.get_lane_var(aid_j, t);
+        let px_i = self.get_longitudinal_pos(aid_i, t);
+        let px_j = self.get_longitudinal_pos(aid_j, t);
+
+        let same_lane = lane_i.eq(lane_j);
+        let abs_dist = px_i.gt(px_j).ite(&(px_i - px_j), &(px_j - px_i));
+        same_lane.ite(&abs_dist, big_val)
+    }
+
+    /// Extract the optimal value from the Z3 model after solving.
+    pub fn extract_optimal_value(&mut self, model: &z3::Model) {
+        self.coord_encoder
+            .backend_mut()
+            .extract_optimal_value(model);
+    }
+
+    /// Get the optimal value found by the optimizer.
+    pub fn get_optimal_value(&self) -> Option<f64> {
+        self.coord_encoder.backend().get_optimal_value()
     }
 }
 

@@ -26,6 +26,10 @@ pub struct Scenario {
 
     /// Validation information
     pub validation: ValidationInfo,
+
+    /// Optimization result (present only when --optimize was used)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub optimization: Option<OptimizationInfo>,
 }
 
 /// Trajectory of a single actor through the scenario
@@ -98,6 +102,16 @@ pub struct Acceleration {
     pub ay: f64,
 }
 
+/// Optimization result information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptimizationInfo {
+    /// Optimization target that was used
+    pub target: String,
+
+    /// Optimal value found by Z3 Optimize (e.g., minimum distance in meters)
+    pub optimal_value: Option<f64>,
+}
+
 /// Validation information for the scenario
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationInfo {
@@ -137,6 +151,7 @@ impl Scenario {
             duration,
             road,
             actors: Vec::new(),
+            optimization: None,
             validation: ValidationInfo {
                 min_ttc: 999.0, // Using large value instead of INFINITY for JSON compatibility
                 min_distance: 999.0,

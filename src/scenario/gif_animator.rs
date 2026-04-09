@@ -739,6 +739,7 @@ mod tests {
                 max_deceleration: -3.0,
                 acceleration_violations: vec![],
             },
+            optimization: None,
         }
     }
 
