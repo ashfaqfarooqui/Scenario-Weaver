@@ -144,7 +144,7 @@ impl<B: Z3Backend> BicycleEncoder<B> {
         let py_var = &self.positions_y[actor_id][0];
         let lane_width = self.spec.get_lane_width();
         let py_initial = lane as f64 * lane_width + lane_width / 2.0;
-        let py_val = Real::from_rational((py_initial * 10.0) as i64, 10_i64);
+        let py_val = Real::from_rational((py_initial * 100.0).round() as i64, 100_i64);
         self.backend.assert(&py_var.eq(&py_val));
 
         // Speed at t=0 (always positive)
@@ -335,11 +335,10 @@ impl<B: Z3Backend> BicycleEncoder<B> {
         let lane_width = self.spec.lane_width;
         let py_var = &self.positions_y[actor_id][t];
 
-        let min_py = Real::from_rational((lane as f64 * lane_width * 100.0) as i64, 100_i64);
-        let max_py = Real::from_rational(((lane + 1) as f64 * lane_width * 100.0) as i64, 100_i64);
-
-        self.backend.assert(&py_var.ge(&min_py));
-        self.backend.assert(&py_var.le(&max_py));
+        // Pin to lane center (consistent with cartesian encoder's lane coupling)
+        let center_py = lane as f64 * lane_width + lane_width / 2.0;
+        let center_val = Real::from_rational((center_py * 100.0).round() as i64, 100_i64);
+        self.backend.assert(&py_var.eq(&center_val));
 
         // Also tie the discrete lane variable to this concrete lane
         let lane_var = &self.lanes[actor_id][t];

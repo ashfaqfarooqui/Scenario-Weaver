@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CARLA Scenario Generator: Automatically generate diverse, safety-critical driving test scenarios from YAML specifications using Linear Temporal Logic (LTL) and Z3 SMT solver. Supports both safe scenario generation and adversarial generation (scenarios that intentionally violate safety constraints for testing edge cases).
+ScenarioWeaver: Automatically generate diverse, safety-critical driving test scenarios from YAML specifications using Linear Temporal Logic (LTL) and Z3 SMT solver. Supports both safe scenario generation and adversarial generation (scenarios that intentionally violate safety constraints for testing edge cases).
 
 ### Road Support
 
@@ -640,7 +640,7 @@ The generator produces scenarios in **four formats** automatically:
   - `export_to_xosc(scenario: &Scenario) -> Result<String>`
   - `export_to_xosc_with_road_file(scenario, xodr_path) -> Result<String>`
 - **Structure**:
-  - FileHeader with scenario metadata and author "CARLA Scenario Generator"
+  - FileHeader with scenario metadata and author "ScenarioWeaver"
   - RoadNetwork section (optional reference to OpenDRIVE file)
   - Entities section with vehicle definitions
   - Storyboard with trajectory-based actions for each actor

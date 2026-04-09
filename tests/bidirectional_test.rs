@@ -1,6 +1,6 @@
 //! Integration tests for bidirectional traffic scenarios
 
-use scenario_generator::{generate_multiple_scenarios, generate_single_scenario};
+use scenario_weaver::{generate_multiple_scenarios, generate_single_scenario};
 
 #[test]
 fn test_simple_bidirectional_scenario() {
@@ -287,8 +287,8 @@ num_scenarios: 3
         None::<
             fn(
                 usize,
-                &scenario_generator::scenario::model::Scenario,
-            ) -> scenario_generator::error::Result<()>,
+                &scenario_weaver::scenario::model::Scenario,
+            ) -> scenario_weaver::error::Result<()>,
         >,
     );
     assert!(

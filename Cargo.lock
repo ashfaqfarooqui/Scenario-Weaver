@@ -2185,7 +2185,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "scenario-generator"
+name = "scenario-weaver"
 version = "0.1.0"
 dependencies = [
  "ab_glyph",

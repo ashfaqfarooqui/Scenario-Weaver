@@ -36,7 +36,7 @@ fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<S
     let description = build_scenario_description(scenario);
 
     // Create basic scenario structure with entities
-    let header_builder = ScenarioBuilder::new().with_header(&description, " Scenario Generator");
+    let header_builder = ScenarioBuilder::new().with_header(&description, "ScenarioWeaver");
 
     let header_builder = if let Some(path) = road_file {
         header_builder.with_road_file(path)
@@ -337,7 +337,7 @@ mod tests {
         // Basic validation
         assert!(xml.contains("<?xml"));
         assert!(xml.contains("OpenSCENARIO"));
-        assert!(xml.contains(" Scenario Generator"));
+        assert!(xml.contains("ScenarioWeaver"));
         assert!(xml.contains("cut_in_left"));
 
         // Verify entities

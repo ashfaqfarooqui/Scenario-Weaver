@@ -1,4 +1,4 @@
-use scenario_generator;
+use scenario_weaver;
 use std::time::Instant;
 
 #[test]
@@ -6,7 +6,7 @@ fn test_velocity_ratio_during_lane_change() {
     let yaml_content =
         std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
 
-    let scenario = scenario_generator::generate_single_scenario(&yaml_content)
+    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
         .expect("Should generate scenario");
 
     let npc = scenario
@@ -52,7 +52,7 @@ fn test_no_sideways_only_motion() {
     let yaml_content =
         std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
 
-    let scenario = scenario_generator::generate_single_scenario(&yaml_content)
+    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
         .expect("Should generate scenario");
 
     let npc = scenario
@@ -83,7 +83,7 @@ fn test_heading_angle_during_lane_change() {
     let yaml_content =
         std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
 
-    let scenario = scenario_generator::generate_single_scenario(&yaml_content)
+    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
         .expect("Should generate scenario");
 
     let npc = scenario
@@ -122,7 +122,7 @@ fn test_solving_performance_with_ratio_constraint() {
         std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
 
     let start = Instant::now();
-    let scenario = scenario_generator::generate_single_scenario(&yaml_content)
+    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
         .expect("Should generate scenario");
     let duration = start.elapsed();
 
@@ -164,7 +164,7 @@ fn test_multiple_scenarios_maintain_physics() {
     let tolerance = 0.01;
 
     for i in 0..3 {
-        let scenario = scenario_generator::generate_single_scenario(&yaml_content)
+        let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
             .expect(&format!("Should generate scenario {}", i));
 
         let npc = scenario

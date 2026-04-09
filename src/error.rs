@@ -1,4 +1,4 @@
-//! Error types for the scenario generator
+//! Error types for ScenarioWeaver
 
 use thiserror::Error;
 

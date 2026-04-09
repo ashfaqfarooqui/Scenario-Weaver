@@ -1,8 +1,8 @@
-//! Integration tests for  Scenario Generator
+//! Integration tests for ScenarioWeaver
 //!
-//! These tests verify the end-to-end functionality of the scenario generator.
+//! These tests verify the end-to-end functionality of ScenarioWeaver.
 
-use scenario_generator::dsl;
+use scenario_weaver::dsl;
 use z3::*;
 
 #[test]
@@ -65,7 +65,7 @@ fn test_generate_single_scenario_integration() {
         .expect("Should read example YAML file");
 
     // Generate scenario
-    let scenario = scenario_generator::generate_single_scenario(&yaml_content)
+    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
         .expect("Should generate scenario successfully");
 
     // Verify basic structure
@@ -164,14 +164,14 @@ fn test_generate_multiple_scenarios_integration() {
         .expect("Should read example YAML file");
 
     // Generate 3 scenarios
-    let scenarios = scenario_generator::generate_multiple_scenarios(
+    let scenarios = scenario_weaver::generate_multiple_scenarios(
         &yaml_content,
         3,
         None::<
             fn(
                 usize,
-                &scenario_generator::scenario::model::Scenario,
-            ) -> scenario_generator::error::Result<()>,
+                &scenario_weaver::scenario::model::Scenario,
+            ) -> scenario_weaver::error::Result<()>,
         >,
     )
     .expect("Should generate multiple scenarios successfully");
@@ -245,7 +245,7 @@ fn test_scenario_json_serialization() {
     let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
         .expect("Should read example YAML file");
 
-    let scenario = scenario_generator::generate_single_scenario(&yaml_content)
+    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
         .expect("Should generate scenario successfully");
 
     // Serialize to JSON
@@ -259,7 +259,7 @@ fn test_scenario_json_serialization() {
     assert!(json.contains("validation"));
 
     // Verify we can deserialize it back
-    let deserialized: scenario_generator::scenario::model::Scenario =
+    let deserialized: scenario_weaver::scenario::model::Scenario =
         serde_json::from_str(&json).expect("Should deserialize from JSON");
 
     assert_eq!(deserialized.scenario_type, scenario.scenario_type);
@@ -274,11 +274,11 @@ fn test_xosc_export() {
     let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
         .expect("Should read example YAML file");
 
-    let scenario = scenario_generator::generate_single_scenario(&yaml_content)
+    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
         .expect("Should generate scenario successfully");
 
     // Export to XOSC
-    let xosc_xml = scenario_generator::export_scenario_to_xosc(&scenario)
+    let xosc_xml = scenario_weaver::export_scenario_to_xosc(&scenario)
         .expect("Should export to XOSC format");
 
     // Validate XML structure
@@ -292,7 +292,7 @@ fn test_xosc_export() {
         "XOSC should contain OpenSCENARIO root element"
     );
     assert!(
-        xosc_xml.contains(" Scenario Generator"),
+        xosc_xml.contains("ScenarioWeaver"),
         "XOSC should contain author info"
     );
 
@@ -324,14 +324,14 @@ fn test_xosc_export_multiple() {
     let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
         .expect("Should read example YAML file");
 
-    let scenarios = scenario_generator::generate_multiple_scenarios(
+    let scenarios = scenario_weaver::generate_multiple_scenarios(
         &yaml_content,
         3,
         None::<
             fn(
                 usize,
-                &scenario_generator::scenario::model::Scenario,
-            ) -> scenario_generator::error::Result<()>,
+                &scenario_weaver::scenario::model::Scenario,
+            ) -> scenario_weaver::error::Result<()>,
         >,
     )
     .expect("Should generate multiple scenarios successfully");
@@ -343,7 +343,7 @@ fn test_xosc_export_multiple() {
 
     // Export each scenario to XOSC
     for (i, scenario) in scenarios.iter().enumerate() {
-        let xosc_xml = scenario_generator::export_scenario_to_xosc(scenario)
+        let xosc_xml = scenario_weaver::export_scenario_to_xosc(scenario)
             .expect("Should export scenario to XOSC");
 
         // Validate each XOSC output
@@ -363,9 +363,9 @@ fn test_xosc_export_multiple() {
 
     // Verify XOSC outputs are different (if we have multiple scenarios)
     if scenarios.len() >= 2 {
-        let xosc0 = scenario_generator::export_scenario_to_xosc(&scenarios[0])
+        let xosc0 = scenario_weaver::export_scenario_to_xosc(&scenarios[0])
             .expect("Should export scenario 0");
-        let xosc1 = scenario_generator::export_scenario_to_xosc(&scenarios[1])
+        let xosc1 = scenario_weaver::export_scenario_to_xosc(&scenarios[1])
             .expect("Should export scenario 1");
 
         assert_ne!(
@@ -387,7 +387,7 @@ fn test_gif_export_integration() {
         .expect("Should read example YAML file");
 
     // Generate scenario
-    let scenario = scenario_generator::generate_single_scenario(&yaml_content)
+    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
         .expect("Should generate scenario successfully");
 
     println!("Generated scenario: {}", scenario.scenario_id);
@@ -396,7 +396,7 @@ fn test_gif_export_integration() {
     println!("  Time steps: {}", scenario.actors[0].states.len());
 
     // Export to GIF
-    let gif_bytes = scenario_generator::export_scenario_to_gif(&scenario)
+    let gif_bytes = scenario_weaver::export_scenario_to_gif(&scenario)
         .expect("Should export scenario to GIF");
 
     println!("Generated GIF with {} bytes", gif_bytes.len());
@@ -464,7 +464,7 @@ num_scenarios: 1
 "#;
 
     // Generate adversarial scenario
-    let scenario = scenario_generator::generate_single_scenario(yaml_content)
+    let scenario = scenario_weaver::generate_single_scenario(yaml_content)
         .expect("Should generate adversarial scenario");
 
     println!("Generated adversarial scenario: {}", scenario.scenario_id);
@@ -485,7 +485,7 @@ num_scenarios: 1
     }
 
     // Export to GIF (should handle violations gracefully)
-    let gif_bytes = scenario_generator::export_scenario_to_gif(&scenario)
+    let gif_bytes = scenario_weaver::export_scenario_to_gif(&scenario)
         .expect("Should export adversarial scenario to GIF");
 
     println!("Generated adversarial GIF with {} bytes", gif_bytes.len());

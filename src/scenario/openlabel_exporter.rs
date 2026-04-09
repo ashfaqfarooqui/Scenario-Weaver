@@ -84,18 +84,18 @@ pub fn export_to_openlabel(scenario: &Scenario) -> Result<String> {
     let metadata = OpenLabelMetadata {
         schema_version: "1.0.0",
         file_version: "1.0",
-        annotator: "scenario_generator",
+        annotator: "ScenarioWeaver",
         comment: comment.clone(),
         scenario_id: scenario_id.clone(),
         name: scenario_id,
         description: comment,
         image: "",
-        scenario_database: "SCENARIO-GENERATOR",
+        scenario_database: "SCENARIOWEAVER",
         create_date: now.clone(),
         modify_date: now,
-        creator: "ScenarioGenerator_2026",
+        creator: "ScenarioWeaver_2026",
         generator: GeneratorInfo {
-            name: "scenario_generator",
+            name: "ScenarioWeaver",
             version: env!("CARGO_PKG_VERSION"),
         },
     };

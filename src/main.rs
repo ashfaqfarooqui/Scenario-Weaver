@@ -1,4 +1,4 @@
-//! CLI for  Scenario Generator
+//! CLI for ScenarioWeaver
 
 use anyhow::Result;
 use clap::Parser;
@@ -19,8 +19,8 @@ enum OptimizeTarget {
 }
 
 #[derive(Parser)]
-#[command(name = "scenario-gen")]
-#[command(about = "Generate  driving scenarios using LTL + Z3", long_about = None)]
+#[command(name = "scenario-weaver")]
+#[command(about = "Generate driving scenarios using LTL + Z3", long_about = None)]
 #[command(version)]
 struct Cli {
     /// Input YAML specification file
@@ -63,25 +63,25 @@ fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    tracing::info!(" Scenario Generator");
+    tracing::info!("ScenarioWeaver");
     tracing::info!("Loading specification from: {:?}", cli.input);
 
     // Read YAML file
     let yaml_content = std::fs::read_to_string(&cli.input)?;
 
     // Parse specification
-    let mut spec = scenario_generator::dsl::parser::parse_yaml(&yaml_content)?;
+    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml_content)?;
 
     // Apply CLI override for adversarial mode
     if cli.adversarial {
-        use scenario_generator::dsl::types::ConstraintModes;
+        use scenario_weaver::dsl::types::ConstraintModes;
         tracing::warn!("CLI override: Setting all constraints to VIOLATE mode");
         spec.constraint_modes = ConstraintModes::Shorthand("violate_all".to_string());
     }
 
     // Apply CLI override for optimization target
     if let Some(optimize) = &cli.optimize {
-        use scenario_generator::dsl::types::OptimizationTarget;
+        use scenario_weaver::dsl::types::OptimizationTarget;
         let target = match optimize {
             OptimizeTarget::MinTtc => OptimizationTarget::MinimizeTtc,
             OptimizeTarget::MinDistance => OptimizationTarget::MinimizeDistance,
@@ -105,18 +105,18 @@ fn main() -> Result<()> {
 
     // Generate scenarios
     let scenarios = if num_scenarios == 1 {
-        vec![scenario_generator::generate_single_scenario(&final_yaml)?]
+        vec![scenario_weaver::generate_single_scenario(&final_yaml)?]
     } else {
         // Create callback to write each scenario immediately after generation
         let output_dir = cli.output.clone();
         let callback = |i: usize,
-                        scenario: &scenario_generator::scenario::model::Scenario|
-         -> scenario_generator::error::Result<()> {
+                        scenario: &scenario_weaver::scenario::model::Scenario|
+         -> scenario_weaver::error::Result<()> {
             write_scenario(scenario, &output_dir, i, num_scenarios).map_err(|e| {
-                scenario_generator::error::ScenarioGenError::ExtractionFailed(e.to_string())
+                scenario_weaver::error::ScenarioGenError::ExtractionFailed(e.to_string())
             })
         };
-        scenario_generator::generate_multiple_scenarios(&final_yaml, num_scenarios, Some(callback))?
+        scenario_weaver::generate_multiple_scenarios(&final_yaml, num_scenarios, Some(callback))?
     };
 
     tracing::info!("Successfully generated {} scenario(s)", scenarios.len());
@@ -148,7 +148,7 @@ fn main() -> Result<()> {
 
 /// Write a single scenario to a directory
 fn write_scenario(
-    scenario: &scenario_generator::scenario::model::Scenario,
+    scenario: &scenario_weaver::scenario::model::Scenario,
     output_dir: &PathBuf,
     index: usize,
     total_scenarios: usize,
@@ -172,32 +172,32 @@ fn write_scenario(
     // Write XODR first so the filename is ready for the XOSC reference
     let xodr_filename = format!("{}.xodr", base);
     let xodr_path = output_dir.join(&xodr_filename);
-    let xodr_xml = scenario_generator::scenario::export_to_xodr(scenario)?;
+    let xodr_xml = scenario_weaver::scenario::export_to_xodr(scenario)?;
     std::fs::write(&xodr_path, xodr_xml)?;
     tracing::debug!("Wrote XODR to: {:?}", xodr_path);
 
     // Write XOSC with a relative reference to the companion .xodr file
     let xosc_path = output_dir.join(format!("{}.xosc", base));
     let xosc_xml =
-        scenario_generator::scenario::export_to_xosc_with_road_file(scenario, &xodr_filename)?;
+        scenario_weaver::scenario::export_to_xosc_with_road_file(scenario, &xodr_filename)?;
     std::fs::write(&xosc_path, xosc_xml)?;
     tracing::debug!("Wrote XOSC to: {:?}", xosc_path);
 
     // Write SVG
     let svg_path = output_dir.join(format!("{}.svg", base));
-    let svg = scenario_generator::scenario::export_to_svg(scenario)?;
+    let svg = scenario_weaver::scenario::export_to_svg(scenario)?;
     std::fs::write(&svg_path, svg)?;
     tracing::debug!("Wrote SVG to: {:?}", svg_path);
 
     // Write GIF
     let gif_path = output_dir.join(format!("{}.gif", base));
-    let gif_bytes = scenario_generator::scenario::export_to_gif(scenario)?;
+    let gif_bytes = scenario_weaver::scenario::export_to_gif(scenario)?;
     std::fs::write(&gif_path, gif_bytes)?;
     tracing::debug!("Wrote GIF to: {:?}", gif_path);
 
     // Write OpenLabel
     let openlabel_path = output_dir.join(format!("{}.ol.json", base));
-    let openlabel = scenario_generator::scenario::export_to_openlabel(scenario)?;
+    let openlabel = scenario_weaver::scenario::export_to_openlabel(scenario)?;
     std::fs::write(&openlabel_path, openlabel)?;
     tracing::debug!("Wrote OpenLabel to: {:?}", openlabel_path);
 
@@ -211,7 +211,7 @@ fn write_scenario(
 
 /// Write scenarios to a directory (handles both single and multiple scenarios)
 fn write_scenarios(
-    scenarios: &[scenario_generator::scenario::model::Scenario],
+    scenarios: &[scenario_weaver::scenario::model::Scenario],
     output_dir: &PathBuf,
 ) -> Result<()> {
     for (i, scenario) in scenarios.iter().enumerate() {
@@ -228,7 +228,7 @@ fn write_scenarios(
 }
 
 /// Print a summary of the scenario
-fn print_scenario_summary(scenario: &scenario_generator::scenario::model::Scenario) {
+fn print_scenario_summary(scenario: &scenario_weaver::scenario::model::Scenario) {
     println!("Scenario ID: {}", scenario.scenario_id);
     println!("Type: {}", scenario.scenario_type);
     println!("Duration: {:.1}s", scenario.duration);

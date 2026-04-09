@@ -43,7 +43,7 @@ const VEHICLE_WIDTH: f64 = 6.0;
 ///
 /// # Example
 /// ```no_run
-/// use scenario_generator::{generate_single_scenario, export_scenario_to_svg};
+/// use scenario_weaver::{generate_single_scenario, export_scenario_to_svg};
 ///
 /// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
 /// let scenario = generate_single_scenario(&yaml).unwrap();

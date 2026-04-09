@@ -39,7 +39,7 @@ pub fn export_to_xodr(scenario: &Scenario) -> Result<String> {
         name: Some(scenario.scenario_type.clone()),
         version: Some("1.0".to_string()),
         date: Some(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string()),
-        vendor: Some("CARLA Scenario Generator".to_string()),
+        vendor: Some("ScenarioWeaver".to_string()),
         ..Default::default()
     };
 

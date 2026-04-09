@@ -1,14 +1,14 @@
 [package]
-name = "scenario-generator"
+name = "scenario-weaver"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "scenario-gen"
+name = "scenario-weaver"
 path = "src/main.rs"
 
 [lib]
-name = "scenario_generator"
+name = "scenario_weaver"
 path = "src/lib.rs"
 
 [dependencies]

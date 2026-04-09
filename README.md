@@ -1,4 +1,4 @@
-# Scenario Generator
+# ScenarioWeaver
 
 Automatically generate diverse, safety-critical driving test scenarios from high-level specifications using Linear Temporal Logic (LTL) and Z3 SMT solver.
 

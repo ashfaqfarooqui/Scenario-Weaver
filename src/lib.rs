@@ -1,4 +1,4 @@
-//!  Scenario Generator
+//! ScenarioWeaver
 //!
 //! Generate driving test scenarios from high-level specifications using
 //! Linear Temporal Logic (LTL) + Z3 SMT solver.
@@ -215,7 +215,7 @@ where
 ///
 /// # Example
 /// ```no_run
-/// use scenario_generator::{generate_single_scenario, export_scenario_to_xosc};
+/// use scenario_weaver::{generate_single_scenario, export_scenario_to_xosc};
 ///
 /// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
 /// let scenario = generate_single_scenario(&yaml).unwrap();
@@ -243,7 +243,7 @@ pub fn export_scenario_to_xosc_with_road_file(
 ///
 /// # Example
 /// ```no_run
-/// use scenario_generator::{generate_single_scenario, export_scenario_to_svg};
+/// use scenario_weaver::{generate_single_scenario, export_scenario_to_svg};
 ///
 /// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
 /// let scenario = generate_single_scenario(&yaml).unwrap();
@@ -261,7 +261,7 @@ pub fn export_scenario_to_svg(scenario: &Scenario) -> Result<String> {
 ///
 /// # Example
 /// ```no_run
-/// use scenario_generator::{generate_single_scenario, export_scenario_to_gif};
+/// use scenario_weaver::{generate_single_scenario, export_scenario_to_gif};
 ///
 /// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
 /// let scenario = generate_single_scenario(&yaml).unwrap();
@@ -276,7 +276,7 @@ pub fn export_scenario_to_gif(scenario: &Scenario) -> Result<Vec<u8>> {
 ///
 /// # Example
 /// ```no_run
-/// use scenario_generator::{generate_single_scenario, export_scenario_to_gif_with_resolution, Resolution};
+/// use scenario_weaver::{generate_single_scenario, export_scenario_to_gif_with_resolution, Resolution};
 ///
 /// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
 /// let scenario = generate_single_scenario(&yaml).unwrap();
@@ -308,7 +308,7 @@ pub fn export_scenario_to_xodr(scenario: &Scenario) -> Result<String> {
 ///
 /// # Example
 /// ```no_run
-/// use scenario_generator::{generate_single_scenario, export_scenario_to_openlabel};
+/// use scenario_weaver::{generate_single_scenario, export_scenario_to_openlabel};
 ///
 /// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
 /// let scenario = generate_single_scenario(&yaml).unwrap();

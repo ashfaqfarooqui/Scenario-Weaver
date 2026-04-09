@@ -85,7 +85,7 @@ const VEHICLE_WIDTH: u32 = 6;
 ///
 /// # Example
 /// ```no_run
-/// use scenario_generator::{generate_single_scenario, export_scenario_to_gif};
+/// use scenario_weaver::{generate_single_scenario, export_scenario_to_gif};
 ///
 /// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
 /// let scenario = generate_single_scenario(&yaml).unwrap();
@@ -101,8 +101,8 @@ pub fn export_to_gif(scenario: &Scenario) -> Result<Vec<u8>> {
 ///
 /// # Example
 /// ```no_run
-/// use scenario_generator::{generate_single_scenario, export_scenario_to_gif_with_resolution};
-/// use scenario_generator::scenario::gif_animator::Resolution;
+/// use scenario_weaver::{generate_single_scenario, export_scenario_to_gif_with_resolution};
+/// use scenario_weaver::scenario::gif_animator::Resolution;
 ///
 /// let yaml = std::fs::read_to_string("scenario.yaml").unwrap();
 /// let scenario = generate_single_scenario(&yaml).unwrap();

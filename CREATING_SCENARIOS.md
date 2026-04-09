@@ -1,6 +1,6 @@
-# Creating Scenarios in CARLA Scenario Generator
+# Creating Scenarios in ScenarioWeaver
 
-This guide covers everything you need to create and extend scenarios in the CARLA Scenario Generator. The guide is split into two parts:
+This guide covers everything you need to create and extend scenarios in the ScenarioWeaver. The guide is split into two parts:
 
 - **Part 1: YAML Scenario Specification** - For domain experts who want to define test scenarios without writing code
 - **Part 2: Implementing New Scenario Types** - For Rust developers who want to extend the codebase with new scenario types
