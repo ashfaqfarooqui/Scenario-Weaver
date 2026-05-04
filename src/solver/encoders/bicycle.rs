@@ -668,12 +668,28 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
 
         // For bicycle model, speed_v is always >= 0. Multiply by actor direction
         // to get signed longitudinal velocity for correct relative velocity calculation.
-        let actor1_dir = self.spec.get_actor(actor1).map(|a| a.direction).unwrap_or(1);
-        let actor2_dir = self.spec.get_actor(actor2).map(|a| a.direction).unwrap_or(1);
+        let actor1_dir = self
+            .spec
+            .get_actor(actor1)
+            .map(|a| a.direction)
+            .unwrap_or(1);
+        let actor2_dir = self
+            .spec
+            .get_actor(actor2)
+            .map(|a| a.direction)
+            .unwrap_or(1);
         let raw_v1 = &self.speed_v[actor1][time];
         let raw_v2 = &self.speed_v[actor2][time];
-        let v1 = if actor1_dir == 1 { raw_v1.clone() } else { -raw_v1 };
-        let v2 = if actor2_dir == 1 { raw_v2.clone() } else { -raw_v2 };
+        let v1 = if actor1_dir == 1 {
+            raw_v1.clone()
+        } else {
+            -raw_v1
+        };
+        let v2 = if actor2_dir == 1 {
+            raw_v2.clone()
+        } else {
+            -raw_v2
+        };
 
         let min_ttc_val = Real::from_rational((min_ttc * 10.0) as i64, 10_i64);
         let epsilon = Real::from_rational(1_i64, 100_i64); // 0.01 m/s to avoid division by zero

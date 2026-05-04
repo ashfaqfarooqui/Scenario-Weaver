@@ -174,7 +174,9 @@ impl Scenario {
     }
 
     /// No-op placeholder. Validation is performed during extraction.
-    #[deprecated(note = "Validation is performed by GenericEncoder::compute_validation_metrics() during extraction")]
+    #[deprecated(
+        note = "Validation is performed by GenericEncoder::compute_validation_metrics() during extraction"
+    )]
     pub fn compute_validation(&mut self, _min_ttc_required: f64, _min_dist_required: f64) {
         // This will be implemented in Phase 9 when we have actual trajectories
         // For now, just placeholder

@@ -193,7 +193,6 @@ fn write_scenario(
     std::fs::write(&openlabel_path, openlabel)?;
     tracing::debug!("Wrote OpenLabel to: {:?}", openlabel_path);
 
-
     Ok(())
 }
 

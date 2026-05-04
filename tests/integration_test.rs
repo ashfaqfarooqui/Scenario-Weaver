@@ -278,8 +278,8 @@ fn test_xosc_export() {
         .expect("Should generate scenario successfully");
 
     // Export to XOSC
-    let xosc_xml = scenario_weaver::export_scenario_to_xosc(&scenario)
-        .expect("Should export to XOSC format");
+    let xosc_xml =
+        scenario_weaver::export_scenario_to_xosc(&scenario).expect("Should export to XOSC format");
 
     // Validate XML structure
     assert!(!xosc_xml.is_empty(), "XOSC XML should not be empty");
@@ -396,8 +396,8 @@ fn test_gif_export_integration() {
     println!("  Time steps: {}", scenario.actors[0].states.len());
 
     // Export to GIF
-    let gif_bytes = scenario_weaver::export_scenario_to_gif(&scenario)
-        .expect("Should export scenario to GIF");
+    let gif_bytes =
+        scenario_weaver::export_scenario_to_gif(&scenario).expect("Should export scenario to GIF");
 
     println!("Generated GIF with {} bytes", gif_bytes.len());
 

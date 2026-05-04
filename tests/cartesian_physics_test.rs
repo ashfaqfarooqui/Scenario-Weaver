@@ -6,8 +6,8 @@ fn test_velocity_ratio_during_lane_change() {
     let yaml_content =
         std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
 
-    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
-        .expect("Should generate scenario");
+    let scenario =
+        scenario_weaver::generate_single_scenario(&yaml_content).expect("Should generate scenario");
 
     let npc = scenario
         .actors
@@ -52,8 +52,8 @@ fn test_no_sideways_only_motion() {
     let yaml_content =
         std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
 
-    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
-        .expect("Should generate scenario");
+    let scenario =
+        scenario_weaver::generate_single_scenario(&yaml_content).expect("Should generate scenario");
 
     let npc = scenario
         .actors
@@ -83,8 +83,8 @@ fn test_heading_angle_during_lane_change() {
     let yaml_content =
         std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
 
-    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
-        .expect("Should generate scenario");
+    let scenario =
+        scenario_weaver::generate_single_scenario(&yaml_content).expect("Should generate scenario");
 
     let npc = scenario
         .actors
@@ -122,8 +122,8 @@ fn test_solving_performance_with_ratio_constraint() {
         std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
 
     let start = Instant::now();
-    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
-        .expect("Should generate scenario");
+    let scenario =
+        scenario_weaver::generate_single_scenario(&yaml_content).expect("Should generate scenario");
     let duration = start.elapsed();
 
     println!(
