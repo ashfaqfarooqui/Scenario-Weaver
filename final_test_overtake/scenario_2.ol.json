@@ -1,0 +1,44 @@
+{
+  "openlabel": {
+    "metadata": {
+      "schema_version": "1.0.0",
+      "file_version": "1.0",
+      "annotator": "ScenarioWeaver",
+      "comment": "Generated pedestrian_crossing scenario with 2 actor(s)",
+      "ScenarioId": "SCEN-7160CFB1-9F12-4C09-9366-867483E4E21F",
+      "Name": "SCEN-7160CFB1-9F12-4C09-9366-867483E4E21F",
+      "Description": "Generated pedestrian_crossing scenario with 2 actor(s)",
+      "Image": "",
+      "ScenarioDatabase": "SCENARIOWEAVER",
+      "CreateDate": "2026-04-09T11:57:29.569272741+00:00",
+      "ModifyDate": "2026-04-09T11:57:29.569272741+00:00",
+      "Creator": "ScenarioWeaver_2026",
+      "Generator": {
+        "Name": "ScenarioWeaver",
+        "Version": "0.1.0"
+      }
+    },
+    "tags": {
+      "0": {
+        "ontology_uid": "0",
+        "type": "highway"
+      },
+      "1": {
+        "ontology_uid": "0",
+        "type": "pedestrian_crossing"
+      },
+      "2": {
+        "ontology_uid": "0",
+        "type": "ego_vehicle"
+      },
+      "3": {
+        "ontology_uid": "0",
+        "type": "pedestrian"
+      },
+      "4": {
+        "ontology_uid": "0",
+        "type": "safety_critical"
+      }
+    }
+  }
+}

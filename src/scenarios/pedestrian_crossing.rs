@@ -221,19 +221,23 @@ impl ScenarioModel for PedestrianCrossingModel {
 
                 // At least one time step in this range should have very low speed
                 // Create a disjunction: at least one time step has speed < 0.2 m/s
-                let slow_threshold_sq = 0.04; // (0.2 m/s)^2
+                // Linear box constraint to avoid NRA (quadratic) overhead
+                let slow_threshold = 0.2; // m/s
                 let threshold_real =
-                    Real::from_rational((slow_threshold_sq * 100.0) as i64, 100_i64);
+                    Real::from_rational((slow_threshold * 100.0) as i64, 100_i64);
+                let neg_threshold_real =
+                    Real::from_rational((-slow_threshold * 100.0) as i64, 100_i64);
 
                 let mut slow_constraints = vec![];
                 for t in start_hesitate..end_hesitate {
                     let vx_t = encoder.get_longitudinal_vel(pedestrian_id, t);
                     let vy_t = encoder.get_lateral_vel(pedestrian_id, t);
-                    let vx_sq = vx_t * vx_t;
-                    let vy_sq = vy_t * vy_t;
-                    let speed_sq = &vx_sq + &vy_sq;
-                    // speed^2 < threshold
-                    slow_constraints.push(speed_sq.lt(&threshold_real));
+                    // |vx| < threshold AND |vy| < threshold
+                    let vx_lt = vx_t.lt(&threshold_real);
+                    let vx_gt = vx_t.gt(&neg_threshold_real);
+                    let vy_lt = vy_t.lt(&threshold_real);
+                    let vy_gt = vy_t.gt(&neg_threshold_real);
+                    slow_constraints.push(z3::ast::Bool::and(&[&vx_lt, &vx_gt, &vy_lt, &vy_gt]));
                 }
 
                 // At least one of these must be true (OR them together)

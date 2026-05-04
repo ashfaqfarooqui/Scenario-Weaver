@@ -27,8 +27,10 @@ actors:
     speed: 18.0                 # Slightly slower, creates near miss
     direction: -1              # Backward (-x) - oncoming traffic!
     acceleration: [-2.0, 0.0]
-    behavior:
-      cut_in_time: [2.5, 7.5]
+    lane_changes:
+      - direction: left
+        start_time: [2.5, 4.0]
+        duration: [2.0, 3.0]
 
 # Safety constraints - ENFORCE to maintain safety
 min_ttc: 3.0

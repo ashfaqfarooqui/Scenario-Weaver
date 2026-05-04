@@ -59,6 +59,12 @@ pub fn extract_int(model: &Model, var: &Int) -> Result<usize> {
     })?;
 
     if let Some(val) = ast.as_i64() {
+        if val < 0 {
+            return Err(ScenarioGenError::Z3ModelParsing(format!(
+                "Expected non-negative integer, got: {}",
+                val
+            )));
+        }
         Ok(val as usize)
     } else {
         Err(ScenarioGenError::Z3ModelParsing(format!(
@@ -103,7 +109,7 @@ pub fn collect_lane_change_data(
                     let end_step = (start_step + duration_steps).min(horizon);
 
                     LaneChangeSteps {
-                        direction: lc.direction.clone(),
+                        direction: lc.direction,
                         start_step,
                         end_step,
                     }

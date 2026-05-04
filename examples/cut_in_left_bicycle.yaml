@@ -38,6 +38,4 @@ actors:
 
 min_ttc: 3.0
 min_distance: 5.0
-lane_width: 3.5
-
 num_scenarios: 5

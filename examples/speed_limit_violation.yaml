@@ -23,8 +23,10 @@ actors:
     speed: [15.0, 20.0]  # Within limit
     direction: 1
     acceleration: [-4.0, 2.0]
-    behavior:
-      cut_in_time: [3.0, 6.0]
+    lane_changes:
+      - direction: right
+        start_time: [3.0, 5.0]
+        duration: [3.0, 4.0]
 
 road:
   num_lanes: 2

@@ -52,8 +52,7 @@ pub struct State {
     pub time: f64,
 
     /// Cartesian coordinates
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cartesian: Option<CartesianState>,
+    pub cartesian: CartesianState,
 }
 
 /// Cartesian coordinate state
@@ -174,7 +173,8 @@ impl Scenario {
         self.actors.iter().find(|a| a.id == id)
     }
 
-    /// Compute validation metrics from trajectories
+    /// No-op placeholder. Validation is performed during extraction.
+    #[deprecated(note = "Validation is performed by GenericEncoder::compute_validation_metrics() during extraction")]
     pub fn compute_validation(&mut self, _min_ttc_required: f64, _min_dist_required: f64) {
         // This will be implemented in Phase 9 when we have actual trajectories
         // For now, just placeholder
@@ -219,62 +219,50 @@ impl State {
     ) -> Self {
         Self {
             time,
-            cartesian: Some(CartesianState {
+            cartesian: CartesianState {
                 position,
                 velocity,
                 acceleration,
                 lane,
-            }),
+            },
         }
     }
 
     /// Get Cartesian position
     pub fn get_position(&self) -> Option<Position> {
-        self.cartesian.as_ref().map(|cart| cart.position.clone())
+        Some(self.cartesian.position.clone())
     }
 
     /// Get Cartesian velocity
     pub fn get_velocity(&self) -> Option<Velocity> {
-        self.cartesian.as_ref().map(|cart| cart.velocity.clone())
+        Some(self.cartesian.velocity.clone())
     }
 
     /// Get lane number
     pub fn get_lane(&self) -> Option<usize> {
-        self.cartesian.as_ref().map(|cart| cart.lane)
+        Some(self.cartesian.lane)
     }
 
     // Convenience methods for backward compatibility
 
-    /// Get position (will panic if cartesian data is not set)
+    /// Get position
     pub fn position(&self) -> &Position {
-        self.cartesian
-            .as_ref()
-            .map(|c| &c.position)
-            .expect("State must have cartesian data")
+        &self.cartesian.position
     }
 
-    /// Get velocity (will panic if cartesian data is not set)
+    /// Get velocity
     pub fn velocity(&self) -> &Velocity {
-        self.cartesian
-            .as_ref()
-            .map(|c| &c.velocity)
-            .expect("State must have cartesian data")
+        &self.cartesian.velocity
     }
 
-    /// Get acceleration (will panic if cartesian data is not set)
+    /// Get acceleration
     pub fn acceleration(&self) -> &Acceleration {
-        self.cartesian
-            .as_ref()
-            .map(|c| &c.acceleration)
-            .expect("State must have cartesian data")
+        &self.cartesian.acceleration
     }
 
-    /// Get lane (will panic if cartesian data is not set)
+    /// Get lane
     pub fn lane(&self) -> usize {
-        self.cartesian
-            .as_ref()
-            .map(|c| c.lane)
-            .expect("State must have cartesian data")
+        self.cartesian.lane
     }
 }
 

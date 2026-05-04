@@ -117,7 +117,7 @@ fn compute_road_length(scenario: &Scenario) -> f64 {
         .actors
         .iter()
         .flat_map(|a| a.states.iter())
-        .filter_map(|s| s.cartesian.as_ref().map(|c| c.position.x))
+        .map(|s| s.cartesian.position.x)
         .fold(0.0_f64, f64::max);
 
     if max_x > 0.0 {

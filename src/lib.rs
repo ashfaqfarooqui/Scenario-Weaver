@@ -9,7 +9,6 @@ pub mod ltl;
 pub mod scenario;
 pub mod scenarios;
 pub mod solver;
-pub mod trajectory;
 
 use error::{Result, ScenarioGenError};
 use scenario::model::Scenario;
@@ -31,10 +30,15 @@ use z3::SatResult;
 /// - Specification is invalid
 /// - Z3 solver returns UNSAT (no solution exists)
 pub fn generate_single_scenario(yaml_content: &str) -> Result<Scenario> {
-    // Parse YAML into DSL specification
     let spec = dsl::parser::parse_yaml(yaml_content)?;
+    generate_single_scenario_from_spec(spec)
+}
 
-    // Get scenario model and validate scenario-specific requirements
+/// Generate a single scenario from a pre-parsed specification
+///
+/// Use this when you have already parsed and possibly modified the spec,
+/// to avoid a fragile YAML round-trip.
+pub fn generate_single_scenario_from_spec(spec: dsl::types::ScenarioSpec) -> Result<Scenario> {
     let scenario_model = spec.scenario_type.get_model();
     scenario_model.validate(&spec)?;
 
@@ -189,10 +193,22 @@ pub fn generate_multiple_scenarios<F>(
 where
     F: FnMut(usize, &Scenario) -> Result<()>,
 {
-    // Parse specification
     let spec = dsl::parser::parse_yaml(yaml_content)?;
+    generate_multiple_scenarios_from_spec(spec, num_scenarios, callback)
+}
 
-    // Generate LTL formula (same for all scenarios)
+/// Generate multiple diverse scenarios from a pre-parsed specification
+///
+/// Use this when you have already parsed and possibly modified the spec,
+/// to avoid a fragile YAML round-trip.
+pub fn generate_multiple_scenarios_from_spec<F>(
+    spec: dsl::types::ScenarioSpec,
+    num_scenarios: usize,
+    callback: Option<F>,
+) -> Result<Vec<Scenario>>
+where
+    F: FnMut(usize, &Scenario) -> Result<()>,
+{
     let ltl_formula = ltl::generator::LTLGenerator::generate(&spec)?;
 
     // Use multi-solve module to generate multiple scenarios

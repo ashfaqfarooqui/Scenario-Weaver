@@ -85,7 +85,7 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         let lane_var = &self.lanes[actor_id][t];
         let py_var = &self.positions_y[actor_id][t];
 
-        let lane_width = self.spec.lane_width;
+        let lane_width = self.spec.get_lane_width();
         let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
         let half_width = Real::from_rational((lane_width * 5.0) as i64, 10_i64);
 
@@ -204,7 +204,7 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         end_step: usize,
         direction: &crate::dsl::types::LaneChangeDirection,
     ) {
-        let lane_width = self.spec.lane_width;
+        let lane_width = self.spec.get_lane_width();
         let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
 
         // Get source lane from step before transition starts
@@ -619,7 +619,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         // Both (py1-py2) < lane_width AND (py2-py1) < lane_width must be true
         // Using OR would be incorrect: if py1-py2 = 5.0 and lane_width = 3.5,
         // py2-py1 = -5.0 < 3.5 is TRUE, so OR would incorrectly return TRUE
-        let lane_width = self.spec.lane_width;
+        let lane_width = self.spec.get_lane_width();
         let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
         let py_diff_pos = py1 - py2;
         let py_diff_neg = py2 - py1;
@@ -694,7 +694,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         // Both (py1-py2) < lane_width AND (py2-py1) < lane_width must be true
         // Using OR would be incorrect: if py1-py2 = 5.0 and lane_width = 3.5,
         // py2-py1 = -5.0 < 3.5 is TRUE, so OR would incorrectly return TRUE
-        let lane_width = self.spec.lane_width;
+        let lane_width = self.spec.get_lane_width();
         let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
         let py_diff_pos = py1 - py2;
         let py_diff_neg = py2 - py1;
@@ -738,12 +738,12 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
 
             let state = State {
                 time,
-                cartesian: Some(CartesianState {
+                cartesian: CartesianState {
                     position: Position::new(px, py),
                     velocity: Velocity::new(vx, vy),
                     acceleration: Acceleration::new(ax, ay),
                     lane,
-                }),
+                },
             };
 
             trajectory.add_state(state);

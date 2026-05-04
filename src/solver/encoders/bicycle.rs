@@ -332,7 +332,7 @@ impl<B: Z3Backend> BicycleEncoder<B> {
     /// Uses rational constants only (pure LRA), avoiding the mixed integer-real
     /// arithmetic that arises from multiplying a symbolic Int lane variable by lane_width.
     fn encode_lane_position_bounds_const(&mut self, actor_id: &str, t: usize, lane: usize) {
-        let lane_width = self.spec.lane_width;
+        let lane_width = self.spec.get_lane_width();
         let py_var = &self.positions_y[actor_id][t];
 
         // Pin to lane center (consistent with cartesian encoder's lane coupling)
@@ -666,10 +666,14 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         let py1 = &self.positions_y[actor1][time];
         let py2 = &self.positions_y[actor2][time];
 
-        // For bicycle model, use speed (always positive) with heading to determine velocity
-        // Small angle approximation: vx ≈ v * cos(θ) ≈ v
-        let v1 = &self.speed_v[actor1][time];
-        let v2 = &self.speed_v[actor2][time];
+        // For bicycle model, speed_v is always >= 0. Multiply by actor direction
+        // to get signed longitudinal velocity for correct relative velocity calculation.
+        let actor1_dir = self.spec.get_actor(actor1).map(|a| a.direction).unwrap_or(1);
+        let actor2_dir = self.spec.get_actor(actor2).map(|a| a.direction).unwrap_or(1);
+        let raw_v1 = &self.speed_v[actor1][time];
+        let raw_v2 = &self.speed_v[actor2][time];
+        let v1 = if actor1_dir == 1 { raw_v1.clone() } else { -raw_v1 };
+        let v2 = if actor2_dir == 1 { raw_v2.clone() } else { -raw_v2 };
 
         let min_ttc_val = Real::from_rational((min_ttc * 10.0) as i64, 10_i64);
         let epsilon = Real::from_rational(1_i64, 100_i64); // 0.01 m/s to avoid division by zero
@@ -683,7 +687,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         // Both (py1-py2) < lane_width AND (py2-py1) < lane_width must be true
         // Using OR would be incorrect: if py1-py2 = 5.0 and lane_width = 3.5,
         // py2-py1 = -5.0 < 3.5 is TRUE, so OR would incorrectly return TRUE
-        let lane_width = self.spec.lane_width;
+        let lane_width = self.spec.get_lane_width();
         let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
         let py_diff_pos = py1 - py2;
         let py_diff_neg = py2 - py1;
@@ -699,8 +703,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         // Case 1: actor1 ahead, actor2 behind, actor2 faster
         // TTC = (px1 - px2) / (v2 - v1)
         let actor1_ahead = px1.gt(px2);
-        let actor2_faster = v2.gt(v1);
-        let rel_vel_1 = v2 - v1;
+        let actor2_faster = v2.gt(&v1);
+        let rel_vel_1 = &v2 - &v1;
         let distance_1 = px1 - px2;
         let collision_possible_1 =
             Bool::and(&[&actor1_ahead, &actor2_faster, &rel_vel_1.gt(&epsilon)]);
@@ -711,8 +715,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         // Case 2: actor2 ahead, actor1 behind, actor1 faster
         // TTC = (px2 - px1) / (v1 - v2)
         let actor2_ahead = px2.gt(px1);
-        let actor1_faster = v1.gt(v2);
-        let rel_vel_2 = v1 - v2;
+        let actor1_faster = v1.gt(&v2);
+        let rel_vel_2 = &v1 - &v2;
         let distance_2 = px2 - px1;
         let collision_possible_2 =
             Bool::and(&[&actor2_ahead, &actor1_faster, &rel_vel_2.gt(&epsilon)]);
@@ -760,7 +764,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         // Both (py1-py2) < lane_width AND (py2-py1) < lane_width must be true
         // Using OR would be incorrect: if py1-py2 = 5.0 and lane_width = 3.5,
         // py2-py1 = -5.0 < 3.5 is TRUE, so OR would incorrectly return TRUE
-        let lane_width = self.spec.lane_width;
+        let lane_width = self.spec.get_lane_width();
         let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
         let py_diff_pos = py1 - py2;
         let py_diff_neg = py2 - py1;
@@ -824,12 +828,12 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
 
             let state = State {
                 time,
-                cartesian: Some(CartesianState {
+                cartesian: CartesianState {
                     position: Position { x: px, y: py },
                     velocity: Velocity { vx, vy },
                     acceleration: Acceleration { ax, ay },
                     lane,
-                }),
+                },
             };
 
             trajectory.states.push(state);

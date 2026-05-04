@@ -96,18 +96,10 @@ fn main() -> Result<()> {
 
     tracing::info!("Generating {} scenario(s)...", num_scenarios);
 
-    // Re-serialize spec to YAML if modified
-    let final_yaml = if cli.adversarial || cli.optimize.is_some() {
-        serde_yml::to_string(&spec)?
-    } else {
-        yaml_content
-    };
-
-    // Generate scenarios
+    // Generate scenarios - use _from_spec variants to avoid YAML round-trip
     let scenarios = if num_scenarios == 1 {
-        vec![scenario_weaver::generate_single_scenario(&final_yaml)?]
+        vec![scenario_weaver::generate_single_scenario_from_spec(spec)?]
     } else {
-        // Create callback to write each scenario immediately after generation
         let output_dir = cli.output.clone();
         let callback = |i: usize,
                         scenario: &scenario_weaver::scenario::model::Scenario|
@@ -116,7 +108,7 @@ fn main() -> Result<()> {
                 scenario_weaver::error::ScenarioGenError::ExtractionFailed(e.to_string())
             })
         };
-        scenario_weaver::generate_multiple_scenarios(&final_yaml, num_scenarios, Some(callback))?
+        scenario_weaver::generate_multiple_scenarios_from_spec(spec, num_scenarios, Some(callback))?
     };
 
     tracing::info!("Successfully generated {} scenario(s)", scenarios.len());
@@ -201,10 +193,6 @@ fn write_scenario(
     std::fs::write(&openlabel_path, openlabel)?;
     tracing::debug!("Wrote OpenLabel to: {:?}", openlabel_path);
 
-    // Write empty TXT
-    let txt_path = output_dir.join(format!("{}.txt", base));
-    std::fs::write(&txt_path, "")?;
-    tracing::debug!("Wrote TXT to: {:?}", txt_path);
 
     Ok(())
 }

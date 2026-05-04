@@ -21,6 +21,7 @@ actors:
     lane: 1                     # Forward lane
     position: 50.0
     speed: 15.0
+    direction: 1
     acceleration: [-8.0, 3.0]
 
   - id: npc
@@ -28,9 +29,12 @@ actors:
     lane: 0                     # Also forward lane
     position: [60.0, 80.0]
     speed: [12.0, 14.0]
+    direction: 1
     acceleration: [-8.0, 3.0]
-    behavior:
-      cut_in_time: [2.5, 7.5]
+    lane_changes:
+      - direction: right
+        start_time: [2.5, 4.0]
+        duration: [3.0, 4.0]
 
 # Safety constraints
 min_ttc: 3.0

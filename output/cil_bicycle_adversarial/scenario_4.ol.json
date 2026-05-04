@@ -1,0 +1,61 @@
+{
+  "openlabel": {
+    "metadata": {
+      "schema_version": "1.0.0",
+      "file_version": "1.0",
+      "annotator": "ScenarioWeaver",
+      "comment": "Generated cut_in_left scenario with 2 actor(s)",
+      "ScenarioId": "SCEN-441F2E5D-B4D8-4A36-B76A-D5DEDB873140",
+      "Name": "SCEN-441F2E5D-B4D8-4A36-B76A-D5DEDB873140",
+      "Description": "Generated cut_in_left scenario with 2 actor(s)",
+      "Image": "",
+      "ScenarioDatabase": "SCENARIOWEAVER",
+      "CreateDate": "2026-05-04T13:04:46.442840027+00:00",
+      "ModifyDate": "2026-05-04T13:04:46.442840027+00:00",
+      "Creator": "ScenarioWeaver_2026",
+      "Generator": {
+        "Name": "ScenarioWeaver",
+        "Version": "0.1.0"
+      }
+    },
+    "ontologies": {
+      "0": {
+        "uri": "https://openlabel.asam.net/V1-0-0/ontologies/"
+      }
+    },
+    "tags": {
+      "0": {
+        "type": "MotionCutIn",
+        "ontology_uid": "0"
+      },
+      "1": {
+        "type": "MotionLaneChangeLeft",
+        "ontology_uid": "0"
+      },
+      "2": {
+        "type": "VehicleCar",
+        "ontology_uid": "0"
+      },
+      "3": {
+        "type": "HumanDriver",
+        "ontology_uid": "0"
+      },
+      "4": {
+        "type": "RoadTypeMotorway",
+        "ontology_uid": "0"
+      },
+      "5": {
+        "type": "LaneSpecificationLaneCount",
+        "ontology_uid": "0",
+        "tag_data": {
+          "num": [
+            {
+              "type": "value",
+              "val": 3
+            }
+          ]
+        }
+      }
+    }
+  }
+}

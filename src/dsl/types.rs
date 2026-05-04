@@ -410,7 +410,7 @@ impl RoadSpec {
 
 /// Default lane directions: all forward (backward compatible)
 fn default_lane_directions() -> Vec<i32> {
-    vec![1; 4] // Default to 4 forward lanes
+    vec![1; 2] // Default to 2 forward lanes
 }
 
 /// Generic actor specification (supports both ego and NPCs)
@@ -649,8 +649,8 @@ impl ScenarioSpec {
         // NEW: Validate all actor parameters
         let num_lanes = self.get_num_lanes();
         for actor in &self.actors {
-            if actor.speed.min() <= 0.0 {
-                return Err(format!("{} speed must be positive", actor.id));
+            if actor.speed.min() < 0.0 {
+                return Err(format!("{} speed must be non-negative", actor.id));
             }
             if actor.acceleration.min() > actor.acceleration.max() {
                 return Err(format!("{} acceleration range invalid", actor.id));
@@ -678,6 +678,21 @@ impl ScenarioSpec {
                     "Actor {} direction must be +1 (forward) or -1 (backward), got {}",
                     actor.id, actor.direction
                 ));
+            }
+            // Validate lane change timing ranges
+            for lc in &actor.lane_changes {
+                if lc.start_time.min() > lc.start_time.max() {
+                    return Err(format!(
+                        "Lane change start_time range is invalid (min > max) for actor {}",
+                        actor.id
+                    ));
+                }
+                if lc.duration.min() > lc.duration.max() {
+                    return Err(format!(
+                        "Lane change duration range is invalid (min > max) for actor {}",
+                        actor.id
+                    ));
+                }
             }
         }
 

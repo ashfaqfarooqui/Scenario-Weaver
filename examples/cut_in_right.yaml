@@ -39,7 +39,5 @@ actors:
 # Safety constraints
 min_ttc: 3.0              # minimum 3 second time-to-collision
 min_distance: 5.0         # minimum 5 meter distance
-lane_width: 3.5           # 3.5 meter lane width
-
 # Generation settings
 num_scenarios: 5          # generate 5 scenarios
