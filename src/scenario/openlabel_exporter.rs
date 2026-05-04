@@ -20,7 +20,13 @@ struct OpenLabelFile {
 #[derive(Serialize)]
 struct OpenLabelRoot {
     metadata: OpenLabelMetadata,
+    ontologies: BTreeMap<String, OpenLabelOntology>,
     tags: BTreeMap<String, OpenLabelTag>,
+}
+
+#[derive(Serialize)]
+struct OpenLabelOntology {
+    uri: &'static str,
 }
 
 #[derive(Serialize)]
@@ -59,9 +65,23 @@ struct GeneratorInfo {
 
 #[derive(Serialize)]
 struct OpenLabelTag {
-    ontology_uid: &'static str,
     #[serde(rename = "type")]
     tag_type: String,
+    ontology_uid: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tag_data: Option<TagData>,
+}
+
+#[derive(Serialize)]
+struct TagData {
+    num: Vec<TagValue>,
+}
+
+#[derive(Serialize)]
+struct TagValue {
+    #[serde(rename = "type")]
+    val_type: &'static str,
+    val: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -69,9 +89,6 @@ struct OpenLabelTag {
 // ---------------------------------------------------------------------------
 
 /// Export a scenario to OpenLabel 1.0.0 JSON format.
-///
-/// Generates a minimal but standards-compliant OpenLabel file containing
-/// scenario metadata and semantic tags derived from the scenario content.
 pub fn export_to_openlabel(scenario: &Scenario) -> Result<String> {
     let now = Utc::now().to_rfc3339();
     let scenario_id = format!("SCEN-{}", scenario.scenario_id.to_uppercase());
@@ -100,10 +117,22 @@ pub fn export_to_openlabel(scenario: &Scenario) -> Result<String> {
         },
     };
 
+    let mut ontologies = BTreeMap::new();
+    ontologies.insert(
+        "0".to_string(),
+        OpenLabelOntology {
+            uri: "https://openlabel.asam.net/V1-0-0/ontologies/",
+        },
+    );
+
     let tags = build_tags(scenario);
 
     let file = OpenLabelFile {
-        openlabel: OpenLabelRoot { metadata, tags },
+        openlabel: OpenLabelRoot {
+            metadata,
+            ontologies,
+            tags,
+        },
     };
 
     serde_json::to_string_pretty(&file)
@@ -115,62 +144,82 @@ pub fn export_to_openlabel(scenario: &Scenario) -> Result<String> {
 // ---------------------------------------------------------------------------
 
 fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
-    let mut tag_list: Vec<&str> = Vec::new();
+    let mut tags: Vec<OpenLabelTag> = Vec::new();
 
-    // ODD: road type — always highway for single-road scenarios
-    tag_list.push("highway");
+    // Behaviour: map scenario type to ontology motion tag
+    let motion_tag = match scenario.scenario_type.as_str() {
+        t if t.contains("cut_in") => "MotionCutIn",
+        t if t.contains("cut_out") => "MotionCutOut",
+        t if t.contains("overtake") => "MotionOvertake",
+        _ => "MotionDrive",
+    };
+    tags.push(simple_tag(motion_tag));
 
-    // Scenario category
-    tag_list.push(&scenario.scenario_type);
-
-    // Actor roles
-    tag_list.push("ego_vehicle");
-
-    if scenario.actors.iter().any(|a| a.role == "npc") {
-        tag_list.push("npc_vehicle");
+    // Lane change direction(s) detected from trajectories
+    if has_lane_change_left(scenario) {
+        tags.push(simple_tag("MotionLaneChangeLeft"));
+    }
+    if has_lane_change_right(scenario) {
+        tags.push(simple_tag("MotionLaneChangeRight"));
     }
 
+    // Vehicle types
+    tags.push(simple_tag("VehicleCar"));
+
+    // Human roles
+    if scenario.actors.iter().any(|a| a.role == "ego") {
+        tags.push(simple_tag("HumanDriver"));
+    }
     if scenario.actors.iter().any(|a| a.role == "pedestrian") {
-        tag_list.push("pedestrian");
+        tags.push(simple_tag("HumanPedestrian"));
     }
 
-    // Lane change present in trajectory
-    if has_lane_change(scenario) {
-        tag_list.push("lane_change");
-    }
+    // Road type — single-road scenarios are modelled as motorway/highway
+    tags.push(simple_tag("RoadTypeMotorway"));
 
-    // Adversarial / safety-critical
-    if !scenario.validation.all_constraints_satisfied {
-        tag_list.push("safety_critical");
-    }
+    // Lane count with tag_data
+    tags.push(OpenLabelTag {
+        tag_type: "LaneSpecificationLaneCount".to_string(),
+        ontology_uid: "0",
+        tag_data: Some(TagData {
+            num: vec![TagValue {
+                val_type: "value",
+                val: scenario.road.num_lanes as u32,
+            }],
+        }),
+    });
 
-    // Multi-lane road
-    if scenario.road.num_lanes > 2 {
-        tag_list.push("multi_lane_road");
-    }
-
-    tag_list
-        .into_iter()
+    tags.into_iter()
         .enumerate()
-        .map(|(i, t)| {
-            (
-                i.to_string(),
-                OpenLabelTag {
-                    ontology_uid: "0",
-                    tag_type: t.to_string(),
-                },
-            )
-        })
+        .map(|(i, t)| (i.to_string(), t))
         .collect()
 }
 
-/// Returns true if any actor changes lane at least once during the scenario.
-fn has_lane_change(scenario: &Scenario) -> bool {
+fn simple_tag(name: &str) -> OpenLabelTag {
+    OpenLabelTag {
+        tag_type: name.to_string(),
+        ontology_uid: "0",
+        tag_data: None,
+    }
+}
+
+/// Returns true if any actor moves to a higher-numbered lane (left change).
+fn has_lane_change_left(scenario: &Scenario) -> bool {
     scenario.actors.iter().any(|actor| {
         actor
             .states
             .windows(2)
-            .any(|w| w[0].get_lane() != w[1].get_lane())
+            .any(|w| w[1].get_lane() > w[0].get_lane())
+    })
+}
+
+/// Returns true if any actor moves to a lower-numbered lane (right change).
+fn has_lane_change_right(scenario: &Scenario) -> bool {
+    scenario.actors.iter().any(|actor| {
+        actor
+            .states
+            .windows(2)
+            .any(|w| w[1].get_lane() < w[0].get_lane())
     })
 }
 
@@ -227,6 +276,44 @@ mod tests {
         scenario
     }
 
+    fn make_scenario_with_lane_change(left: bool) -> Scenario {
+        let road = RoadSpec {
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            road_length: None,
+        };
+        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
+        scenario.validation = ValidationInfo {
+            min_ttc: 3.0,
+            min_distance: 10.0,
+            all_constraints_satisfied: true,
+            safety_violations: vec![],
+            max_acceleration: 2.0,
+            max_deceleration: -3.0,
+            acceleration_violations: vec![],
+        };
+
+        let mut npc = ActorTrajectory::new("npc".to_string(), "npc".to_string());
+        let (start_lane, end_lane) = if left { (0, 1) } else { (1, 0) };
+        npc.add_state(State::new(
+            0.0,
+            Position::new(70.0, 1.75),
+            Velocity::new(18.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            start_lane,
+        ));
+        npc.add_state(State::new(
+            0.1,
+            Position::new(71.8, 3.5),
+            Velocity::new(18.0, 1.0),
+            Acceleration::new(0.0, 0.0),
+            end_lane,
+        ));
+        scenario.add_actor(npc);
+        scenario
+    }
+
     #[test]
     fn test_export_produces_valid_json() {
         let scenario = make_scenario(true);
@@ -241,7 +328,19 @@ mod tests {
     }
 
     #[test]
-    fn test_highway_and_scenario_type_tags_always_present() {
+    fn test_ontologies_section_present() {
+        let scenario = make_scenario(true);
+        let result = export_to_openlabel(&scenario).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(
+            parsed["openlabel"]["ontologies"]["0"]["uri"],
+            "https://openlabel.asam.net/V1-0-0/ontologies/"
+        );
+    }
+
+    #[test]
+    fn test_ontology_tags_always_present() {
         let scenario = make_scenario(true);
         let result = export_to_openlabel(&scenario).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
@@ -249,33 +348,66 @@ mod tests {
         let tags = parsed["openlabel"]["tags"].as_object().unwrap();
         let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
 
-        assert!(types.contains(&"highway"));
-        assert!(types.contains(&"cut_in_left"));
-        assert!(types.contains(&"ego_vehicle"));
-        assert!(types.contains(&"npc_vehicle"));
+        assert!(types.contains(&"RoadTypeMotorway"));
+        assert!(types.contains(&"VehicleCar"));
+        assert!(types.contains(&"HumanDriver"));
+        assert!(types.contains(&"MotionCutIn"));
+        assert!(types.contains(&"LaneSpecificationLaneCount"));
+        // old invented tags must be gone
+        assert!(!types.contains(&"highway"));
+        assert!(!types.contains(&"ego_vehicle"));
+        assert!(!types.contains(&"npc_vehicle"));
     }
 
     #[test]
-    fn test_safety_critical_tag_on_violation() {
+    fn test_lane_count_tag_data() {
+        let scenario = make_scenario(true);
+        let result = export_to_openlabel(&scenario).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        let tags = parsed["openlabel"]["tags"].as_object().unwrap();
+        let lane_tag = tags
+            .values()
+            .find(|t| t["type"] == "LaneSpecificationLaneCount")
+            .expect("LaneSpecificationLaneCount tag must exist");
+
+        assert_eq!(lane_tag["tag_data"]["num"][0]["val"], 2);
+        assert_eq!(lane_tag["tag_data"]["num"][0]["type"], "value");
+    }
+
+    #[test]
+    fn test_no_safety_critical_tag() {
+        // safety_critical is not an ontology term; must never appear
         let scenario = make_scenario(false);
         let result = export_to_openlabel(&scenario).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let tags = parsed["openlabel"]["tags"].as_object().unwrap();
         let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
-
-        assert!(types.contains(&"safety_critical"));
+        assert!(!types.contains(&"safety_critical"));
     }
 
     #[test]
-    fn test_no_safety_critical_tag_when_satisfied() {
-        let scenario = make_scenario(true);
+    fn test_lane_change_left_detection() {
+        let scenario = make_scenario_with_lane_change(true);
         let result = export_to_openlabel(&scenario).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         let tags = parsed["openlabel"]["tags"].as_object().unwrap();
         let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
+        assert!(types.contains(&"MotionLaneChangeLeft"));
+        assert!(!types.contains(&"MotionLaneChangeRight"));
+    }
 
-        assert!(!types.contains(&"safety_critical"));
+    #[test]
+    fn test_lane_change_right_detection() {
+        let scenario = make_scenario_with_lane_change(false);
+        let result = export_to_openlabel(&scenario).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        let tags = parsed["openlabel"]["tags"].as_object().unwrap();
+        let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
+        assert!(types.contains(&"MotionLaneChangeRight"));
+        assert!(!types.contains(&"MotionLaneChangeLeft"));
     }
 }
