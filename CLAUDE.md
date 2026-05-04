@@ -38,7 +38,7 @@ road:
 # Build project
 cargo build --release
 
-# Generate single scenario (creates output/scenario.json, .xosc, .svg, .gif)
+# Generate single scenario (creates output/scenario.json, .xosc, .xodr, .svg, .gif, .ol.json)
 cargo run --release -- -i examples/cut_in_left.yaml -o output/
 
 # Generate multiple scenarios (creates quintuplets for each)
@@ -49,6 +49,9 @@ cargo run --release -- -i examples/cut_in_left.yaml -o adversarial/ --adversaria
 
 # Generate scenarios using Bicycle model (kinematic with heading tracking)
 cargo run --release -- -i examples/bicycle_lane_change.yaml -o bicycle_output/
+
+# Generate optimized scenario (worst-case TTC)
+cargo run --release -- -i examples/cut_in_left.yaml -o output/ --optimize min-ttc
 
 # Enable verbose logging
 cargo run --release -- -i examples/cut_in_left.yaml -o output/ -v
@@ -141,6 +144,8 @@ YAML Input → DSL Parser → LTL Generator → Z3 Encoder → Z3 Solver → Sce
    - **Key files**:
      - `model.rs`: Output data structures (`Scenario`, `ActorTrajectory`, `ValidationInfo`)
      - `extractor.rs`: Extract trajectories from Z3 model, compute metrics
+   - **`State::cartesian`**: Non-optional `CartesianState` field (not `Option`). Accessor methods are infallible.
+   - **`Scenario::compute_validation()`**: Deprecated. Validation is performed by `GenericEncoder::compute_validation_metrics()` during extraction.
    - **Validation**: Computes min TTC, min distance, detects violations with timestamps
 
 ### Data Flow Example (Cut-in Scenario)
@@ -582,7 +587,7 @@ See `examples/speed_limit_violation.yaml`, `examples/school_zone.yaml`, `example
 
 ### When Adding New Constraints
 
-Follow this sequence (see README_ADVERSARIAL.md §"Extending the System" for details):
+Follow this sequence (see CREATING_SCENARIOS.md §"Extending the System" for details):
 
 1. Add to `ConstraintModes::Detailed` in `dsl/types.rs`
 2. Add getter method to `ConstraintModes`
@@ -606,24 +611,33 @@ Follow this sequence (see README_ADVERSARIAL.md §"Extending the System" for det
 ### Testing Considerations
 
 - **UNSAT scenarios**: If Z3 returns UNSAT, constraints conflict (e.g., impossible to violate TTC with given parameters)
-- **Fixture files**: Use `tests/fixtures/` for YAML test files
+- **Test inputs**: Use `examples/` for YAML test files
 - **Integration tests**: Test full pipeline from YAML → JSON in `tests/integration_test.rs`
+
+### Known Limitations
+
+- **Lane change timing uses midpoint**: Lane change `start_time` and `duration` ranges are resolved to their midpoint in `encoder_utils.rs` rather than being Z3 solver variables. This means the solver cannot explore different lane change timings for diversity. Tracked as a TODO in `encoder_utils.rs:100`.
+- **`default_lane_directions()`** returns `vec![1; 2]` (2 forward lanes), not 4. Ensure YAML specs with more lanes explicitly set `lane_directions`.
 
 ## Scenario Types
 
 Currently supports:
 
 - **cut_in_left**: NPC starts in left lane, cuts into ego's lane
+- **cut_in_right**: NPC starts in right lane, cuts into ego's lane
+- **overtake_left**: NPC overtakes ego via left lane (two sequential lane changes)
+- **pedestrian_crossing**: Pedestrian crosses road while ego approaches
 
-Future extensions would add new scenario types by:
+Each scenario type is implemented as a `ScenarioModel` trait in `src/scenarios/`. To add a new scenario type:
 
-1. Adding variant to `ScenarioType` enum
-2. Implementing type-specific LTL in `LTLGenerator`
-3. Adding examples
+1. Add variant to `ScenarioType` enum in `src/dsl/types.rs`
+2. Create new file in `src/scenarios/` implementing `ScenarioModel`
+3. Register in `src/scenarios/mod.rs`
+4. Add example YAML file
 
 ## Output Formats
 
-The generator produces scenarios in **four formats** automatically:
+The generator produces scenarios in **six formats** automatically:
 
 ### JSON Output
 
@@ -685,12 +699,27 @@ The generator produces scenarios in **four formats** automatically:
 - **File Size**: ~900KB for typical 10-second scenario (101 frames)
 - **Usage**: Automatically generated alongside JSON/XOSC/SVG; also available via public API `export_scenario_to_gif()`
 
-### Planned: OpenDRIVE (.xodr) Export
+### OpenDRIVE (.xodr) Output
 
-OpenDRIVE export for road networks is planned but not yet implemented. Future support would include:
-- Road definitions with geometry
-- Lane sections with proper structure
-- Support for multi-road networks and junctions
+- **Format**: OpenDRIVE 1.7 road network XML
+- **Module**: `src/scenario/xodr_exporter.rs`
+- **Function**: `export_to_xodr(scenario: &Scenario) -> Result<String>`
+- **Structure**:
+  - Road definitions with geometry (straight road planView)
+  - Lane sections with proper lane structure matching scenario road spec
+  - Lane widths and directions from RoadSpec
+- **Usage**: Automatically generated alongside other formats; also available via public API `export_scenario_to_xodr()`
+
+### OpenLabel (.ol.json) Output
+
+- **Format**: OpenLabel 1.0.0 JSON metadata
+- **Module**: `src/scenario/openlabel_exporter.rs`
+- **Function**: `export_to_openlabel(scenario: &Scenario) -> Result<String>`
+- **Structure**:
+  - Semantic tags for scenario type, actors, and constraints
+  - Frame-level object data with positions and velocities
+  - Validation metadata (TTC, distance, constraint satisfaction)
+- **Usage**: Automatically generated alongside other formats; also available via public API `export_scenario_to_openlabel()`
 
 ### Visualization Export Implementation Details
 
@@ -727,17 +756,20 @@ OpenDRIVE export for road networks is planned but not yet implemented. Future su
 
 ## Dependencies
 
-- **z3 0.13**: SMT solver (requires system Z3 library)
-- **serde/serde_yaml/serde_json**: YAML input, JSON output
-- **openscenario-rs 0.2.0**: OpenSCENARIO XML generation (builder feature)
-- **svg 0.17**: SVG generation for static visualizations
+- **z3 0.19**: SMT solver
+- **serde 1.0 / serde_yml 0.0.12 / serde_json 1.0**: YAML input, JSON output
+- **openscenario-rs 0.3.0**: OpenSCENARIO XML generation (builder feature)
+- **svg 0.18**: SVG generation for static visualizations
 - **image 0.25**: Image manipulation for GIF frames
-- **gif 0.13**: GIF encoding
-- **imageproc 0.25**: Text rendering on images
+- **gif 0.14**: GIF encoding
+- **imageproc 0.26**: Text rendering on images
 - **ab_glyph 0.2**: Font loading (compatible with imageproc)
-- **clap**: CLI argument parsing
-- **tracing**: Structured logging
-- **uuid, chrono**: IDs and timestamps
+- **nalgebra 0.33**: Linear algebra for coordinate transformations
+- **opendrive 0.1 / vec1 1.8 / uom 0.32**: OpenDRIVE road network export
+- **clap 4.4**: CLI argument parsing
+- **tracing 0.1 / tracing-subscriber 0.3**: Structured logging
+- **uuid 1.6, chrono 0.4**: IDs and timestamps
+- **anyhow 1.0 / thiserror 2.0**: Error handling
 
 ## Development Workflow
 
@@ -748,7 +780,7 @@ When making changes:
 3. Add/update tests
 4. Run `cargo test` to verify
 5. Test with example YAML files: `cargo run -- -i examples/cut_in_left.yaml -o test_output/`
-6. Verify all 4 outputs are generated in the directory: JSON, XOSC, SVG, and GIF
+6. Verify all 6 outputs are generated in the directory: JSON, XOSC, XODR, SVG, GIF, and OpenLabel
 7. For adversarial changes, test both modes: normal and `--adversarial`
 8. For bicycle model scenarios, test: `cargo run -- -i examples/bicycle_lane_change.yaml -o bicycle_output/`
 
@@ -758,21 +790,33 @@ we plan to commit regularly dependeing on the feature implemented with relavant 
 
 ## File Organization
 
-- `src/main.rs`: CLI entry point with JSON/XOSC/SVG/GIF output
-- `src/lib.rs`: Public API (`generate_single_scenario`, `generate_multiple_scenarios`, `export_scenario_to_xosc`, `export_scenario_to_xosc_with_road_file`, `export_scenario_to_svg`, `export_scenario_to_gif`)
+- `src/main.rs`: CLI entry point with JSON/XOSC/XODR/SVG/GIF/OpenLabel output
+- `src/lib.rs`: Public API (`generate_single_scenario`, `generate_single_scenario_from_spec`, `generate_multiple_scenarios`, `generate_multiple_scenarios_from_spec`, `export_scenario_to_xosc`, `export_scenario_to_xosc_with_road_file`, `export_scenario_to_svg`, `export_scenario_to_gif`, `export_scenario_to_gif_with_resolution`, `export_scenario_to_xodr`, `export_scenario_to_openlabel`)
+- `src/error.rs`: Error types (`ScenarioGenError`, `Result`)
 - `src/solver/encoder.rs`: GenericEncoder facade that dispatches to coordinate-specific encoders
 - `src/solver/coordinate_encoder.rs`: CoordinateEncoder trait defining encoder interface
 - `src/solver/encoders/cartesian.rs`: CartesianEncoder for (x, y) coordinate system
 - `src/solver/encoders/bicycle.rs`: BicycleEncoder for (x, y, θ, v) kinematic bicycle model
+- `src/solver/backend.rs`: Backend trait (`SolverBackend`, `OptimizerBackend`)
 - `src/dsl/types.rs`: DSL data structures including `RoadSpec` for single-road scenarios
 - `src/dsl/parser.rs`: YAML parsing and validation
+- `src/scenarios/mod.rs`: ScenarioModel trait definition and default safety generation
+- `src/scenarios/cut_in_left.rs`: Cut-in-left scenario model
+- `src/scenarios/cut_in_right.rs`: Cut-in-right scenario model
+- `src/scenarios/overtake_left.rs`: Overtake-left scenario model
+- `src/scenarios/pedestrian_crossing.rs`: Pedestrian crossing scenario model
 - `src/scenario/xosc_exporter.rs`: OpenSCENARIO export module
+- `src/scenario/xodr_exporter.rs`: OpenDRIVE road network export module
+- `src/scenario/openlabel_exporter.rs`: OpenLabel metadata export module
 - `src/scenario/svg_visualizer.rs`: SVG static visualization module (single-road)
 - `src/scenario/gif_animator.rs`: GIF animation export module (single-road)
 - `assets/DejaVuSans.ttf`: Embedded font for GIF text rendering
 - `examples/`: YAML specification examples (cut_in_left.yaml, bicycle_lane_change.yaml, etc.)
-- `tests/`: Integration tests with fixture files
+- `roads/`: Road definition YAML files for import (2_lane_rural.yaml, 3_lane_highway.yaml, 4_lane_bidirectional.yaml)
+- `tests/`: Integration tests
 - `plans/`: Implementation plan documentation (historical)
 - `README.md`: User-facing documentation
-- `README_ADVERSARIAL.md`: Detailed adversarial generation guide with architecture and extension instructions
+- `CREATING_SCENARIOS.md`: Guide for YAML specification and implementing new scenario types
+- `deliverable.md`: Project rationale and technical description
+- `docs/z3_constraints.md`: Detailed Z3 constraint reference
 - `CLAUDE.md`: This file - AI assistant contributor guide

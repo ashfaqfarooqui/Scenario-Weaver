@@ -38,7 +38,7 @@ This will:
 1. Parse the YAML specification
 2. Generate LTL constraints
 3. Solve with Z3
-4. Output scenario files to the directory (JSON + XOSC + SVG + GIF)
+4. Output scenario files to the directory (JSON + XOSC + XODR + SVG + GIF + OpenLabel)
 
 ### Generate Multiple Scenarios
 
@@ -171,7 +171,7 @@ constraint_modes: enforce_all
 - **ML training data** - Generate diverse datasets with violations
 - **Compliance testing** - Document safety system behavior under hazards (ISO 26262)
 
-**📖 See [README_ADVERSARIAL.md](README_ADVERSARIAL.md) for detailed documentation, architecture, and extension guide.**
+**See [CREATING_SCENARIOS.md](CREATING_SCENARIOS.md) for detailed documentation on adversarial generation, architecture, and extension guide.**
 
 ---
 
@@ -271,26 +271,36 @@ num_scenarios: 1          # generate 1 scenario (or use -n flag)
 - **Ranges**: `position: [45.0, 55.0]` - Z3 chooses any value in range
 - **Behavior parameters**: Scenario-specific values in the `behavior` map (e.g., `cut_in_time`)
 
+### Road Import
+
+Road definitions can be imported from external YAML files in the `roads/` directory using the `road_import` field, avoiding duplication across scenarios:
+
+```yaml
+road_import: roads/highway_4lane.yaml
+```
+
+See `examples/with_import.yaml` for a complete example.
+
 ## Output Formats
 
-The generator automatically produces scenarios in **four formats**: JSON, OpenSCENARIO (.xosc), SVG, and GIF.
+The generator automatically produces scenarios in **six formats**: JSON, OpenSCENARIO (.xosc), OpenDRIVE (.xodr), SVG, GIF, and OpenLabel (.ol.json).
 
-### Quad Output
+### Output Files
 
 **Single scenario mode:**
 
 ```bash
 cargo run --release -- -i examples/cut_in_left.yaml -o output/
-# Creates: output/scenario.json + scenario.xosc + scenario.svg + scenario.gif
+# Creates: output/scenario.json + scenario.xosc + scenario.xodr + scenario.svg + scenario.gif + scenario.ol.json
 ```
 
 **Multiple scenario mode:**
 
 ```bash
 cargo run --release -- -i examples/cut_in_left.yaml -o scenarios/ -n 5
-# Creates: scenarios/scenario_0.json + scenario_0.xosc + scenario_0.svg + scenario_0.gif
-#          scenarios/scenario_1.json + scenario_1.xosc + scenario_1.svg + scenario_1.gif
-#          ... (5 quadruplets total)
+# Creates: scenarios/scenario_0.json + scenario_0.xosc + scenario_0.xodr + scenario_0.svg + scenario_0.gif + scenario_0.ol.json
+#          scenarios/scenario_1.json + scenario_1.xosc + scenario_1.xodr + scenario_1.svg + scenario_1.gif + scenario_1.ol.json
+#          ... (5 sets total)
 ```
 
 ### JSON Format
@@ -353,6 +363,18 @@ let scenario = generate_single_scenario(&yaml)?;
 // Export to XOSC
 let xosc_xml = export_scenario_to_xosc(&scenario)?;
 std::fs::write("scenario.xosc", xosc_xml)?;
+```
+
+**From a pre-parsed spec** (avoids YAML round-trip):
+
+```rust
+use scenario_generator::{generate_single_scenario_from_spec};
+use scenario_generator::dsl::parser::parse_yaml;
+
+let yaml = std::fs::read_to_string("scenario.yaml")?;
+let spec = parse_yaml(&yaml)?;
+// Modify spec programmatically if needed...
+let scenario = generate_single_scenario_from_spec(spec)?;
 ```
 
 ### SVG Visualization Format (.svg)
@@ -418,10 +440,56 @@ let gif_bytes = export_scenario_to_gif(&scenario)?;
 std::fs::write("scenario.gif", gif_bytes)?;
 ```
 
+### OpenDRIVE Format (.xodr)
+
+OpenDRIVE 1.7 road network XML describing the scenario's road geometry:
+
+- Single straight road with lane definitions
+- Lane widths and directions matching the YAML specification
+- Compatible with OpenSCENARIO-based simulators that require road network files
+
+**Module:** `src/scenario/xodr_exporter.rs`
+
+**Programmatic export:**
+
+```rust
+use scenario_generator::{generate_single_scenario, export_scenario_to_xodr};
+
+let yaml = std::fs::read_to_string("scenario.yaml")?;
+let scenario = generate_single_scenario(&yaml)?;
+
+// Export to OpenDRIVE
+let xodr_xml = export_scenario_to_xodr(&scenario)?;
+std::fs::write("scenario.xodr", xodr_xml)?;
+```
+
+### OpenLabel Format (.ol.json)
+
+OpenLabel 1.0.0 JSON metadata describing scenario semantics:
+
+- Scenario metadata (type, duration, time step)
+- Semantic tags: road type, scenario category, actor roles, behaviors
+- Useful for scenario cataloging, search, and filtering
+
+**Module:** `src/scenario/openlabel_exporter.rs`
+
+**Programmatic export:**
+
+```rust
+use scenario_generator::{generate_single_scenario, export_scenario_to_openlabel};
+
+let yaml = std::fs::read_to_string("scenario.yaml")?;
+let scenario = generate_single_scenario(&yaml)?;
+
+// Export to OpenLabel
+let openlabel_json = export_scenario_to_openlabel(&scenario)?;
+std::fs::write("scenario.ol.json", openlabel_json)?;
+```
+
 ## CLI Options
 
 ```bash
-scenario-gen [OPTIONS] --input <FILE> --output <DIR>
+scenario-weaver [OPTIONS] --input <FILE> --output <DIR>
 
 Options:
   -i, --input <FILE>     Input YAML specification file
@@ -429,6 +497,7 @@ Options:
   -n, --num <NUM>        Number of scenarios to generate (overrides YAML)
   -v, --verbose          Enable verbose logging
       --adversarial      Override constraint modes to violate all safety constraints
+      --optimize <TARGET>  Optimization target: min-ttc|min-distance|min-severity|max-ttc
   -h, --help             Print help
   -V, --version          Print version
 ```
@@ -775,11 +844,10 @@ pub trait ScenarioModel: Send + Sync {
 
 ## Documentation
 
-- **[README_ADVERSARIAL.md](README_ADVERSARIAL.md)**: Complete guide to adversarial scenario generation (uses, architecture, extensions)
-- `Implementation_plan.md`: Master implementation plan
-- `design_decisions.md`: Design rationale and alternatives
-- `plans/`: Phase-by-phase implementation guides
-- `QUICK_START.md`: Getting started guide
+- **[CREATING_SCENARIOS.md](CREATING_SCENARIOS.md)**: Complete guide for YAML specification and implementing new scenario types
+- **[docs/z3_constraints.md](docs/z3_constraints.md)**: Detailed Z3 constraint reference for both encoders
+- **[PLANS/OPTIMIZER_IMPLEMENTATION.md](PLANS/OPTIMIZER_IMPLEMENTATION.md)**: Optimizer implementation plan
+- **[deliverable.md](deliverable.md)**: Project rationale and technical description
 
 ## Requirements
 
