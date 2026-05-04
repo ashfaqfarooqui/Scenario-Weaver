@@ -31,10 +31,9 @@ Example:
 scenario_type: cut_in_left
 actors:
   - id: npc
-    lane_change:
-      enabled: true
-      start_time: [2.0, 4.0]  # Solver chooses when
-      duration: [3.0, 4.0]     # Solver chooses duration
+    lane_changes:
+      - start_time: [2.0, 4.0]  # Solver chooses when
+        duration: [3.0, 4.0]     # Solver chooses duration
 min_ttc: 3.0                   # Constraint: always maintain 3s TTC
 ```
 
@@ -45,9 +44,9 @@ The solver finds values for timing, speeds, and positions that satisfy all const
 ```
 YAML Input → DSL Parser → LTL Generator → Z3 Encoder → Z3 Solver → Scenario Extractor → JSON Output
      ↓            ↓              ↓              ↓            ↓               ↓              ↓
-  Your spec   Validation   Temporal Logic   Constraints   Solving    Extract values   4 formats
-                                                                                       (JSON/XOSC/
-                                                                                        SVG/GIF)
+  Your spec   Validation   Temporal Logic   Constraints   Solving    Extract values   6 formats
+                                                                                        (JSON/XOSC/XODR/
+                                                                                         SVG/GIF/OpenLabel)
 ```
 
 ## 1.2 Complete YAML Reference Guide
@@ -272,7 +271,7 @@ speed: [14.0, 16.0]         # Solver picks between 14-16 m/s
 start_time: [2.0, 4.0]      # Solver picks when to start
 ```
 
-Fields supporting ranges: `position`, `speed`, `acceleration`, `lane_change.start_time`, `lane_change.duration`
+Fields supporting ranges: `position`, `speed`, `acceleration`, `lane_changes[].start_time`, `lane_changes[].duration`
 
 ## 1.3 Actor Configuration Patterns
 
@@ -308,7 +307,7 @@ actors:
 
 ### Lane Change Configuration
 
-Actors that change lanes must include `lane_change` configuration:
+Actors that change lanes must include `lane_changes` configuration:
 
 ```yaml
 actors:
@@ -317,11 +316,10 @@ actors:
     lane: 0
     # ... other fields ...
 
-    lane_change:
-      enabled: true            # Must be true to enable lane changes
-      direction: right         # Direction: 'left' or 'right'
-      start_time: [2.5, 3.5]   # When lane change starts (seconds)
-      duration: [3.0, 4.0]     # How long transition takes (seconds)
+    lane_changes:
+      - direction: right         # Direction: 'left' or 'right'
+        start_time: [2.5, 3.5]   # When lane change starts (seconds)
+        duration: [3.0, 4.0]     # How long transition takes (seconds)
 ```
 
 **Lane change behavior**:
@@ -379,7 +377,7 @@ The `behavior` field is a JSON map for scenario-specific parameters. Contents va
 
 **Cut-in scenarios** (cut_in_left, cut_in_right):
 ```yaml
-behavior: {}  # No longer used - use lane_change config instead
+behavior: {}  # No longer used - use lane_changes config instead
 ```
 
 **Overtake scenario** (overtake_left):
@@ -551,11 +549,10 @@ actors:
     acceleration: [-8.0, 3.0]
 
     # Lane change configuration (if applicable)
-    # lane_change:
-    #   enabled: true
-    #   direction: right       # left | right
-    #   start_time: [2.5, 3.5] # When to start (seconds)
-    #   duration: [3.0, 4.0]   # How long transition takes (seconds)
+    # lane_changes:
+    #   - direction: right       # left | right
+    #     start_time: [2.5, 3.5] # When to start (seconds)
+    #     duration: [3.0, 4.0]   # How long transition takes (seconds)
 
     # Scenario-specific behavior (varies by scenario_type)
     # behavior:
@@ -625,11 +622,10 @@ actors:
     direction: 1
     acceleration: [-8.0, 3.0]
 
-    lane_change:
-      enabled: true
-      direction: right         # Cut from left to right
-      start_time: [1.4, 3.5]
-      duration: [3.0, 4.0]
+    lane_changes:
+      - direction: right         # Cut from left to right
+        start_time: [1.4, 3.5]
+        duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -743,11 +739,10 @@ actors:
     direction: 1
     acceleration: [-4.0, 2.0]
 
-    lane_change:
-      enabled: true
-      direction: right
-      start_time: [3.0, 6.0]
-      duration: [3.0, 4.0]
+    lane_changes:
+      - direction: right
+        start_time: [3.0, 6.0]
+        duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -801,11 +796,10 @@ actors:
       max_steering_angle: 0.5
       max_steering_rate: 0.4
 
-    lane_change:
-      enabled: true
-      direction: right
-      start_time: [2.5, 3.5]
-      duration: [3.0, 4.0]
+    lane_changes:
+      - direction: right
+        start_time: [2.5, 3.5]
+        duration: [3.0, 4.0]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -841,17 +835,17 @@ min_distance: 5.0
 time_step: 0.1
 duration: 5.0
 min_ttc: 5.0
-lane_change:
-  start_time: [1.0, 2.0]
-  duration: [1.0, 1.5]
+lane_changes:
+  - start_time: [1.0, 2.0]
+    duration: [1.0, 1.5]
 
 # After (SAT):
 time_step: 0.2            # Coarser
 duration: 10.0            # Longer
 min_ttc: 3.0              # Relaxed
-lane_change:
-  start_time: [2.0, 4.0]  # Wider window
-  duration: [3.0, 4.0]    # More realistic
+lane_changes:
+  - start_time: [2.0, 4.0]  # Wider window
+    duration: [3.0, 4.0]    # More realistic
 ```
 
 ### Validation Errors
@@ -874,9 +868,9 @@ lane_change:
 
 3. **Invalid lane change config**:
    ```
-   Error: Cut-in-left requires lane_change configuration with enabled=true
+   Error: Cut-in-left requires lane_changes configuration
    ```
-   Solution: Add `lane_change` block to NPC actor
+   Solution: Add `lane_changes` block to NPC actor
 
 4. **Timing validation**:
    ```
@@ -942,8 +936,8 @@ bicycle_config:
   default_wheelbase: 2.7
   default_max_steering_angle: 0.1  # Very small angle -> large turn radius
 
-lane_change:
-  duration: [1.0, 2.0]  # Too fast for minimum turn radius
+lane_changes:
+  - duration: [1.0, 2.0]  # Too fast for minimum turn radius
 ```
 
 **Example 3: Impossible adversarial scenario**
@@ -1091,7 +1085,7 @@ fn validate(&self, spec: &ScenarioSpec) -> Result<()>
 - Check required behavior fields (e.g., "NPC needs overtake_start_time")
 - Check lane relationships (e.g., "NPC must start in same lane as ego")
 - Validate timing relationships (e.g., "start_time.max < end_time.min")
-- Check lane change configuration (e.g., "must have lane_change.enabled = true")
+- Check lane change configuration (e.g., "must have non-empty lane_changes")
 
 **What NOT to check**:
 - Physics feasibility (Z3 will return UNSAT if impossible)
@@ -1115,9 +1109,9 @@ impl ScenarioModel for CutInLeftModel {
         let npc = &spec.npcs()[0];
 
         // Check lane change configuration
-        if npc.lane_change.is_none() || !npc.lane_change.as_ref().unwrap().enabled {
+        if npc.lane_changes.is_empty() {
             return Err(ScenarioGenError::InvalidSpec(
-                "Cut-in-left requires lane_change configuration with enabled=true".to_string(),
+                "Cut-in-left requires lane_changes configuration".to_string(),
             ));
         }
 
@@ -1573,7 +1567,7 @@ Before writing code, clearly define:
 
 3. **Behavior parameters** (in YAML `behavior` field):
    - `merge_time`: When to start merging (range: [min, max])
-   - No duration needed (use lane_change config instead)
+   - No duration needed (use lane_changes config instead)
 
 ### Step 2: Add to ScenarioType Enum
 
@@ -1673,9 +1667,9 @@ impl ScenarioModel for MergeRightModel {
         }
 
         // Validate lane change configuration exists
-        if npc.lane_change.is_none() || !npc.lane_change.as_ref().unwrap().enabled {
+        if npc.lane_changes.is_empty() {
             return Err(ScenarioGenError::InvalidSpec(
-                "Merge-right requires lane_change configuration with enabled=true".to_string(),
+                "Merge-right requires lane_changes configuration".to_string(),
             ));
         }
 
@@ -1756,7 +1750,6 @@ mod tests {
 
     fn create_test_spec() -> ScenarioSpec {
         let npc_lane_change = LaneChangeConfig {
-            enabled: true,
             direction: LaneChangeDirection::Right,
             start_time: ValueOrRange::Range([3.0, 5.0]),
             duration: ValueOrRange::Range([2.0, 3.0]),
@@ -1776,7 +1769,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
-                    lane_change: None,
+                    lane_changes: vec![],
                     bicycle_params: None,
                 },
                 ActorSpec {
@@ -1788,7 +1781,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-5.0, 4.0]),
                     direction: 1,
                     behavior: HashMap::new(),
-                    lane_change: Some(npc_lane_change),
+                    lane_changes: vec![npc_lane_change],
                     bicycle_params: None,
                 },
             ],
@@ -1838,7 +1831,7 @@ mod tests {
     fn test_merge_right_validate_missing_lane_change() {
         let model = MergeRightModel;
         let mut spec = create_test_spec();
-        spec.actors[1].lane_change = None;
+        spec.actors[1].lane_changes = vec![];
         assert!(model.validate(&spec).is_err());
     }
 
@@ -1908,11 +1901,10 @@ actors:
     acceleration: [-5.0, 4.0]  # Can accelerate to match traffic
 
     # Lane change configuration
-    lane_change:
-      enabled: true
-      direction: right         # Merge into highway (lane 0 -> lane 1)
-      start_time: [3.0, 5.0]   # Merge between 3-5 seconds
-      duration: [2.0, 3.0]     # Merge takes 2-3 seconds
+    lane_changes:
+      - direction: right         # Merge into highway (lane 0 -> lane 1)
+        start_time: [3.0, 5.0]   # Merge between 3-5 seconds
+        duration: [2.0, 3.0]     # Merge takes 2-3 seconds
 
 # Safety constraints
 min_ttc: 3.0          # Maintain safe time-to-collision
@@ -2158,25 +2150,18 @@ fn validate(&self, spec: &ScenarioSpec) -> Result<()> {
 fn validate(&self, spec: &ScenarioSpec) -> Result<()> {
     let npc = &spec.npcs()[0];
 
-    // Check lane_change exists and is enabled
-    if npc.lane_change.is_none() {
+    // Check lane_changes is non-empty
+    if npc.lane_changes.is_empty() {
         return Err(ScenarioGenError::InvalidSpec(
-            "NPC missing lane_change configuration".to_string()
-        ));
-    }
-
-    let lane_change = npc.lane_change.as_ref().unwrap();
-    if !lane_change.enabled {
-        return Err(ScenarioGenError::InvalidSpec(
-            "NPC lane_change must have enabled=true".to_string()
+            "NPC missing lane_changes configuration".to_string()
         ));
     }
 
     // Validate direction is compatible with scenario
     use crate::dsl::types::LaneChangeDirection;
-    if lane_change.direction != LaneChangeDirection::Right {
+    if npc.lane_changes[0].direction != LaneChangeDirection::Right {
         return Err(ScenarioGenError::InvalidSpec(
-            "Scenario requires lane_change.direction=right".to_string()
+            "Scenario requires lane_changes[0].direction=right".to_string()
         ));
     }
 
@@ -2218,7 +2203,7 @@ The solver module uses a **trait-based encoder system** with two implementations
 
 ### Lane Change Behavior (Handled Uniformly)
 
-Both encoders handle lane changes automatically based on `lane_change` configuration:
+Both encoders handle lane changes automatically based on `lane_changes` configuration:
 
 - **Cartesian**: `encode_lane_change_constraints()` in `src/solver/encoders/cartesian.rs`
   - Lateral position interpolates linearly between lane centers
@@ -2395,11 +2380,10 @@ actors:
     direction: 1
     acceleration: [-5.0, 4.0]
 
-    lane_change:
-      enabled: true
-      direction: right
-      start_time: [3.0, 5.0]
-      duration: [2.0, 3.0]
+    lane_changes:
+      - direction: right
+        start_time: [3.0, 5.0]
+        duration: [2.0, 3.0]
 
 min_ttc: 3.0
 min_distance: 10.0
@@ -2741,11 +2725,10 @@ Here's the complete implementation of the MergeRight scenario from the tutorial:
 //!   - id: npc
 //!     role: npc
 //!     lane: 0  # Merge lane
-//!     lane_change:
-//!       enabled: true
-//!       direction: right
-//!       start_time: [3.0, 5.0]
-//!       duration: [2.0, 3.0]
+//!     lane_changes:
+//!       - direction: right
+//!         start_time: [3.0, 5.0]
+//!         duration: [2.0, 3.0]
 //! ```
 
 use crate::dsl::types::ScenarioSpec;
@@ -2786,17 +2769,17 @@ impl ScenarioModel for MergeRightModel {
         }
 
         // Validate lane change configuration exists
-        if npc.lane_change.is_none() || !npc.lane_change.as_ref().unwrap().enabled {
+        if npc.lane_changes.is_empty() {
             return Err(ScenarioGenError::InvalidSpec(
-                "Merge-right requires lane_change configuration with enabled=true".to_string(),
+                "Merge-right requires lane_changes configuration".to_string(),
             ));
         }
 
         // Validate lane change direction is 'right'
         use crate::dsl::types::LaneChangeDirection;
-        if npc.lane_change.as_ref().unwrap().direction != LaneChangeDirection::Right {
+        if npc.lane_changes[0].direction != LaneChangeDirection::Right {
             return Err(ScenarioGenError::InvalidSpec(
-                "Merge-right requires lane_change.direction=right".to_string(),
+                "Merge-right requires lane_changes[0].direction=right".to_string(),
             ));
         }
 
@@ -2867,7 +2850,7 @@ impl MergeRightModel {
         });
 
         // Two-phase pattern: merge lane UNTIL highway lane
-        // Lane change timing and smoothness handled by encoder via lane_change config
+        // Lane change timing and smoothness handled by encoder via lane_changes config
         in_merge.until(in_highway)
     }
 }
@@ -2883,7 +2866,6 @@ mod tests {
 
     fn create_test_spec() -> ScenarioSpec {
         let npc_lane_change = LaneChangeConfig {
-            enabled: true,
             direction: LaneChangeDirection::Right,
             start_time: ValueOrRange::Range([3.0, 5.0]),
             duration: ValueOrRange::Range([2.0, 3.0]),
@@ -2903,7 +2885,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-8.0, 3.0]),
                     direction: 1,
                     behavior: HashMap::new(),
-                    lane_change: None,
+                    lane_changes: vec![],
                     bicycle_params: None,
                 },
                 ActorSpec {
@@ -2915,7 +2897,7 @@ mod tests {
                     acceleration: ValueOrRange::Range([-5.0, 4.0]),
                     direction: 1,
                     behavior: HashMap::new(),
-                    lane_change: Some(npc_lane_change),
+                    lane_changes: vec![npc_lane_change],
                     bicycle_params: None,
                 },
             ],
@@ -2973,7 +2955,7 @@ mod tests {
     fn test_merge_right_validate_missing_lane_change() {
         let model = MergeRightModel;
         let mut spec = create_test_spec();
-        spec.actors[1].lane_change = None;
+        spec.actors[1].lane_changes = vec![];
         assert!(model.validate(&spec).is_err());
     }
 
@@ -2981,7 +2963,7 @@ mod tests {
     fn test_merge_right_validate_wrong_lane_change_direction() {
         let model = MergeRightModel;
         let mut spec = create_test_spec();
-        spec.actors[1].lane_change.as_mut().unwrap().direction = LaneChangeDirection::Left;
+        spec.actors[1].lane_changes[0].direction = LaneChangeDirection::Left;
         assert!(model.validate(&spec).is_err());
     }
 

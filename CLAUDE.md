@@ -151,7 +151,7 @@ YAML Input → DSL Parser → LTL Generator → Z3 Encoder → Z3 Solver → Sce
 ### Data Flow Example (Cut-in Scenario)
 
 1. **Input YAML**: Ego in lane 1 at 50m/15m/s, NPC in lane 0, smooth lane change between 2.5-3.5s over 3-4s, min_ttc=3.0s
-2. **DSL Parser**: Creates `ScenarioSpec` with `lane_change` configuration for NPC
+2. **DSL Parser**: Creates `ScenarioSpec` with `lane_changes` configuration for NPC
 3. **LTL Generator**: Creates formula like `G(lane_0) UNTIL cut_in_time AND G(ttc > 3.0)`
 4. **Z3 Encoder**:
    - Creates variables for time steps (e.g., 100 steps for 10s / 0.1s)
@@ -301,11 +301,10 @@ actors:
       max_steering_angle: 0.5     # Less maneuverable
       max_steering_rate: 0.4      # Slower steering
 
-    lane_change:
-      enabled: true
-      direction: right
-      start_time: [2.5, 3.5]
-      duration: [3.0, 4.0]
+    lane_changes:
+      - direction: right
+        start_time: [2.5, 3.5]
+        duration: [3.0, 4.0]
 ```
 
 **Kinematic bicycle model dynamics** (small angle approximation):

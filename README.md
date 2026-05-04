@@ -88,11 +88,10 @@ actors:
     direction: 1
     acceleration: [-8.0, 3.0]
 
-    lane_change:
-      enabled: true
-      direction: right
-      start_time: [2.5, 3.5]
-      duration: [3.0, 4.0]
+    lane_changes:
+      - direction: right
+        start_time: [2.5, 3.5]
+        duration: [3.0, 4.0]
 
 road:
   num_lanes: 2
