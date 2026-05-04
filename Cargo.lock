@@ -1626,7 +1626,8 @@ dependencies = [
 [[package]]
 name = "openscenario-rs"
 version = "0.3.0"
-source = "git+https://github.com/ashfaqfarooqui/openscenario-rs#fe559b27c5a96637e523d2238da1019333408311"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "406bf6fdaa43f5b3ce03c179f65b654ad5f6a5f564d46fa87e2868545133e739"
 dependencies = [
  "chrono",
  "clap",

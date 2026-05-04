@@ -33,9 +33,6 @@ clap = { version = "4.4", features = ["derive"] }
 # Logging (will be used in Phase 12)
 tracing = "0.1"
 tracing-subscriber = "0.3"
-openscenario-rs = { git = "https://github.com/ashfaqfarooqui/openscenario-rs", version = "0.3.0", features = [
-    "builder",
-] }
 
 # SVG visualization
 svg = "0.18"
@@ -53,6 +50,7 @@ nalgebra = { version = "0.33", features = ["serde"] }
 opendrive = "0.1"
 vec1 = "1.8"
 uom = { version = "0.32", features = ["f64"] }
+openscenario-rs = { version = "0.3.0", features = ["builder"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4" # Better test output
