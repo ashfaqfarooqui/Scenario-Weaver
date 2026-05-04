@@ -1,3 +1,27 @@
+# ─── Scenario: Cut-in from Left (Adversarial - Violate All) ───
+#
+# An NPC cuts in from the left lane while intentionally violating all safety constraints.
+#
+# Actors:
+#   - ego: lane 1, fixed 15 m/s forward, position 50m
+#   - npc: lane 0 (left), 12-14 m/s forward, position 60-80m
+#
+# Road: 2 lanes, 3.5m wide, both forward
+# Coordinate System: cartesian (default)
+# Duration: 10.0s at 0.5s time steps
+#
+# Key Features:
+#   - NPC performs right lane change at 2.5-4.0s over 3-4s duration
+#   - Uses violate_all constraint mode to find worst-case scenarios
+#   - Coarser time step (0.5s) for faster adversarial solving
+#
+# Safety Constraints:
+#   - min TTC: 3.0s (violated)
+#   - min distance: 5.0m (violated)
+#
+# Run:
+#   cargo run --release -- -i examples/cut_in_left_adversarial_all.yaml -o output/
+#
 scenario_type: cut_in_left
 
 time_step: 0.5

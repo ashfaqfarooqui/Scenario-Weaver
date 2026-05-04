@@ -1,7 +1,29 @@
-# Speed limit violation scenario
-# Demonstrates the new VelocityGT/LT propositions for speed constraints
-# The ego vehicle is speeding and will violate the max_velocity constraint
-
+# ─── Scenario: Speed Limit Violation ───
+#
+# Adversarial scenario where the ego vehicle exceeds a 22 m/s speed limit during a cut-in.
+#
+# Actors:
+#   - ego: lane 1, 25-30 m/s forward (intentionally above speed limit)
+#   - npc: lane 0, 15-20 m/s forward, right lane change at 3.0-5.0s over 3-4s
+#
+# Road: 2 lanes, 3.5m wide, all forward
+# Coordinate System: cartesian
+# Duration: 10.0s at 0.5s time steps
+#
+# Key Features:
+#   - Speed limit of 22 m/s (~50 mph) set via max_velocity
+#   - max_velocity constraint in violate mode (adversarial - finds speeding scenario)
+#   - TTC and distance constraints remain enforced for safety
+#   - Demonstrates VelocityGT/LT propositions
+#
+# Safety Constraints:
+#   - min TTC: 3.0s (enforced)
+#   - min distance: 5.0m (enforced)
+#   - max velocity: 22.0 m/s (violated - adversarial)
+#
+# Run:
+#   cargo run --release -- -i examples/speed_limit_violation.yaml -o output/
+#
 scenario_type: cut_in_left
 time_step: 0.5
 duration: 10.0

@@ -1,7 +1,28 @@
-# Multi-lane safety scenario
-# Demonstrates lateral distance constraint for side-by-side driving safety
-# Ensures vehicles in adjacent lanes maintain safe lateral separation
-
+# ─── Scenario: Multi-Lane Safety ───
+#
+# Adversarial scenario that tests lateral distance violations during a lane change on a two-lane road.
+#
+# Actors:
+#   - ego: lane 1, 15-20 m/s forward, mild acceleration
+#   - npc: lane 0, 15-20 m/s forward, right lane change at 4.0-5.5s over 3-4s
+#
+# Road: 2 lanes, 3.5m wide, all forward
+# Coordinate System: cartesian
+# Duration: 10.0s at 0.5s time steps
+#
+# Key Features:
+#   - NPC performs right lane change into ego's lane
+#   - Lateral distance constraint (1.5m) set to violate mode (adversarial)
+#   - TTC and longitudinal distance remain enforced for safety
+#
+# Safety Constraints:
+#   - min TTC: 3.0s (enforced)
+#   - min distance: 5.0m (enforced)
+#   - min lateral distance: 1.5m (violated - adversarial)
+#
+# Run:
+#   cargo run --release -- -i examples/multi_lane_safety.yaml -o output/
+#
 scenario_type: cut_in_left
 time_step: 0.5
 duration: 10.0

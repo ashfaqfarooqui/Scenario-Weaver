@@ -1,3 +1,27 @@
+# ─── Scenario: Head-On Collision ───
+#
+# Adversarial head-on scenario where an oncoming NPC changes into the ego's lane with safety constraints violated.
+#
+# Actors:
+#   - ego: lane 0, 20 m/s forward, starting at 50m
+#   - npc: lane 2 (oncoming), 20 m/s backward, starting at 150m, left lane change at 2.5-4.0s
+#
+# Road: 4 lanes, 3.5m wide, bidirectional [1, 1, -1, -1]
+# Coordinate System: cartesian (default)
+# Duration: 10.0s at 0.5s time steps
+#
+# Key Features:
+#   - Oncoming NPC in backward lane changes toward ego's forward lanes
+#   - Closing speed of ~40 m/s (both vehicles approaching each other)
+#   - Adversarial: safety constraints intentionally violated to force collision
+#
+# Safety Constraints:
+#   - min TTC: 3.0s (violated)
+#   - min distance: 5.0m (violated)
+#
+# Run:
+#   cargo run --release -- -i examples/head_on_collision.yaml -o output/
+#
 scenario_type: cut_in_left
 
 # Time configuration

@@ -1,3 +1,26 @@
+# ─── Scenario: Cut-in from Left ───
+#
+# An NPC in the left lane performs a right lane change into the ego's lane on a 3-lane road.
+#
+# Actors:
+#   - ego: lane 1, 14-16 m/s forward, position 0-55m
+#   - npc: lane 0 (left), 16-20 m/s forward, position 20-80m
+#
+# Road: 3 lanes, 3.5m wide, directions [forward, forward, backward]
+# Coordinate System: cartesian
+# Duration: 10.0s at 0.1s time steps
+#
+# Key Features:
+#   - NPC performs right lane change at 1.4-3.5s over 3-4s duration
+#   - Generates 5 diverse scenarios via blocking clauses
+#
+# Safety Constraints:
+#   - min TTC: 3.0s (enforced)
+#   - min distance: 5.0m (enforced)
+#
+# Run:
+#   cargo run --release -- -i examples/cut_in_left.yaml -o output/
+#
 scenario_type: cut_in_left
 
 # Time configuration

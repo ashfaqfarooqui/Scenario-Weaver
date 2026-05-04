@@ -1,3 +1,27 @@
+# ─── Scenario: Cut-in from Right (Cartesian, 3-Lane) ───
+#
+# An NPC cuts in from the right lane on a 3-lane all-forward road using explicit cartesian coordinates.
+#
+# Actors:
+#   - ego: lane 1 (center), 14-16 m/s forward, position 40-60m
+#   - npc: lane 2 (right), 16-20 m/s forward, position 50-80m
+#
+# Road: 3 lanes, 3.5m wide, all forward
+# Coordinate System: cartesian
+# Duration: 10.0s at 0.1s time steps
+#
+# Key Features:
+#   - NPC performs left lane change at 2.5-5.0s over 3-4s duration
+#   - 3-lane road with all forward directions
+#   - Mirror of cut_in_left_cartesian with NPC on right side
+#
+# Safety Constraints:
+#   - min TTC: 3.0s (enforced)
+#   - min distance: 5.0m (enforced)
+#
+# Run:
+#   cargo run --release -- -i examples/cut_in_right_cartesian.yaml -o output/
+#
 scenario_type: cut_in_right
 coordinate_system: cartesian
 

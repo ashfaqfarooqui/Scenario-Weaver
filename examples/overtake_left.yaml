@@ -1,16 +1,28 @@
-# OvertakeLeft Scenario Example
-# NPC vehicle overtakes ego from behind using the left lane
+# ─── Scenario: Overtake Left ───
 #
-# The overtake is expressed as two sequential lane changes:
-# 1. Left lane change (into passing lane) at 2-4 seconds
-# 2. Right lane change (back to original lane) at 7-10 seconds
+# NPC vehicle overtakes ego from behind using two sequential lane changes on a three-lane road.
 #
-# Phases (driven by lane_changes):
-# 1. NPC starts behind ego in the same lane
-# 2. NPC changes to left lane (passing lane) - first lane change
-# 3. NPC accelerates past ego while in the passing lane
-# 4. NPC returns to original lane - second lane change, now ahead of ego
-
+# Actors:
+#   - ego: lane 1 (middle), 14-16 m/s forward, fixed position at 50m
+#   - npc: lane 1 (same as ego), 18-22 m/s forward, starts 15-25m behind ego
+#
+# Road: 3 lanes, 3.5m wide, all forward
+# Coordinate System: cartesian
+# Duration: 12.0s at 0.5s time steps
+#
+# Key Features:
+#   - NPC performs left lane change at 2-3s (into passing lane 0)
+#   - NPC accelerates past ego while in passing lane
+#   - NPC performs right lane change at 7-8s (returns to lane 1, now ahead)
+#   - Two sequential lane changes model a complete overtake maneuver
+#
+# Safety Constraints:
+#   - min TTC: 2.0s (enforced)
+#   - min distance: 4.0m (enforced)
+#
+# Run:
+#   cargo run --release -- -i examples/overtake_left.yaml -o output/
+#
 scenario_type: overtake_left
 
 # Time configuration

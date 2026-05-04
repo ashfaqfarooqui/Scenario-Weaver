@@ -1,4 +1,27 @@
-# Simplified bicycle lane change for testing
+# ─── Scenario: Bicycle Lane Change (Simple) ───
+#
+# Simplified cut-in-left scenario using the bicycle kinematic model with coarse time steps for fast solving.
+#
+# Actors:
+#   - ego: lane 1, 15 m/s forward, fixed position at 0m
+#   - npc: lane 0, 15 m/s forward, fixed position at 50m, cuts right into ego's lane
+#
+# Road: 2 lanes, 3.5m wide, all forward
+# Coordinate System: bicycle
+# Duration: 10.0s at 0.2s time steps
+#
+# Key Features:
+#   - NPC performs right lane change at 1.5s over 2.0s (fixed values, not ranges)
+#   - Uses bicycle kinematic model with wheelbase 2.7m
+#   - Coarser 0.2s time step for faster Z3 solving
+#
+# Safety Constraints:
+#   - min TTC: 3.0s (enforced)
+#   - min distance: 10.0m (enforced)
+#
+# Run:
+#   cargo run --release -- -i examples/bicycle_lane_change_simple.yaml -o output/
+#
 scenario_type: cut_in_left
 coordinate_system: bicycle
 time_step: 0.2 # Coarser timestep for faster solving

@@ -1,3 +1,27 @@
+# ─── Scenario: Overtake With Opposite Traffic ───
+#
+# NPC cuts into ego's lane on a bidirectional road with an oncoming traffic lane.
+#
+# Actors:
+#   - ego: lane 0, 15 m/s forward, fixed position at 50m
+#   - npc: lane 1, 12-14 m/s forward, left lane change at 2.5-4.0s over 3-4s
+#
+# Road: 3 lanes, 3.5m wide, lanes 0-1 forward, lane 2 backward
+# Coordinate System: cartesian
+# Duration: 10.0s at 0.5s time steps
+#
+# Key Features:
+#   - Bidirectional road with one oncoming lane (lane 2, direction -1)
+#   - NPC performs left lane change from lane 1 into ego's lane 0
+#   - Tests scenario generation with mixed-direction lane configurations
+#
+# Safety Constraints:
+#   - min TTC: 3.0s (enforced)
+#   - min distance: 5.0m (enforced)
+#
+# Run:
+#   cargo run --release -- -i examples/overtake_with_opposite.yaml -o output/
+#
 scenario_type: cut_in_left
 
 # Time configuration

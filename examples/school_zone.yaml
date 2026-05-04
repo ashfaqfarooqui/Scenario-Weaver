@@ -1,7 +1,28 @@
-# School zone scenario
-# Demonstrates enforcing max velocity for school zone safety
-# All vehicles must stay below 15 m/s (approximately 35 mph)
-
+# ─── Scenario: School Zone ───
+#
+# Cut-in scenario in a school zone where all vehicles must stay below a 15 m/s speed limit.
+#
+# Actors:
+#   - ego: lane 1, 10-18 m/s forward (Z3 constrains to under limit)
+#   - npc: lane 0, 10-18 m/s forward, right lane change at 1.5-4.0s over 3-4s
+#
+# Road: 2 lanes, 3.5m wide, all forward
+# Coordinate System: cartesian
+# Duration: 10.0s at 0.1s time steps
+#
+# Key Features:
+#   - School zone speed limit of 15 m/s (~35 mph) applied via max_velocity
+#   - Fine time step (0.1s) for precise constraint enforcement
+#   - max_velocity constraint set to ignore mode
+#
+# Safety Constraints:
+#   - min TTC: 5.0s (enforced)
+#   - min distance: 5.0m (enforced)
+#   - max velocity: 15.0 m/s (ignored)
+#
+# Run:
+#   cargo run --release -- -i examples/school_zone.yaml -o output/
+#
 scenario_type: cut_in_left
 time_step: 0.1
 duration: 10.0

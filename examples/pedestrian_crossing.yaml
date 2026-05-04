@@ -1,3 +1,28 @@
+# ─── Scenario: Pedestrian Crossing ───
+#
+# A pedestrian crosses a two-lane road while an ego vehicle approaches.
+#
+# Actors:
+#   - ego: lane 0, 8-12 m/s forward, approaching the crossing point
+#   - pedestrian: walking left-to-right at 0.8-1.5 m/s, position range 10-60m
+#
+# Road: 2 lanes, 3.5m wide, all forward
+# Coordinate System: cartesian
+# Duration: 10.0s at 0.3s time steps
+#
+# Key Features:
+#   - Pedestrian actor with walking behavior (max 2.0 m/s)
+#   - Left-to-right crossing direction
+#   - Z3 solver finds safe crossing point within position range
+#   - Finer time step (0.3s) for pedestrian interaction precision
+#
+# Safety Constraints:
+#   - min TTC: 2.0s (ignored)
+#   - min distance: 2.0m (ignored)
+#
+# Run:
+#   cargo run --release -- -i examples/pedestrian_crossing.yaml -o output/
+#
 scenario_type: pedestrian_crossing
 
 time_step: 0.3

@@ -1,3 +1,27 @@
+# ─── Scenario: Head-On Near Miss ───
+#
+# Oncoming NPC changes lanes on a bidirectional road while safety constraints are enforced, producing a near-miss.
+#
+# Actors:
+#   - ego: lane 0, 20 m/s forward, starting at 50m
+#   - npc: lane 2 (oncoming), 18 m/s backward, starting at 150m, left lane change at 2.5-4.0s
+#
+# Road: 4 lanes, 3.5m wide, bidirectional [1, 1, -1, -1]
+# Coordinate System: cartesian (default)
+# Duration: 10.0s at 0.5s time steps
+#
+# Key Features:
+#   - Oncoming NPC performs left lane change (toward lane 3, away from ego)
+#   - High closing speed but safety maintained via enforced constraints
+#   - NPC merges to adjacent backward lane to avoid collision
+#
+# Safety Constraints:
+#   - min TTC: 3.0s (enforced)
+#   - min distance: 5.0m (enforced)
+#
+# Run:
+#   cargo run --release -- -i examples/head_on_near_miss.yaml -o output/
+#
 scenario_type: cut_in_left
 
 # Time configuration

@@ -1,4 +1,27 @@
-# Example scenario using road import from library
+# ─── Scenario: Cut-In With Road Import ───
+#
+# Cut-in scenario on a 4-lane bidirectional road imported from the road library.
+#
+# Actors:
+#   - ego: lane 1 (forward), 15 m/s, fixed position at 50m
+#   - npc: lane 0 (forward), 12-14 m/s, right lane change at 2.5-4.0s over 3-4s
+#
+# Road: 4 lanes, 3.5m wide, lanes 0-1 forward, lanes 2-3 backward (imported)
+# Coordinate System: cartesian
+# Duration: 10.0s at 0.5s time steps
+#
+# Key Features:
+#   - Imports road definition from roads/4_lane_bidirectional.yaml
+#   - Inline road spec serves as fallback if import fails
+#   - Demonstrates road library import functionality
+#
+# Safety Constraints:
+#   - min TTC: 3.0s (enforced)
+#   - min distance: 5.0m (enforced)
+#
+# Run:
+#   cargo run --release -- -i examples/with_import.yaml -o output/
+#
 imports:
   - roads/4_lane_bidirectional.yaml
 
