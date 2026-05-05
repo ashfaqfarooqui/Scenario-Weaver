@@ -21,7 +21,7 @@ pub trait Z3Backend {
     fn get_model(&self) -> Option<Model>;
 }
 
-/// Extension trait to allow asserting owned Bool values
+/// Extension trait providing convenience methods for [`Z3Backend`] implementors.
 pub trait Z3BackendExt: Z3Backend {
     /// Assert an owned constraint (convenience method)
     fn assert_owned(&self, constraint: Bool) {
@@ -146,6 +146,11 @@ impl Z3Backend for OptimizerBackend {
     fn get_model(&self) -> Option<Model> {
         self.optimizer.get_model()
     }
+}
+
+/// Parse a Z3 real value string to f64 (public for testing)
+pub(crate) fn parse_z3_real_pub(s: &str) -> f64 {
+    parse_z3_real(s).unwrap_or(0.0)
 }
 
 /// Parse a Z3 real value string to f64

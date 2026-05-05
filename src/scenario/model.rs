@@ -1,4 +1,7 @@
-//! Scenario output data structures
+//! Output data structures representing a generated scenario.
+//!
+//! A [`Scenario`] contains actor trajectories (position, velocity, acceleration
+//! at each time step) plus validation metrics (TTC, distance, violations).
 
 use crate::dsl::types::RoadSpec;
 use serde::{Deserialize, Serialize};

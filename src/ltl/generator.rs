@@ -3,10 +3,16 @@
 use crate::dsl::types::ScenarioSpec;
 use crate::error::Result;
 
+/// Generates LTL formulas from a [`ScenarioSpec`] by combining behavioral
+/// constraints (from the scenario model) with safety constraints (TTC, distance, etc.).
 pub struct LTLGenerator;
 
 impl LTLGenerator {
-    /// Generate LTL formula from scenario specification using ScenarioModel trait
+    /// Generate the complete LTL formula for a scenario.
+    ///
+    /// Combines the scenario-specific behavioral formula (lane changes, ordering)
+    /// with pairwise safety constraints (TTC, distance) according to the
+    /// configured [`ConstraintModes`](crate::dsl::types::ConstraintModes).
     pub fn generate(spec: &ScenarioSpec) -> Result<crate::ltl::formula::LTLFormula> {
         // Get scenario model
         let model = spec.scenario_type.get_model();

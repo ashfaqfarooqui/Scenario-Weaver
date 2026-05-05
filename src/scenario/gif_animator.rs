@@ -15,10 +15,14 @@ use imageproc::drawing::{
 use imageproc::rect::Rect;
 
 // Canvas dimensions - configurable via Resolution preset
+/// Output resolution preset for GIF animations.
 #[derive(Debug, Clone, Copy)]
 pub enum Resolution {
+    /// 1200x600 pixels (best quality, larger file size).
     High,
+    /// 900x450 pixels (default, good balance).
     Medium,
+    /// 600x300 pixels (fast generation, small file size).
     Low,
 }
 

@@ -1,6 +1,8 @@
-//! Solver module
+//! Z3 SMT solver integration and constraint encoding.
 //!
-//! Z3 SMT solver integration and constraint encoding
+//! Encodes scenario specifications as Z3 constraints via bounded model checking,
+//! solves for satisfying assignments, and extracts concrete trajectories.
+//! Supports both standard SAT solving ([`SolverBackend`]) and optimization ([`OptimizerBackend`]).
 
 pub mod backend;
 pub mod coordinate_encoder;

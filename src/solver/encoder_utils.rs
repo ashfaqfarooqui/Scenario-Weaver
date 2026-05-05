@@ -10,7 +10,7 @@ use z3::Model;
 use crate::dsl::types::{ActorRole, LaneChangeDirection, ScenarioSpec};
 use crate::error::{Result, ScenarioGenError};
 
-/// Parsed lane change data for an actor
+/// Resolved lane change timing for an actor, expressed as discrete time-step indices.
 #[derive(Debug, Clone)]
 pub struct LaneChangeSteps {
     /// Direction of the lane change (left or right)
@@ -52,7 +52,7 @@ pub fn extract_real(model: &Model, var: &Real) -> Result<f64> {
     })
 }
 
-/// Extract an integer value from Z3 model
+/// Extract a non-negative integer value from a Z3 model variable.
 pub fn extract_int(model: &Model, var: &Int) -> Result<usize> {
     let ast = model.eval(var, true).ok_or_else(|| {
         ScenarioGenError::Z3ModelParsing("Failed to evaluate int variable".to_string())

@@ -1,4 +1,6 @@
-//! DSL data structures for scenario specification
+//! Core data structures for the scenario specification DSL.
+//!
+//! These types are deserialized from YAML input and drive the entire generation pipeline.
 
 use serde::{Deserialize, Serialize};
 
@@ -71,11 +73,13 @@ pub enum CoordinateSystem {
     Bicycle,
 }
 
-/// Lane change direction
+/// Direction of a lane change maneuver relative to the actor's current lane.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LaneChangeDirection {
+    /// Move to the lane with a higher index (lower y-coordinate).
     Left,
+    /// Move to the lane with a lower index (higher y-coordinate).
     Right,
 }
 
@@ -84,7 +88,7 @@ pub enum LaneChangeDirection {
 /// The solver discovers lane change trajectories dynamically using smoothness
 /// constraints, rather than pre-computing them with polynomials.
 ///
-/// Note: Multiple lane changes can be specified as a Vec<LaneChangeConfig>.
+/// Note: Multiple lane changes can be specified as a `Vec<LaneChangeConfig>`.
 /// Presence in the vec implies enabled (no explicit enabled field needed).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LaneChangeConfig {
@@ -95,7 +99,10 @@ pub struct LaneChangeConfig {
     pub duration: ValueOrRange,
 }
 
-/// Bicycle model parameters for a specific actor
+/// Kinematic bicycle model parameters for a single actor.
+///
+/// Models vehicle dynamics with front-wheel steering using a small-angle
+/// approximation. The minimum turn radius is `wheelbase / max_steering_angle`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct BicycleParams {
     /// Wheelbase in meters (distance between front and rear axles)
@@ -127,7 +134,9 @@ impl BicycleParams {
     }
 }
 
-/// Scenario-level bicycle configuration (default parameters for all actors)
+/// Scenario-level defaults for bicycle model parameters.
+///
+/// Applied to any actor that does not specify its own [`BicycleParams`].
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct BicycleConfig {
     /// Default wheelbase for actors without specific bicycle_params
@@ -163,11 +172,14 @@ impl BicycleConfig {
     }
 }
 
-/// Configuration for how constraints should be enforced
+/// Per-constraint enforcement configuration.
+///
+/// Controls how each safety constraint is treated during generation:
+/// enforced (must hold), violated (adversarial), or ignored.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ConstraintModes {
-    /// Detailed per-constraint configuration
+    /// Individual mode per constraint (e.g., enforce TTC but violate distance).
     Detailed {
         #[serde(default)]
         min_ttc: ConstraintMode,
@@ -184,7 +196,7 @@ pub enum ConstraintModes {
         #[serde(default)]
         max_relative_velocity: ConstraintMode,
     },
-    /// Shorthand: "violate_all", "ignore_all", "enforce_all"
+    /// Bulk mode string: `"violate_all"`, `"ignore_all"`, or `"enforce_all"`.
     Shorthand(String),
 }
 
@@ -296,23 +308,34 @@ impl ConstraintModes {
     }
 }
 
-/// Actor role (ego, NPC vehicle, or pedestrian)
+/// Role of an actor in the scenario.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 pub enum ActorRole {
+    /// The autonomous vehicle under test.
     #[serde(rename = "ego")]
     Ego,
+    /// A non-player-character vehicle (other traffic).
     #[serde(rename = "npc")]
     Npc,
+    /// A pedestrian with simplified physics (no steering model).
     #[serde(rename = "pedestrian")]
     Pedestrian,
 }
 
+/// The type of driving scenario to generate.
+///
+/// Each variant maps to a [`ScenarioModel`](crate::scenarios::ScenarioModel) implementation
+/// that defines behavioral LTL and validation rules.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ScenarioType {
+    /// NPC cuts in from the left lane ahead of ego.
     CutInLeft,
+    /// NPC cuts in from the right lane ahead of ego.
     CutInRight,
+    /// NPC overtakes ego via the left lane (two sequential lane changes).
     OvertakeLeft,
+    /// Pedestrian crosses the road while ego approaches.
     PedestrianCrossing,
 }
 
@@ -343,7 +366,10 @@ impl ScenarioType {
     }
 }
 
-/// Road specification with lane directions for bidirectional traffic
+/// Single straight road with configurable lanes, widths, and per-lane directions.
+///
+/// Bidirectional traffic is modeled by assigning `+1` (forward) or `-1` (backward)
+/// to each lane in `lane_directions`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RoadSpec {
     /// Number of lanes (total, both directions)
@@ -413,7 +439,10 @@ fn default_lane_directions() -> Vec<i32> {
     vec![1; 2] // Default to 2 forward lanes
 }
 
-/// Generic actor specification (supports both ego and NPCs)
+/// Specification of a single actor (ego vehicle, NPC vehicle, or pedestrian).
+///
+/// Position and speed can be fixed values or ranges; ranges let the Z3 solver
+/// choose concrete values that satisfy all constraints.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ActorSpec {
     pub id: String,
@@ -436,7 +465,11 @@ pub struct ActorSpec {
     pub bicycle_params: Option<BicycleParams>,
 }
 
-/// Root scenario specification
+/// Root configuration parsed from a YAML scenario file.
+///
+/// Contains all information needed to generate one or more concrete scenarios:
+/// actors, road geometry, timing, safety thresholds, constraint modes, and
+/// coordinate system selection.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ScenarioSpec {
     pub scenario_type: ScenarioType,
@@ -499,11 +532,13 @@ fn default_max_lateral_acceleration() -> f64 {
     2.0 // 2.0 m/s² - comfortable driving
 }
 
-/// Value that can be either fixed or a range for Z3 to solve
+/// A numeric value that is either fixed or a `[min, max]` range for the solver to explore.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ValueOrRange {
+    /// Exact value (encoded as an equality constraint in Z3).
     Value(f64),
+    /// Inclusive range `[min, max]` (encoded as inequality constraints in Z3).
     Range([f64; 2]), // [min, max]
 }
 

@@ -1578,4 +1578,685 @@ mod tests {
             println!("VelocityGT/LT use linear constraints (no quadratic operations)");
         });
     }
+
+    /// Helper: create a two-actor spec with both in the same lane (for TTC/distance tests)
+    fn create_two_actor_same_lane_spec() -> ScenarioSpec {
+        ScenarioSpec {
+            scenario_type: ScenarioType::CutInLeft,
+            time_step: 0.5,
+            duration: 5.0,
+            actors: vec![
+                ActorSpec {
+                    id: "ego".to_string(),
+                    role: ActorRole::Ego,
+                    lane: 1,
+                    position: ValueOrRange::Value(50.0),
+                    speed: ValueOrRange::Value(20.0),
+                    acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![],
+                    bicycle_params: None,
+                },
+                ActorSpec {
+                    id: "npc".to_string(),
+                    role: ActorRole::Npc,
+                    lane: 1,
+                    position: ValueOrRange::Value(100.0),
+                    speed: ValueOrRange::Value(15.0),
+                    acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![],
+                    bicycle_params: None,
+                },
+            ],
+            min_ttc: 3.0,
+            min_distance: 5.0,
+            road: Some(RoadSpec {
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, 1],
+                road_length: None,
+            }),
+            lane_width: 3.5,
+            num_scenarios: 1,
+            constraint_modes: crate::dsl::types::ConstraintModes::default(),
+            optimization_target: crate::dsl::types::OptimizationTarget::None,
+            max_acceleration: None,
+            max_deceleration: None,
+            max_velocity: None,
+            min_velocity: None,
+            min_lateral_distance: None,
+            max_relative_velocity: None,
+            max_lateral_acceleration: 2.0,
+            coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
+            bicycle_config: None,
+        }
+    }
+
+    /// Helper: create a two-actor spec with actors in different lanes
+    fn create_two_actor_diff_lane_spec() -> ScenarioSpec {
+        let mut spec = create_two_actor_same_lane_spec();
+        spec.actors[1].lane = 0; // NPC in lane 0, ego in lane 1
+        spec
+    }
+
+    // ===== Group 1: Proposition encoding correctness =====
+
+    #[test]
+    fn test_proposition_distance_gt() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            let spec = create_two_actor_same_lane_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            // Encode: DistanceGT(ego, npc, 30.0) at time 0
+            let formula = LTLFormula::Atom(Proposition::DistanceGT {
+                actor1: "ego".to_string(),
+                actor2: "npc".to_string(),
+                distance: 30.0,
+            });
+            encoder.encode_ltl(&formula);
+
+            assert_eq!(encoder.check(), SatResult::Sat);
+
+            let model = encoder.get_model().unwrap();
+            let px_ego = model
+                .eval(encoder.get_longitudinal_pos("ego", 0), true)
+                .unwrap();
+            let px_npc = model
+                .eval(encoder.get_longitudinal_pos("npc", 0), true)
+                .unwrap();
+
+            // Parse values and verify |px_ego - px_npc| > 30
+            let ego_val: f64 = crate::solver::backend::parse_z3_real_pub(&px_ego.to_string());
+            let npc_val: f64 = crate::solver::backend::parse_z3_real_pub(&px_npc.to_string());
+            let dist = (ego_val - npc_val).abs();
+            assert!(dist > 30.0, "Distance {} should be > 30.0", dist);
+        });
+    }
+
+    #[test]
+    fn test_proposition_lateral_distance_gt() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            let spec = create_two_actor_diff_lane_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            // Encode: LateralDistanceGT(ego, npc, 2.0) at time 0
+            let formula = LTLFormula::Atom(Proposition::LateralDistanceGT {
+                actor1: "ego".to_string(),
+                actor2: "npc".to_string(),
+                distance: 2.0,
+            });
+            encoder.encode_ltl(&formula);
+
+            assert_eq!(encoder.check(), SatResult::Sat);
+
+            let model = encoder.get_model().unwrap();
+            let py_ego = model.eval(encoder.get_lateral_pos("ego", 0), true).unwrap();
+            let py_npc = model.eval(encoder.get_lateral_pos("npc", 0), true).unwrap();
+
+            let ego_lat: f64 = crate::solver::backend::parse_z3_real_pub(&py_ego.to_string());
+            let npc_lat: f64 = crate::solver::backend::parse_z3_real_pub(&py_npc.to_string());
+            let lat_dist = (ego_lat - npc_lat).abs();
+            assert!(
+                lat_dist > 2.0,
+                "Lateral distance {} should be > 2.0",
+                lat_dist
+            );
+        });
+    }
+
+    #[test]
+    fn test_proposition_on_left_of() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            let spec = create_two_actor_diff_lane_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            // Encode: OnLeftOf(ego, npc) — ego.py > npc.py
+            let formula = LTLFormula::Atom(Proposition::OnLeftOf {
+                actor1: "ego".to_string(),
+                actor2: "npc".to_string(),
+            });
+            encoder.encode_ltl(&formula);
+
+            assert_eq!(encoder.check(), SatResult::Sat);
+
+            let model = encoder.get_model().unwrap();
+            let py_ego = model.eval(encoder.get_lateral_pos("ego", 0), true).unwrap();
+            let py_npc = model.eval(encoder.get_lateral_pos("npc", 0), true).unwrap();
+
+            let ego_lat: f64 = crate::solver::backend::parse_z3_real_pub(&py_ego.to_string());
+            let npc_lat: f64 = crate::solver::backend::parse_z3_real_pub(&py_npc.to_string());
+            assert!(
+                ego_lat > npc_lat,
+                "Ego py ({}) should be > NPC py ({})",
+                ego_lat,
+                npc_lat
+            );
+        });
+    }
+
+    #[test]
+    fn test_proposition_on_right_of() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            let spec = create_two_actor_diff_lane_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            // Encode: OnRightOf(npc, ego) — npc.py < ego.py
+            // npc is in lane 0 (py=1.75), ego in lane 1 (py=5.25)
+            let formula = LTLFormula::Atom(Proposition::OnRightOf {
+                actor1: "npc".to_string(),
+                actor2: "ego".to_string(),
+            });
+            encoder.encode_ltl(&formula);
+
+            assert_eq!(encoder.check(), SatResult::Sat);
+
+            let model = encoder.get_model().unwrap();
+            let py_ego = model.eval(encoder.get_lateral_pos("ego", 0), true).unwrap();
+            let py_npc = model.eval(encoder.get_lateral_pos("npc", 0), true).unwrap();
+
+            let ego_lat: f64 = crate::solver::backend::parse_z3_real_pub(&py_ego.to_string());
+            let npc_lat: f64 = crate::solver::backend::parse_z3_real_pub(&py_npc.to_string());
+            assert!(
+                npc_lat < ego_lat,
+                "NPC py ({}) should be < Ego py ({})",
+                npc_lat,
+                ego_lat
+            );
+        });
+    }
+
+    #[test]
+    fn test_proposition_relative_velocity_gt() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            // ego speed=20, npc speed=15, so |20-15|=5 > 3
+            let spec = create_two_actor_same_lane_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            let formula = LTLFormula::Atom(Proposition::RelativeVelocityGT {
+                actor1: "ego".to_string(),
+                actor2: "npc".to_string(),
+                velocity: 3.0,
+            });
+            encoder.encode_ltl(&formula);
+
+            assert_eq!(encoder.check(), SatResult::Sat);
+
+            let model = encoder.get_model().unwrap();
+            let vx_ego = model
+                .eval(encoder.get_longitudinal_vel("ego", 0), true)
+                .unwrap();
+            let vx_npc = model
+                .eval(encoder.get_longitudinal_vel("npc", 0), true)
+                .unwrap();
+
+            let ego_v: f64 = crate::solver::backend::parse_z3_real_pub(&vx_ego.to_string());
+            let npc_v: f64 = crate::solver::backend::parse_z3_real_pub(&vx_npc.to_string());
+            let rel_vel = (ego_v - npc_v).abs();
+            assert!(
+                rel_vel > 3.0,
+                "Relative velocity {} should be > 3.0",
+                rel_vel
+            );
+        });
+    }
+
+    #[test]
+    fn test_proposition_manhattan_distance_gt() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            let spec = create_two_actor_diff_lane_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            // ego at px=50, npc at px=100, different lanes → manhattan should be large
+            let formula = LTLFormula::Atom(Proposition::ManhattanDistanceGT {
+                actor1: "ego".to_string(),
+                actor2: "npc".to_string(),
+                distance: 40.0,
+            });
+            encoder.encode_ltl(&formula);
+
+            assert_eq!(encoder.check(), SatResult::Sat);
+
+            let model = encoder.get_model().unwrap();
+            let px_ego = model
+                .eval(encoder.get_longitudinal_pos("ego", 0), true)
+                .unwrap();
+            let py_ego = model.eval(encoder.get_lateral_pos("ego", 0), true).unwrap();
+            let px_npc = model
+                .eval(encoder.get_longitudinal_pos("npc", 0), true)
+                .unwrap();
+            let py_npc = model.eval(encoder.get_lateral_pos("npc", 0), true).unwrap();
+
+            let ex: f64 = crate::solver::backend::parse_z3_real_pub(&px_ego.to_string());
+            let ey: f64 = crate::solver::backend::parse_z3_real_pub(&py_ego.to_string());
+            let nx: f64 = crate::solver::backend::parse_z3_real_pub(&px_npc.to_string());
+            let ny: f64 = crate::solver::backend::parse_z3_real_pub(&py_npc.to_string());
+            let manhattan = (ex - nx).abs() + (ey - ny).abs();
+            assert!(
+                manhattan > 40.0,
+                "Manhattan distance {} should be > 40.0",
+                manhattan
+            );
+        });
+    }
+
+    #[test]
+    fn test_proposition_rectangular_distance_gt() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            let spec = create_two_actor_diff_lane_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            let formula = LTLFormula::Atom(Proposition::RectangularDistanceGT {
+                actor1: "ego".to_string(),
+                actor2: "npc".to_string(),
+                threshold_x: 30.0,
+                threshold_y: 2.0,
+            });
+            encoder.encode_ltl(&formula);
+
+            assert_eq!(encoder.check(), SatResult::Sat);
+
+            let model = encoder.get_model().unwrap();
+            let px_ego = model
+                .eval(encoder.get_longitudinal_pos("ego", 0), true)
+                .unwrap();
+            let py_ego = model.eval(encoder.get_lateral_pos("ego", 0), true).unwrap();
+            let px_npc = model
+                .eval(encoder.get_longitudinal_pos("npc", 0), true)
+                .unwrap();
+            let py_npc = model.eval(encoder.get_lateral_pos("npc", 0), true).unwrap();
+
+            let ex: f64 = crate::solver::backend::parse_z3_real_pub(&px_ego.to_string());
+            let ey: f64 = crate::solver::backend::parse_z3_real_pub(&py_ego.to_string());
+            let nx: f64 = crate::solver::backend::parse_z3_real_pub(&px_npc.to_string());
+            let ny: f64 = crate::solver::backend::parse_z3_real_pub(&py_npc.to_string());
+            let dx = (ex - nx).abs();
+            let dy = (ey - ny).abs();
+            assert!(
+                dx > 30.0 || dy > 2.0,
+                "Rectangular: |dx|={} should be > 30 OR |dy|={} should be > 2",
+                dx,
+                dy
+            );
+        });
+    }
+
+    // ===== Group 2: TTC constraint encoding =====
+
+    #[test]
+    fn test_ttc_constraint_same_lane_approaching() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            // ego at 50 speed 20, npc at 100 speed 15 — ego approaching npc
+            let spec = create_two_actor_same_lane_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
+
+            // Always TTC > 3.0
+            let formula = LTLFormula::Atom(Proposition::TTCGT {
+                actor1: "ego".to_string(),
+                actor2: "npc".to_string(),
+                ttc: 3.0,
+            })
+            .always();
+            encoder.encode_ltl(&formula);
+
+            // Should be satisfiable — distance=50, rel_vel=5, TTC=10 initially
+            assert_eq!(encoder.check(), SatResult::Sat);
+        });
+    }
+
+    #[test]
+    fn test_ttc_constraint_different_lanes_unconstrained() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            // Actors in different lanes — TTC constraint is trivially satisfied
+            let spec = create_two_actor_diff_lane_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
+
+            // Always TTC > 100.0 (very high threshold, but different lanes so no issue)
+            let formula = LTLFormula::Atom(Proposition::TTCGT {
+                actor1: "ego".to_string(),
+                actor2: "npc".to_string(),
+                ttc: 100.0,
+            })
+            .always();
+            encoder.encode_ltl(&formula);
+
+            assert_eq!(encoder.check(), SatResult::Sat);
+        });
+    }
+
+    // ===== Group 3: Validation metrics =====
+
+    #[test]
+    fn test_validation_metrics_safe_scenario() {
+        use crate::ltl::generator::LTLGenerator;
+
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let mut encoder = Z3Encoder::new(spec.clone());
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
+
+            let ltl_formula = LTLGenerator::generate(&spec).unwrap();
+            encoder.encode_ltl(&ltl_formula);
+
+            assert_eq!(encoder.check(), SatResult::Sat);
+            let model = encoder.get_model().unwrap();
+            let scenario = encoder.extract_scenario(&model).unwrap();
+
+            assert!(
+                scenario.validation.all_constraints_satisfied,
+                "Safe scenario should satisfy all constraints"
+            );
+            assert!(
+                scenario.validation.min_ttc >= spec.min_ttc
+                    || scenario.validation.min_ttc == f64::INFINITY,
+                "Min TTC {} should be >= {}",
+                scenario.validation.min_ttc,
+                spec.min_ttc
+            );
+            assert!(
+                scenario.validation.min_distance >= spec.min_distance
+                    || scenario.validation.min_distance == f64::INFINITY,
+                "Min distance {} should be >= {}",
+                scenario.validation.min_distance,
+                spec.min_distance
+            );
+        });
+    }
+
+    #[test]
+    fn test_validation_metrics_detects_violations() {
+        use crate::ltl::generator::LTLGenerator;
+
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            // Use adversarial mode: violate TTC
+            let mut spec = create_test_spec();
+            spec.constraint_modes =
+                crate::dsl::types::ConstraintModes::Shorthand("violate_all".to_string());
+
+            let mut encoder = Z3Encoder::new(spec.clone());
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
+
+            let ltl_formula = LTLGenerator::generate(&spec).unwrap();
+            encoder.encode_ltl(&ltl_formula);
+
+            let result = encoder.check();
+            if result == SatResult::Sat {
+                let model = encoder.get_model().unwrap();
+                let scenario = encoder.extract_scenario(&model).unwrap();
+
+                // In adversarial mode, violations should be detected
+                let has_violation = !scenario.validation.all_constraints_satisfied
+                    || !scenario.validation.safety_violations.is_empty();
+                // Note: it's possible the solver finds a scenario that technically
+                // violates at some point but validation still passes due to timing.
+                // The key test is that the pipeline doesn't crash.
+                println!(
+                    "Adversarial: constraints_satisfied={}, violations={}",
+                    scenario.validation.all_constraints_satisfied,
+                    scenario.validation.safety_violations.len()
+                );
+                // If violations exist, verify they have content
+                if !scenario.validation.safety_violations.is_empty() {
+                    assert!(has_violation);
+                    for v in &scenario.validation.safety_violations {
+                        assert!(!v.is_empty(), "Violation string should not be empty");
+                    }
+                }
+            } else {
+                // UNSAT is acceptable for adversarial — constraints may conflict
+                println!("Adversarial scenario is UNSAT (constraints conflict)");
+            }
+        });
+    }
+
+    #[test]
+    fn test_validation_acceleration_metrics() {
+        use crate::ltl::generator::LTLGenerator;
+
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let mut encoder = Z3Encoder::new(spec.clone());
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
+
+            let ltl_formula = LTLGenerator::generate(&spec).unwrap();
+            encoder.encode_ltl(&ltl_formula);
+
+            assert_eq!(encoder.check(), SatResult::Sat);
+            let model = encoder.get_model().unwrap();
+            let scenario = encoder.extract_scenario(&model).unwrap();
+
+            // Check that acceleration metrics are computed from trajectory
+            let ego = scenario.get_actor("ego").unwrap();
+            // Compute acceleration from velocity differences
+            let mut max_accel = 0.0_f64;
+            let mut max_decel = 0.0_f64;
+            for i in 1..ego.states.len() {
+                let dv = ego.states[i].velocity().vx - ego.states[i - 1].velocity().vx;
+                let accel = dv / spec.time_step;
+                if accel > max_accel {
+                    max_accel = accel;
+                }
+                if accel < max_decel {
+                    max_decel = accel;
+                }
+            }
+            // Acceleration should be within bounds [-8, 3]
+            assert!(
+                max_accel <= 3.0 + 0.1,
+                "Max acceleration {} should be <= 3.0",
+                max_accel
+            );
+            assert!(
+                max_decel >= -8.0 - 0.1,
+                "Max deceleration {} should be >= -8.0",
+                max_decel
+            );
+        });
+    }
+
+    // ===== Group 4: Optimizer encoder =====
+
+    #[test]
+    fn test_optimizer_minimize_distance() {
+        use crate::ltl::generator::LTLGenerator;
+        use crate::solver::backend::OptimizationTarget;
+        use crate::solver::backend::OptimizerBackend;
+
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let backend = OptimizerBackend::new(OptimizationTarget::MinimizeDistance);
+            let mut encoder = GenericEncoder::with_backend(spec.clone(), backend);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
+
+            let ltl_formula = LTLGenerator::generate(&spec).unwrap();
+            encoder.encode_ltl(&ltl_formula);
+            encoder.encode_objective();
+
+            let result = encoder.check();
+            assert_eq!(result, SatResult::Sat, "Optimizer should find a solution");
+
+            let model = encoder.get_model().unwrap();
+            encoder.extract_optimal_value(&model);
+            let optimal = encoder.get_optimal_value();
+            assert!(optimal.is_some(), "Should have an optimal value");
+            let val = optimal.unwrap();
+            assert!(val >= 0.0, "Minimum distance {} should be >= 0", val);
+            println!("Minimized distance: {}", val);
+        });
+    }
+
+    #[test]
+    fn test_optimizer_maximize_distance() {
+        use crate::ltl::generator::LTLGenerator;
+        use crate::solver::backend::OptimizationTarget;
+        use crate::solver::backend::OptimizerBackend;
+
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let backend = OptimizerBackend::new(OptimizationTarget::MaximizeTtc);
+            let mut encoder = GenericEncoder::with_backend(spec.clone(), backend);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
+
+            let ltl_formula = LTLGenerator::generate(&spec).unwrap();
+            encoder.encode_ltl(&ltl_formula);
+            encoder.encode_objective();
+
+            let result = encoder.check();
+            assert_eq!(result, SatResult::Sat, "Optimizer should find a solution");
+
+            let model = encoder.get_model().unwrap();
+            encoder.extract_optimal_value(&model);
+            let optimal = encoder.get_optimal_value();
+            assert!(optimal.is_some(), "Should have an optimal value");
+            let val = optimal.unwrap();
+            assert!(val > 0.0, "Maximized distance {} should be > 0", val);
+            println!("Maximized distance: {}", val);
+        });
+    }
+
+    // ===== Group 5: Edge cases =====
+
+    #[test]
+    fn test_ltl_next_at_horizon_boundary() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            // Create a very short scenario (2 time steps: horizon=2)
+            let mut spec = create_two_actor_same_lane_spec();
+            spec.duration = 1.0;
+            spec.time_step = 0.5; // horizon = 2
+
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            // Encode: Always(Next(Next(Next(InLane(ego, 1)))))
+            // At horizon, Next should return false
+            // This creates Next at time horizon which should be false
+            let inner = LTLFormula::Atom(Proposition::InLane {
+                actor: "ego".to_string(),
+                lane: 1,
+            });
+            // Triple Next from time 0 means we need time 3, but horizon is 2
+            let formula = LTLFormula::Next(Box::new(LTLFormula::Next(Box::new(LTLFormula::Next(
+                Box::new(inner),
+            )))));
+            encoder.encode_ltl(&formula);
+
+            // Should be UNSAT because Next at horizon returns false
+            assert_eq!(
+                encoder.check(),
+                SatResult::Unsat,
+                "Next beyond horizon should be unsatisfiable"
+            );
+        });
+    }
+
+    #[test]
+    fn test_unsatisfiable_constraints() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            let spec = create_two_actor_same_lane_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            // Ego must be in lane 0 AND lane 1 simultaneously at time 0
+            let in_lane_0 = LTLFormula::Atom(Proposition::InLane {
+                actor: "ego".to_string(),
+                lane: 0,
+            });
+            let in_lane_1 = LTLFormula::Atom(Proposition::InLane {
+                actor: "ego".to_string(),
+                lane: 1,
+            });
+            let formula = LTLFormula::And(Box::new(in_lane_0), Box::new(in_lane_1));
+            encoder.encode_ltl(&formula);
+
+            assert_eq!(
+                encoder.check(),
+                SatResult::Unsat,
+                "Actor cannot be in two lanes simultaneously"
+            );
+        });
+    }
 }

@@ -1,6 +1,7 @@
-//! Scenario module
+//! Scenario output, extraction, and export.
 //!
-//! Output data structures and extraction from Z3 models
+//! Contains the output data model ([`Scenario`], [`ActorTrajectory`], [`State`]),
+//! Z3 model extraction, and exporters for OpenSCENARIO, OpenDRIVE, SVG, GIF, and OpenLabel.
 
 pub mod extractor;
 pub mod gif_animator;

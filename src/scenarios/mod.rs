@@ -1,4 +1,7 @@
-//! Scenario model trait and implementations
+//! Scenario model trait and per-scenario-type implementations.
+//!
+//! Each scenario type (cut-in, overtake, pedestrian crossing) implements
+//! [`ScenarioModel`] to define its behavioral LTL formula and validation rules.
 
 use crate::dsl::types::{ConstraintMode, ScenarioSpec};
 use crate::error::Result;

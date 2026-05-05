@@ -1,24 +1,36 @@
 //! LTL (Linear Temporal Logic) formula AST
+//!
+//! Formulas are expanded into Z3 constraints via bounded model checking:
+//! temporal operators become conjunctions/disjunctions over discrete time steps.
 
 use std::fmt;
 
-/// LTL Formula Abstract Syntax Tree
+/// AST node for an LTL formula used in bounded model checking.
+///
+/// Temporal operators (`Always`, `Eventually`, `Until`, `Next`) are expanded
+/// over a finite time horizon during Z3 encoding.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LTLFormula {
-    // Atomic propositions
+    /// Atomic proposition about scenario state at a single time step.
     Atom(Proposition),
 
-    // Boolean operators
+    /// Logical negation.
     Not(Box<LTLFormula>),
+    /// Logical conjunction.
     And(Box<LTLFormula>, Box<LTLFormula>),
+    /// Logical disjunction.
     Or(Box<LTLFormula>, Box<LTLFormula>),
+    /// Material implication (phi -> psi).
     Implies(Box<LTLFormula>, Box<LTLFormula>),
 
-    // Temporal operators
-    Next(Box<LTLFormula>),                   // X φ
-    Eventually(Box<LTLFormula>),             // F φ (◊φ)
-    Always(Box<LTLFormula>),                 // G φ (□φ)
-    Until(Box<LTLFormula>, Box<LTLFormula>), // φ U ψ
+    /// Next (X phi) -- holds at the immediately following time step.
+    Next(Box<LTLFormula>),
+    /// Eventually (F phi) -- holds at some future time step.
+    Eventually(Box<LTLFormula>),
+    /// Always (G phi) -- holds at all remaining time steps.
+    Always(Box<LTLFormula>),
+    /// Until (phi U psi) -- phi holds until psi becomes true.
+    Until(Box<LTLFormula>, Box<LTLFormula>),
 }
 
 /// Atomic propositions about scenario state
