@@ -149,6 +149,7 @@ impl Z3Backend for OptimizerBackend {
 }
 
 /// Parse a Z3 real value string to f64 (public for testing)
+#[cfg(test)]
 pub(crate) fn parse_z3_real_pub(s: &str) -> f64 {
     parse_z3_real(s).unwrap_or(0.0)
 }
