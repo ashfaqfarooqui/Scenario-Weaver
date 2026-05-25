@@ -2,7 +2,7 @@
 
 ← [Back to README](../README.md)
 
-This guide covers adding entirely new scenario types to ScenarioWeaver in Rust. For writing YAML specifications for existing types, see [CREATING_SCENARIOS.md](../CREATING_SCENARIOS.md).
+This guide covers adding entirely new scenario types to ScenarioWeaver in Rust. For writing YAML specifications for existing types, see [CREATING_SCENARIOS.md](CREATING_SCENARIOS.md).
 
 ---
 

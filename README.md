@@ -138,8 +138,7 @@ cargo doc --open
 | [docs/scenario-types.md](docs/scenario-types.md) | Adding new scenario types in Rust (step-by-step) |
 | [docs/architecture.md](docs/architecture.md) | Pipeline, encoder architecture, module map |
 | [docs/z3_constraints.md](docs/z3_constraints.md) | Z3 constraint reference for both encoders |
-| [CREATING_SCENARIOS.md](CREATING_SCENARIOS.md) | YAML specification guide and scenario authoring |
-| [deliverable.md](deliverable.md) | Project rationale and technical description |
+| [CREATING_SCENARIOS.md](docs/CREATING_SCENARIOS.md) | YAML specification guide and scenario authoring |
 
 ## License
 

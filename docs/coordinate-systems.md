@@ -101,7 +101,6 @@ vy ≈ v * θ
 ### Examples
 
 - `examples/bicycle_lane_change.yaml` — Highway cut-in with bicycle dynamics
-- `examples/bicycle_straight.yaml` — Simple straight-road scenario with bicycle model
 
 ---
 

@@ -3092,6 +3092,5 @@ This guide covered:
 - Complete code example and troubleshooting
 
 For additional details, see:
-- `CLAUDE.md` - AI assistant contributor guide with deeper architectural details
-- `README_ADVERSARIAL.md` - Detailed adversarial generation guide
+- `docs/adversarial-generation.md` - Detailed adversarial generation guide
 - `README.md` - User-facing quick start documentation

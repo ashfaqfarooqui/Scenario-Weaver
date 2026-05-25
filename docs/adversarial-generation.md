@@ -151,7 +151,7 @@ constraint_modes:
   max_velocity: violate   # Must exceed speed limit
 ```
 
-See also: `examples/speed_limit_violation.yaml`, `examples/school_zone.yaml`, `examples/multi_lane_safety.yaml`, `examples/unsafe_following.yaml`.
+See also: `examples/speed_limit_violation.yaml`, `examples/multi_lane_safety.yaml`, `examples/unsafe_following.yaml`.
 
 ---
 

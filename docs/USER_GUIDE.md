@@ -671,32 +671,22 @@ All examples are in the `examples/` directory.
 | `cut_in_right.yaml` | Cut-in from right lane, 2-lane road |
 | `cut_in_left_adversarial_all.yaml` | Cut-in with all constraints violated |
 | `cut_in_left_adversarial_ttc.yaml` | Cut-in with only TTC violated |
-| `cut_in_left_fixed_ego.yaml` | Cut-in with fixed (non-range) ego parameters |
-| `cut_in_left_cartesian.yaml` | Explicit cartesian coordinate system |
-| `cut_in_left_bicycle.yaml` | Cut-in using bicycle model |
-| `cut_in_right_cartesian.yaml` | Right cut-in, cartesian |
 | `cut_in_right_bicycle.yaml` | Right cut-in, bicycle model |
 | `overtake_left.yaml` | NPC overtakes ego via left lane (two lane changes) |
 | `overtake_with_opposite.yaml` | Overtake with oncoming traffic |
 | `pedestrian_crossing.yaml` | Pedestrian crosses road |
 | `bicycle_lane_change.yaml` | Bicycle model lane change |
-| `bicycle_straight.yaml` | Bicycle model, straight driving (no lane change) |
-| `bicycle_minimal.yaml` | Minimal bicycle model example |
-| `bicycle_lane_change_simple.yaml` | Simplified bicycle lane change |
 | `speed_limit_violation.yaml` | Adversarial speed limit violation |
-| `school_zone.yaml` | Enforced speed limit in school zone |
 | `multi_lane_safety.yaml` | Lateral distance constraints |
 | `unsafe_following.yaml` | Relative velocity constraints |
 | `simple_bidirectional.yaml` | Bidirectional road scenario |
-| `both_directions_safe.yaml` | Safe bidirectional traffic |
 | `head_on_collision.yaml` | Head-on collision scenario |
 | `head_on_near_miss.yaml` | Head-on near-miss |
-| `smooth_lane_change_cartesian.yaml` | Smooth lane change demonstration |
 | `with_import.yaml` | Road import from external file |
 
 ---
 
 ## Further Reading
 
-- [CREATING_SCENARIOS.md](../CREATING_SCENARIOS.md) -- guide for extending ScenarioWeaver with new scenario types and constraints
+- [CREATING_SCENARIOS.md](CREATING_SCENARIOS.md) -- guide for extending ScenarioWeaver with new scenario types and constraints
 - [docs/z3_constraints.md](z3_constraints.md) -- detailed reference for Z3 constraint encoding internals
