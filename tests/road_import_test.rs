@@ -11,23 +11,24 @@ fn project_root() -> &'static Path {
 
 /// Create a temp YAML file at the project root so relative imports resolve correctly.
 /// The `with_import.yaml` example uses `roads/...` relative to CWD/project root.
-fn write_import_yaml_at_root() -> PathBuf {
-    let path = project_root().join("_test_import_tmp.yaml");
+/// Uses a unique suffix to avoid race conditions between parallel tests.
+fn write_import_yaml_at_root(suffix: &str) -> PathBuf {
+    let path = project_root().join(format!("_test_import_tmp_{}.yaml", suffix));
     let content = std::fs::read_to_string(project_root().join("examples/with_import.yaml"))
         .expect("should read example");
     std::fs::write(&path, &content).unwrap();
     path
 }
 
-fn cleanup_tmp() {
-    let _ = std::fs::remove_file(project_root().join("_test_import_tmp.yaml"));
+fn cleanup_tmp(suffix: &str) {
+    let _ = std::fs::remove_file(project_root().join(format!("_test_import_tmp_{}.yaml", suffix)));
 }
 
 #[test]
 fn test_with_import_yaml_parses() {
-    let path = write_import_yaml_at_root();
+    let path = write_import_yaml_at_root("parses");
     let result = parse_yaml_file(&path);
-    cleanup_tmp();
+    cleanup_tmp("parses");
     let spec = result.expect("should parse with_import.yaml");
 
     let road = spec.road.expect("spec should have road after import");
@@ -38,9 +39,9 @@ fn test_with_import_yaml_parses() {
 
 #[test]
 fn test_with_import_generates_scenario() {
-    let path = write_import_yaml_at_root();
+    let path = write_import_yaml_at_root("generates");
     let result = parse_yaml_file(&path);
-    cleanup_tmp();
+    cleanup_tmp("generates");
     let spec = result.expect("should parse");
 
     let scenario = generate_single_scenario_from_spec(spec).expect("should generate scenario");
@@ -104,9 +105,9 @@ actors:
 
 #[test]
 fn test_road_spec_from_import_has_lanes() {
-    let path = write_import_yaml_at_root();
+    let path = write_import_yaml_at_root("has_lanes");
     let result = parse_yaml_file(&path);
-    cleanup_tmp();
+    cleanup_tmp("has_lanes");
     let spec = result.expect("should parse");
 
     let road = spec.road.expect("should have road");
@@ -123,9 +124,9 @@ fn test_imported_road_matches_file_content() {
     let road_direct: scenario_weaver::dsl::types::RoadSpec =
         serde_yml::from_str(&road_content).unwrap();
 
-    let path = write_import_yaml_at_root();
+    let path = write_import_yaml_at_root("matches");
     let result = parse_yaml_file(&path);
-    cleanup_tmp();
+    cleanup_tmp("matches");
     let spec = result.expect("should parse");
     let road_imported = spec.road.expect("should have road");
 
