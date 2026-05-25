@@ -933,3 +933,311 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         &self.spec
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dsl::types::{
+        ActorRole, ActorSpec, BicycleConfig, BicycleParams, LaneChangeConfig, LaneChangeDirection,
+        RoadSpec, ScenarioType, ValueOrRange,
+    };
+    use crate::solver::backend::SolverBackend;
+    use crate::solver::coordinate_encoder::CoordinateEncoder;
+    use z3::{Config, SatResult};
+
+    fn create_bicycle_spec() -> ScenarioSpec {
+        ScenarioSpec {
+            scenario_type: ScenarioType::CutInLeft,
+            time_step: 0.5,
+            duration: 10.0,
+            actors: vec![
+                ActorSpec {
+                    id: "ego".to_string(),
+                    role: ActorRole::Ego,
+                    lane: 1,
+                    position: ValueOrRange::Value(50.0),
+                    speed: ValueOrRange::Value(15.0),
+                    acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![],
+                    bicycle_params: Some(BicycleParams {
+                        wheelbase: 2.7,
+                        max_steering_angle: 0.5,
+                        max_steering_rate: 0.5,
+                    }),
+                },
+                ActorSpec {
+                    id: "npc".to_string(),
+                    role: ActorRole::Npc,
+                    lane: 0,
+                    position: ValueOrRange::Range([60.0, 80.0]),
+                    speed: ValueOrRange::Range([10.0, 20.0]),
+                    acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![LaneChangeConfig {
+                        direction: LaneChangeDirection::Right,
+                        start_time: ValueOrRange::Range([2.5, 7.5]),
+                        duration: ValueOrRange::Range([3.0, 4.0]),
+                    }],
+                    bicycle_params: Some(BicycleParams {
+                        wheelbase: 2.7,
+                        max_steering_angle: 0.5,
+                        max_steering_rate: 0.5,
+                    }),
+                },
+            ],
+            min_ttc: 3.0,
+            min_distance: 5.0,
+            road: Some(RoadSpec {
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, 1],
+                road_length: None,
+            }),
+            lane_width: 3.5,
+            num_scenarios: 1,
+            constraint_modes: crate::dsl::types::ConstraintModes::default(),
+            optimization_target: crate::dsl::types::OptimizationTarget::None,
+            max_acceleration: None,
+            max_deceleration: None,
+            max_velocity: None,
+            min_velocity: None,
+            min_lateral_distance: None,
+            max_relative_velocity: None,
+            max_lateral_acceleration: 2.0,
+            coordinate_system: crate::dsl::types::CoordinateSystem::Bicycle,
+            bicycle_config: Some(BicycleConfig {
+                default_wheelbase: 2.7,
+                default_max_steering_angle: 0.5,
+                default_max_steering_rate: 0.5,
+            }),
+        }
+    }
+
+    fn eval_real(model: &z3::Model, var: &Real) -> f64 {
+        crate::solver::encoder_utils::extract_real(model, var).unwrap()
+    }
+
+    fn eval_int(model: &z3::Model, var: &Int) -> i64 {
+        crate::solver::encoder_utils::extract_int(model, var).unwrap() as i64
+    }
+
+    fn approx_eq(a: f64, b: f64, eps: f64) -> bool {
+        (a - b).abs() < eps
+    }
+
+    #[test]
+    fn test_bicycle_encoder_creation() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_bicycle_spec();
+            let backend = SolverBackend::new();
+            let _encoder = BicycleEncoder::new(spec, backend);
+        });
+    }
+
+    #[test]
+    fn test_create_variables() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_bicycle_spec();
+            let backend = SolverBackend::new();
+            let mut encoder = BicycleEncoder::new(spec.clone(), backend);
+            encoder.create_variables(20, &spec);
+
+            assert_eq!(encoder.positions_x["ego"].len(), 21);
+            assert_eq!(encoder.positions_y["npc"].len(), 21);
+            assert_eq!(encoder.speed_v["ego"].len(), 21);
+            assert_eq!(encoder.heading_theta["ego"].len(), 21);
+            assert_eq!(encoder.steering_delta["npc"].len(), 21);
+            assert_eq!(encoder.accelerations["ego"].len(), 21);
+            assert_eq!(encoder.lanes["ego"].len(), 21);
+            assert_eq!(encoder.velocities_y["npc"].len(), 21);
+
+            let _ = encoder.get_longitudinal_pos("ego", 0);
+            let _ = encoder.get_lateral_pos("npc", 10);
+            let _ = encoder.get_longitudinal_vel("ego", 20);
+            let _ = encoder.get_lateral_vel("npc", 5);
+            let _ = encoder.get_lane_var("ego", 0);
+        });
+    }
+
+    #[test]
+    fn test_encode_initial_conditions() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_bicycle_spec();
+            let backend = SolverBackend::new();
+            let mut encoder = BicycleEncoder::new(spec.clone(), backend);
+            encoder.create_variables(20, &spec);
+            encoder.encode_initial_conditions();
+
+            assert_eq!(encoder.backend.check(), SatResult::Sat);
+            let model = encoder.backend.get_model().unwrap();
+
+            let ego_px = eval_real(&model, &encoder.positions_x["ego"][0]);
+            assert!(approx_eq(ego_px, 50.0, 0.1), "ego px={}", ego_px);
+
+            let ego_v = eval_real(&model, &encoder.speed_v["ego"][0]);
+            assert!(approx_eq(ego_v, 15.0, 0.1), "ego v={}", ego_v);
+
+            let ego_lane = eval_int(&model, &encoder.lanes["ego"][0]);
+            assert_eq!(ego_lane, 1);
+        });
+    }
+
+    #[test]
+    fn test_encode_kinematics() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_bicycle_spec();
+            let backend = SolverBackend::new();
+            let mut encoder = BicycleEncoder::new(spec.clone(), backend);
+            encoder.create_variables(20, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics(0.5);
+
+            assert_eq!(encoder.backend.check(), SatResult::Sat);
+            let model = encoder.backend.get_model().unwrap();
+
+            let px0 = eval_real(&model, &encoder.positions_x["ego"][0]);
+            let px1 = eval_real(&model, &encoder.positions_x["ego"][1]);
+            let v0 = eval_real(&model, &encoder.speed_v["ego"][0]);
+
+            // px[1] = px[0] + v[0] * dt (direction=1)
+            let expected_px1 = px0 + v0 * 0.5;
+            assert!(
+                approx_eq(px1, expected_px1, 0.1),
+                "px1={} expected={}",
+                px1,
+                expected_px1
+            );
+        });
+    }
+
+    #[test]
+    fn test_velocity_constraints() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_bicycle_spec();
+            let backend = SolverBackend::new();
+            let mut encoder = BicycleEncoder::new(spec.clone(), backend);
+            encoder.create_variables(20, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_velocity_constraints();
+
+            // Add constraint that ego speed at t=5 is negative — should be UNSAT
+            // because encode_kinematics (called via bicycle_constraints in kinematics)
+            // enforces v >= 0. But velocity_constraints only adds upper bound.
+            // The v >= 0 is in encode_bicycle_constraints called from encode_kinematics.
+            // So let's encode kinematics too.
+            encoder.encode_kinematics(0.5);
+
+            // Now assert v < 0 at some step
+            let neg = Real::from_rational(-1, 1);
+            encoder.backend.assert(&encoder.speed_v["ego"][5].lt(&neg));
+
+            assert_eq!(encoder.backend.check(), SatResult::Unsat);
+        });
+    }
+
+    #[test]
+    fn test_acceleration_constraints() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_bicycle_spec();
+            let backend = SolverBackend::new();
+            let mut encoder = BicycleEncoder::new(spec.clone(), backend);
+            encoder.create_variables(20, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_acceleration_constraints();
+
+            assert_eq!(encoder.backend.check(), SatResult::Sat);
+            let model = encoder.backend.get_model().unwrap();
+
+            // Constant acceleration: a[0] == a[1]
+            let a0 = eval_real(&model, &encoder.accelerations["ego"][0]);
+            let a1 = eval_real(&model, &encoder.accelerations["ego"][1]);
+            assert!(approx_eq(a0, a1, 0.1), "a0={} a1={}", a0, a1);
+        });
+    }
+
+    #[test]
+    fn test_lane_bounds() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_bicycle_spec();
+            let backend = SolverBackend::new();
+            let mut encoder = BicycleEncoder::new(spec.clone(), backend);
+            encoder.create_variables(20, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_lane_velocity_constraints();
+
+            assert_eq!(encoder.backend.check(), SatResult::Sat);
+            let model = encoder.backend.get_model().unwrap();
+
+            // Lane should be bounded [0, num_lanes-1] = [0, 1]
+            for t in 0..=20 {
+                let lane = eval_int(&model, &encoder.lanes["ego"][t]);
+                assert!(
+                    lane >= 0 && lane <= 1,
+                    "lane[{}]={} out of bounds",
+                    t,
+                    lane
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn test_full_bicycle_scenario() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_bicycle_spec();
+            let backend = SolverBackend::new();
+            let mut encoder = BicycleEncoder::new(spec.clone(), backend);
+            let horizon = spec.num_time_steps();
+            encoder.create_variables(horizon, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics(0.5);
+            encoder.encode_velocity_constraints();
+            encoder.encode_acceleration_constraints();
+            encoder.encode_lane_velocity_constraints();
+
+            assert_eq!(encoder.backend.check(), SatResult::Sat);
+        });
+    }
+
+    #[test]
+    fn test_extract_trajectory() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_bicycle_spec();
+            let backend = SolverBackend::new();
+            let mut encoder = BicycleEncoder::new(spec.clone(), backend);
+            let horizon = spec.num_time_steps();
+            encoder.create_variables(horizon, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics(0.5);
+            encoder.encode_velocity_constraints();
+            encoder.encode_acceleration_constraints();
+            encoder.encode_lane_velocity_constraints();
+
+            assert_eq!(encoder.backend.check(), SatResult::Sat);
+            let model = encoder.backend.get_model().unwrap();
+
+            let ego_traj = encoder.extract_actor_trajectory(&model, "ego", "ego").unwrap();
+            let npc_traj = encoder.extract_actor_trajectory(&model, "npc", "npc").unwrap();
+
+            // Should have horizon+1 states
+            assert_eq!(ego_traj.states.len(), horizon + 1);
+            assert_eq!(npc_traj.states.len(), horizon + 1);
+
+            // Verify actor IDs
+            assert_eq!(ego_traj.id, "ego");
+            assert_eq!(npc_traj.id, "npc");
+        });
+    }
+}

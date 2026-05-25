@@ -845,3 +845,616 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         &self.spec
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dsl::types::{
+        ActorRole, ActorSpec, LaneChangeConfig, LaneChangeDirection, RoadSpec, ScenarioType,
+        ValueOrRange,
+    };
+    use crate::solver::backend::SolverBackend;
+    use crate::solver::coordinate_encoder::CoordinateEncoder;
+    use z3::{Config, SatResult};
+
+    fn create_test_spec() -> ScenarioSpec {
+        ScenarioSpec {
+            scenario_type: ScenarioType::CutInLeft,
+            time_step: 0.5,
+            duration: 10.0,
+            actors: vec![
+                ActorSpec {
+                    id: "ego".to_string(),
+                    role: ActorRole::Ego,
+                    lane: 1,
+                    position: ValueOrRange::Value(50.0),
+                    speed: ValueOrRange::Value(15.0),
+                    acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![],
+                    bicycle_params: None,
+                },
+                ActorSpec {
+                    id: "npc".to_string(),
+                    role: ActorRole::Npc,
+                    lane: 0,
+                    position: ValueOrRange::Range([60.0, 80.0]),
+                    speed: ValueOrRange::Range([10.0, 20.0]),
+                    acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![LaneChangeConfig {
+                        direction: LaneChangeDirection::Right,
+                        start_time: ValueOrRange::Range([2.5, 7.5]),
+                        duration: ValueOrRange::Range([3.0, 4.0]),
+                    }],
+                    bicycle_params: None,
+                },
+            ],
+            min_ttc: 3.0,
+            min_distance: 5.0,
+            road: Some(RoadSpec {
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, 1],
+                road_length: None,
+            }),
+            lane_width: 3.5,
+            num_scenarios: 1,
+            constraint_modes: crate::dsl::types::ConstraintModes::default(),
+            optimization_target: crate::dsl::types::OptimizationTarget::None,
+            max_acceleration: None,
+            max_deceleration: None,
+            max_velocity: None,
+            min_velocity: None,
+            min_lateral_distance: None,
+            max_relative_velocity: None,
+            max_lateral_acceleration: 2.0,
+            coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
+            bicycle_config: None,
+        }
+    }
+
+    /// Helper to parse a Z3 real AST to f64
+    fn eval_real(model: &z3::Model, var: &Real) -> f64 {
+        crate::solver::encoder_utils::extract_real(model, var).unwrap()
+    }
+
+    /// Helper to parse a Z3 int AST to i64
+    fn eval_int(model: &z3::Model, var: &Int) -> i64 {
+        crate::solver::encoder_utils::extract_int(model, var).unwrap() as i64
+    }
+
+    fn approx_eq(a: f64, b: f64, eps: f64) -> bool {
+        (a - b).abs() < eps
+    }
+
+    #[test]
+    fn test_new_creates_empty_encoder() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let backend = SolverBackend::new();
+            let encoder = CartesianEncoder::new(spec, backend);
+
+            assert_eq!(encoder.horizon, 20);
+            assert!(encoder.positions_x.is_empty());
+            assert!(encoder.positions_y.is_empty());
+            assert!(encoder.velocities_x.is_empty());
+            assert!(encoder.velocities_y.is_empty());
+            assert!(encoder.lanes.is_empty());
+        });
+    }
+
+    #[test]
+    fn test_create_variables() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let backend = SolverBackend::new();
+            let mut encoder = CartesianEncoder::new(spec.clone(), backend);
+            encoder.create_variables(20, &spec);
+
+            // Each actor should have horizon+1 = 21 variables per type
+            assert_eq!(encoder.positions_x["ego"].len(), 21);
+            assert_eq!(encoder.positions_y["npc"].len(), 21);
+            assert_eq!(encoder.velocities_x["ego"].len(), 21);
+            assert_eq!(encoder.velocities_y["npc"].len(), 21);
+            assert_eq!(encoder.lanes["ego"].len(), 21);
+
+            // Accessor methods should not panic
+            let _ = encoder.get_longitudinal_pos("ego", 0);
+            let _ = encoder.get_lateral_pos("npc", 10);
+            let _ = encoder.get_longitudinal_vel("ego", 20);
+            let _ = encoder.get_lateral_vel("npc", 5);
+            let _ = encoder.get_lane_var("ego", 0);
+        });
+    }
+
+    #[test]
+    fn test_encode_initial_conditions() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let backend = SolverBackend::new();
+            let mut encoder = CartesianEncoder::new(spec.clone(), backend);
+            encoder.create_variables(20, &spec);
+            encoder.encode_initial_conditions();
+
+            assert_eq!(encoder.backend.check(), SatResult::Sat);
+            let model = encoder.backend.get_model().unwrap();
+
+            // Ego at fixed position 50.0
+            let ego_px = eval_real(&model, &encoder.positions_x["ego"][0]);
+            assert!(approx_eq(ego_px, 50.0, 0.01));
+
+            // Ego speed 15.0
+            let ego_vx = eval_real(&model, &encoder.velocities_x["ego"][0]);
+            assert!(approx_eq(ego_vx, 15.0, 0.01));
+
+            // Ego lane 1
+            let ego_lane = eval_int(&model, &encoder.lanes["ego"][0]);
+            assert_eq!(ego_lane, 1);
+
+            // NPC position in [60, 80]
+            let npc_px = eval_real(&model, &encoder.positions_x["npc"][0]);
+            assert!(npc_px >= 59.99 && npc_px <= 80.01);
+
+            // NPC speed in [10, 20]
+            let npc_vx = eval_real(&model, &encoder.velocities_x["npc"][0]);
+            assert!(npc_vx >= 9.99 && npc_vx <= 20.01);
+
+            // NPC lane 0
+            let npc_lane = eval_int(&model, &encoder.lanes["npc"][0]);
+            assert_eq!(npc_lane, 0);
+        });
+    }
+
+    #[test]
+    fn test_encode_kinematics() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_test_spec();
+            let backend = SolverBackend::new();
+            let mut encoder = CartesianEncoder::new(spec.clone(), backend);
+            encoder.create_variables(20, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics(0.5);
+            encoder.encode_lane_velocity_constraints();
+
+            assert_eq!(encoder.backend.check(), SatResult::Sat);
+            let model = encoder.backend.get_model().unwrap();
+
+            let px0 = eval_real(&model, &encoder.positions_x["ego"][0]);
+            let px1 = eval_real(&model, &encoder.positions_x["ego"][1]);
+            let vx0 = eval_real(&model, &encoder.velocities_x["ego"][0]);
+
+            // px[1] = px[0] + vx[0] * dt
+            let expected_px1 = px0 + vx0 * 0.5;
+            assert!(
+                approx_eq(px1, expected_px1, 0.01),
+                "px1={} expected={}",
+                px1,
+                expected_px1
+            );
+
+            let py0 = eval_real(&model, &encoder.positions_y["ego"][0]);
+            let py1 = eval_real(&model, &encoder.positions_y["ego"][1]);
+            let vy0 = eval_real(&model, &encoder.velocities_y["ego"][0]);
+
+            let expected_py1 = py0 + vy0 * 0.5;
+            assert!(
+                approx_eq(py1, expected_py1, 0.01),
+                "py1={} expected={}",
+                py1,
+                expected_py1
+            );
+        });
+    }
+
+    #[test]
+    fn test_ttc_constraint_high_min_ttc_unsat() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            // Two actors in same lane, approaching each other
+            let mut spec = create_test_spec();
+            spec.actors = vec![
+                ActorSpec {
+                    id: "a".to_string(),
+                    role: ActorRole::Ego,
+                    lane: 0,
+                    position: ValueOrRange::Value(0.0),
+                    speed: ValueOrRange::Value(20.0),
+                    acceleration: ValueOrRange::Range([-1.0, 1.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![],
+                    bicycle_params: None,
+                },
+                ActorSpec {
+                    id: "b".to_string(),
+                    role: ActorRole::Npc,
+                    lane: 0,
+                    position: ValueOrRange::Value(30.0),
+                    speed: ValueOrRange::Value(5.0),
+                    acceleration: ValueOrRange::Range([-1.0, 1.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![],
+                    bicycle_params: None,
+                },
+            ];
+            spec.duration = 2.0;
+            spec.time_step = 0.5;
+
+            let backend = SolverBackend::new();
+            let mut encoder = CartesianEncoder::new(spec.clone(), backend);
+            let horizon = spec.num_time_steps();
+            encoder.create_variables(horizon, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics(0.5);
+            encoder.encode_lane_velocity_constraints();
+
+            // High min_ttc: distance=30, rel_vel=15 => TTC=2.0, require TTC>100
+            let ttc_constraint = encoder.encode_ttc_constraint("a", "b", 100.0, 0);
+            encoder.backend.assert(&ttc_constraint);
+
+            assert_eq!(encoder.backend.check(), SatResult::Unsat);
+        });
+    }
+
+    #[test]
+    fn test_ttc_constraint_low_min_ttc_sat() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let mut spec = create_test_spec();
+            spec.actors = vec![
+                ActorSpec {
+                    id: "a".to_string(),
+                    role: ActorRole::Ego,
+                    lane: 0,
+                    position: ValueOrRange::Value(0.0),
+                    speed: ValueOrRange::Value(20.0),
+                    acceleration: ValueOrRange::Range([-1.0, 1.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![],
+                    bicycle_params: None,
+                },
+                ActorSpec {
+                    id: "b".to_string(),
+                    role: ActorRole::Npc,
+                    lane: 0,
+                    position: ValueOrRange::Value(30.0),
+                    speed: ValueOrRange::Value(5.0),
+                    acceleration: ValueOrRange::Range([-1.0, 1.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![],
+                    bicycle_params: None,
+                },
+            ];
+            spec.duration = 2.0;
+            spec.time_step = 0.5;
+
+            let backend = SolverBackend::new();
+            let mut encoder = CartesianEncoder::new(spec.clone(), backend);
+            let horizon = spec.num_time_steps();
+            encoder.create_variables(horizon, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics(0.5);
+            encoder.encode_lane_velocity_constraints();
+
+            let ttc_constraint = encoder.encode_ttc_constraint("a", "b", 0.1, 0);
+            encoder.backend.assert(&ttc_constraint);
+
+            assert_eq!(encoder.backend.check(), SatResult::Sat);
+        });
+    }
+
+    #[test]
+    fn test_distance_constraint_high_min_distance_unsat() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let mut spec = create_test_spec();
+            spec.actors = vec![
+                ActorSpec {
+                    id: "a".to_string(),
+                    role: ActorRole::Ego,
+                    lane: 0,
+                    position: ValueOrRange::Value(0.0),
+                    speed: ValueOrRange::Value(10.0),
+                    acceleration: ValueOrRange::Range([-1.0, 1.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![],
+                    bicycle_params: None,
+                },
+                ActorSpec {
+                    id: "b".to_string(),
+                    role: ActorRole::Npc,
+                    lane: 0,
+                    position: ValueOrRange::Value(50.0),
+                    speed: ValueOrRange::Value(10.0),
+                    acceleration: ValueOrRange::Range([-1.0, 1.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![],
+                    bicycle_params: None,
+                },
+            ];
+            spec.duration = 2.0;
+            spec.time_step = 0.5;
+
+            let backend = SolverBackend::new();
+            let mut encoder = CartesianEncoder::new(spec.clone(), backend);
+            let horizon = spec.num_time_steps();
+            encoder.create_variables(horizon, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics(0.5);
+            encoder.encode_lane_velocity_constraints();
+
+            // Require distance > 500 but actors are only 50 apart
+            let dist_constraint = encoder.encode_distance_constraint("a", "b", 500.0, 0);
+            encoder.backend.assert(&dist_constraint);
+
+            assert_eq!(encoder.backend.check(), SatResult::Unsat);
+        });
+    }
+
+    #[test]
+    fn test_distance_constraint_low_min_distance_sat() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let mut spec = create_test_spec();
+            spec.actors = vec![
+                ActorSpec {
+                    id: "a".to_string(),
+                    role: ActorRole::Ego,
+                    lane: 0,
+                    position: ValueOrRange::Value(0.0),
+                    speed: ValueOrRange::Value(10.0),
+                    acceleration: ValueOrRange::Range([-1.0, 1.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![],
+                    bicycle_params: None,
+                },
+                ActorSpec {
+                    id: "b".to_string(),
+                    role: ActorRole::Npc,
+                    lane: 0,
+                    position: ValueOrRange::Value(50.0),
+                    speed: ValueOrRange::Value(10.0),
+                    acceleration: ValueOrRange::Range([-1.0, 1.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![],
+                    bicycle_params: None,
+                },
+            ];
+            spec.duration = 2.0;
+            spec.time_step = 0.5;
+
+            let backend = SolverBackend::new();
+            let mut encoder = CartesianEncoder::new(spec.clone(), backend);
+            let horizon = spec.num_time_steps();
+            encoder.create_variables(horizon, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics(0.5);
+            encoder.encode_lane_velocity_constraints();
+
+            let dist_constraint = encoder.encode_distance_constraint("a", "b", 1.0, 0);
+            encoder.backend.assert(&dist_constraint);
+
+            assert_eq!(encoder.backend.check(), SatResult::Sat);
+        });
+    }
+
+    #[test]
+    fn test_lane_velocity_constraints_forward() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let mut spec = create_test_spec();
+            spec.actors = vec![ActorSpec {
+                id: "fwd".to_string(),
+                role: ActorRole::Ego,
+                lane: 0,
+                position: ValueOrRange::Value(0.0),
+                speed: ValueOrRange::Value(10.0),
+                acceleration: ValueOrRange::Range([-2.0, 2.0]),
+                direction: 1,
+                behavior: HashMap::new(),
+                lane_changes: vec![],
+                bicycle_params: None,
+            }];
+            spec.duration = 2.0;
+            spec.time_step = 0.5;
+
+            let backend = SolverBackend::new();
+            let mut encoder = CartesianEncoder::new(spec.clone(), backend);
+            let horizon = spec.num_time_steps();
+            encoder.create_variables(horizon, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics(0.5);
+            encoder.encode_lane_velocity_constraints();
+
+            assert_eq!(encoder.backend.check(), SatResult::Sat);
+            let model = encoder.backend.get_model().unwrap();
+
+            // All vx should be >= 0 for forward actor
+            for t in 0..=horizon {
+                let vx = eval_real(&model, &encoder.velocities_x["fwd"][t]);
+                assert!(vx >= -0.01, "vx[{}]={} should be >= 0", t, vx);
+            }
+
+            // Lane should be bounded [0, num_lanes-1]
+            for t in 0..=horizon {
+                let lane = eval_int(&model, &encoder.lanes["fwd"][t]);
+                assert!(lane >= 0 && lane <= 1, "lane[{}]={} out of bounds", t, lane);
+            }
+        });
+    }
+
+    #[test]
+    fn test_lane_velocity_constraints_backward() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let mut spec = create_test_spec();
+            spec.actors = vec![ActorSpec {
+                id: "bwd".to_string(),
+                role: ActorRole::Ego,
+                lane: 0,
+                position: ValueOrRange::Value(100.0),
+                speed: ValueOrRange::Value(10.0),
+                acceleration: ValueOrRange::Range([-2.0, 2.0]),
+                direction: -1,
+                behavior: HashMap::new(),
+                lane_changes: vec![],
+                bicycle_params: None,
+            }];
+            spec.duration = 2.0;
+            spec.time_step = 0.5;
+
+            let backend = SolverBackend::new();
+            let mut encoder = CartesianEncoder::new(spec.clone(), backend);
+            let horizon = spec.num_time_steps();
+            encoder.create_variables(horizon, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics(0.5);
+            encoder.encode_lane_velocity_constraints();
+
+            assert_eq!(encoder.backend.check(), SatResult::Sat);
+            let model = encoder.backend.get_model().unwrap();
+
+            // All vx should be <= 0 for backward actor
+            for t in 0..=horizon {
+                let vx = eval_real(&model, &encoder.velocities_x["bwd"][t]);
+                assert!(vx <= 0.01, "vx[{}]={} should be <= 0", t, vx);
+            }
+        });
+    }
+
+    #[test]
+    fn test_smooth_lane_transition() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let mut spec = create_test_spec();
+            // Single actor with a lane change from lane 0 to lane 1 (Right for direction=1)
+            spec.actors = vec![ActorSpec {
+                id: "lc".to_string(),
+                role: ActorRole::Npc,
+                lane: 0,
+                position: ValueOrRange::Value(50.0),
+                speed: ValueOrRange::Value(15.0),
+                acceleration: ValueOrRange::Range([-2.0, 2.0]),
+                direction: 1,
+                behavior: HashMap::new(),
+                lane_changes: vec![LaneChangeConfig {
+                    direction: LaneChangeDirection::Right,
+                    start_time: ValueOrRange::Value(1.0),
+                    duration: ValueOrRange::Value(3.0),
+                }],
+                bicycle_params: None,
+            }];
+            spec.duration = 5.0;
+            spec.time_step = 0.5;
+
+            let backend = SolverBackend::new();
+            let mut encoder = CartesianEncoder::new(spec.clone(), backend);
+            let horizon = spec.num_time_steps();
+            encoder.create_variables(horizon, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics(0.5);
+            encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
+
+            assert_eq!(encoder.backend.check(), SatResult::Sat);
+            let model = encoder.backend.get_model().unwrap();
+
+            // Before transition (t=0): lane should be 0
+            let lane_0 = eval_int(&model, &encoder.lanes["lc"][0]);
+            assert_eq!(lane_0, 0, "Source lane should be 0");
+
+            // After transition (start=step2, duration=6 steps, end=step8): lane should be 1
+            // start_time=1.0 / dt=0.5 => start_step=2, duration=3.0/0.5=6 => end_step=8
+            let lane_end = eval_int(&model, &encoder.lanes["lc"][8]);
+            assert_eq!(lane_end, 1, "Target lane should be 1 after transition");
+
+            // During transition, check vy/vx ratio <= 0.15
+            for t in 2..=8 {
+                let vx = eval_real(&model, &encoder.velocities_x["lc"][t]);
+                let vy = eval_real(&model, &encoder.velocities_y["lc"][t]);
+                if vx.abs() > 0.1 {
+                    let ratio = vy.abs() / vx.abs();
+                    assert!(
+                        ratio <= 0.16,
+                        "vy/vx ratio at t={} is {} (vy={}, vx={})",
+                        t,
+                        ratio,
+                        vy,
+                        vx
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn test_extract_actor_trajectory() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let mut spec = create_test_spec();
+            spec.actors = vec![ActorSpec {
+                id: "ego".to_string(),
+                role: ActorRole::Ego,
+                lane: 0,
+                position: ValueOrRange::Value(0.0),
+                speed: ValueOrRange::Value(10.0),
+                acceleration: ValueOrRange::Range([0.0, 0.0]),
+                direction: 1,
+                behavior: HashMap::new(),
+                lane_changes: vec![],
+                bicycle_params: None,
+            }];
+            spec.duration = 3.0;
+            spec.time_step = 0.5;
+
+            let backend = SolverBackend::new();
+            let mut encoder = CartesianEncoder::new(spec.clone(), backend);
+            let horizon = spec.num_time_steps();
+            encoder.create_variables(horizon, &spec);
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics(0.5);
+            encoder.encode_lane_velocity_constraints();
+
+            assert_eq!(encoder.backend.check(), SatResult::Sat);
+            let model = encoder.backend.get_model().unwrap();
+
+            let trajectory = encoder.extract_actor_trajectory(&model, "ego", "ego").unwrap();
+
+            // Should have horizon+1 states
+            assert_eq!(trajectory.states.len(), horizon + 1);
+
+            // Positions should be monotonically increasing for forward actor
+            for i in 1..trajectory.states.len() {
+                let prev_px = trajectory.states[i - 1].cartesian.position.x;
+                let curr_px = trajectory.states[i].cartesian.position.x;
+                assert!(
+                    curr_px >= prev_px - 0.01,
+                    "Position not monotonic: px[{}]={} < px[{}]={}",
+                    i,
+                    curr_px,
+                    i - 1,
+                    prev_px
+                );
+            }
+
+            // Lane values should be valid
+            for state in &trajectory.states {
+                assert!(state.cartesian.lane >= 0 && state.cartesian.lane <= 1);
+            }
+        });
+    }
+}

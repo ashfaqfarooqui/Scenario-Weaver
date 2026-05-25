@@ -173,6 +173,13 @@ pub fn encode_same_lane_constraint(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use z3::ast::Ast;
+    use z3::{Config, SatResult, Solver};
+
+    use crate::dsl::types::{
+        ActorRole, ActorSpec, ConstraintModes, LaneChangeConfig, LaneChangeDirection,
+        OptimizationTarget, ScenarioSpec, ScenarioType, ValueOrRange,
+    };
 
     #[test]
     fn test_lane_change_steps_struct() {
@@ -183,5 +190,299 @@ mod tests {
         };
         assert_eq!(lcs.start_step, 10);
         assert_eq!(lcs.end_step, 20);
+    }
+
+    fn make_spec(actors: Vec<ActorSpec>) -> ScenarioSpec {
+        ScenarioSpec {
+            scenario_type: ScenarioType::CutInLeft,
+            time_step: 0.1,
+            duration: 5.0,
+            actors,
+            min_ttc: 2.0,
+            min_distance: 5.0,
+            road: None,
+            lane_width: 3.5,
+            num_scenarios: 1,
+            constraint_modes: ConstraintModes::default(),
+            max_acceleration: None,
+            max_deceleration: None,
+            optimization_target: OptimizationTarget::None,
+            max_velocity: None,
+            min_velocity: None,
+            min_lateral_distance: None,
+            max_relative_velocity: None,
+            max_lateral_acceleration: 2.0,
+            coordinate_system: Default::default(),
+            bicycle_config: None,
+        }
+    }
+
+    fn make_actor(id: &str, role: ActorRole, lane_changes: Vec<LaneChangeConfig>) -> ActorSpec {
+        ActorSpec {
+            id: id.to_string(),
+            role,
+            lane: 1,
+            position: ValueOrRange::Value(0.0),
+            speed: ValueOrRange::Value(10.0),
+            acceleration: ValueOrRange::Value(0.0),
+            direction: 1,
+            behavior: Default::default(),
+            lane_changes,
+            bicycle_params: None,
+        }
+    }
+
+    #[test]
+    fn test_collect_single_fixed_lane_change() {
+        let lc = LaneChangeConfig {
+            direction: LaneChangeDirection::Left,
+            start_time: ValueOrRange::Value(1.0),
+            duration: ValueOrRange::Value(2.0),
+        };
+        let actor = make_actor("npc1", ActorRole::Npc, vec![lc]);
+        let spec = make_spec(vec![actor]);
+        let result = collect_lane_change_data(&spec, 50);
+        let steps = &result["npc1"];
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].start_step, 10);
+        assert_eq!(steps[0].end_step, 30);
+        assert_eq!(steps[0].direction, LaneChangeDirection::Left);
+    }
+
+    #[test]
+    fn test_collect_range_valued_lane_change_uses_midpoint() {
+        let lc = LaneChangeConfig {
+            direction: LaneChangeDirection::Right,
+            start_time: ValueOrRange::Range([1.0, 3.0]),
+            duration: ValueOrRange::Range([1.0, 3.0]),
+        };
+        let actor = make_actor("npc1", ActorRole::Npc, vec![lc]);
+        let spec = make_spec(vec![actor]);
+        let result = collect_lane_change_data(&spec, 50);
+        let steps = &result["npc1"];
+        assert_eq!(steps[0].start_step, 20);
+        assert_eq!(steps[0].end_step, 40);
+    }
+
+    #[test]
+    fn test_collect_no_lane_changes_not_in_result() {
+        let actor = make_actor("npc1", ActorRole::Npc, vec![]);
+        let spec = make_spec(vec![actor]);
+        let result = collect_lane_change_data(&spec, 50);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_collect_pedestrian_filtered_out() {
+        let lc = LaneChangeConfig {
+            direction: LaneChangeDirection::Left,
+            start_time: ValueOrRange::Value(1.0),
+            duration: ValueOrRange::Value(2.0),
+        };
+        let actor = make_actor("ped1", ActorRole::Pedestrian, vec![lc]);
+        let spec = make_spec(vec![actor]);
+        let result = collect_lane_change_data(&spec, 50);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_collect_end_step_clamped_to_horizon() {
+        let lc = LaneChangeConfig {
+            direction: LaneChangeDirection::Left,
+            start_time: ValueOrRange::Value(4.0),
+            duration: ValueOrRange::Value(3.0),
+        };
+        let actor = make_actor("npc1", ActorRole::Npc, vec![lc]);
+        let spec = make_spec(vec![actor]);
+        let result = collect_lane_change_data(&spec, 50);
+        assert_eq!(result["npc1"][0].end_step, 50);
+    }
+
+    #[test]
+    fn test_collect_multiple_lane_changes_one_actor() {
+        let lc1 = LaneChangeConfig {
+            direction: LaneChangeDirection::Left,
+            start_time: ValueOrRange::Value(1.0),
+            duration: ValueOrRange::Value(1.0),
+        };
+        let lc2 = LaneChangeConfig {
+            direction: LaneChangeDirection::Right,
+            start_time: ValueOrRange::Value(3.0),
+            duration: ValueOrRange::Value(1.0),
+        };
+        let actor = make_actor("npc1", ActorRole::Npc, vec![lc1, lc2]);
+        let spec = make_spec(vec![actor]);
+        let result = collect_lane_change_data(&spec, 50);
+        let steps = &result["npc1"];
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].direction, LaneChangeDirection::Left);
+        assert_eq!(steps[0].start_step, 10);
+        assert_eq!(steps[0].end_step, 20);
+        assert_eq!(steps[1].direction, LaneChangeDirection::Right);
+        assert_eq!(steps[1].start_step, 30);
+        assert_eq!(steps[1].end_step, 40);
+    }
+
+    #[test]
+    fn test_collect_multiple_actors() {
+        let lc1 = LaneChangeConfig {
+            direction: LaneChangeDirection::Left,
+            start_time: ValueOrRange::Value(1.0),
+            duration: ValueOrRange::Value(1.0),
+        };
+        let lc2 = LaneChangeConfig {
+            direction: LaneChangeDirection::Right,
+            start_time: ValueOrRange::Value(2.0),
+            duration: ValueOrRange::Value(1.5),
+        };
+        let actor1 = make_actor("npc1", ActorRole::Npc, vec![lc1]);
+        let actor2 = make_actor("npc2", ActorRole::Npc, vec![lc2]);
+        let spec = make_spec(vec![actor1, actor2]);
+        let result = collect_lane_change_data(&spec, 50);
+        assert_eq!(result.len(), 2);
+        assert!(result.contains_key("npc1"));
+        assert!(result.contains_key("npc2"));
+    }
+
+    #[test]
+    fn test_extract_real_fixed_value() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let solver = Solver::new();
+            let x = Real::new_const("x");
+            let val = Real::from_rational(7, 2);
+            solver.assert(&x._eq(&val));
+            assert_eq!(solver.check(), SatResult::Sat);
+            let model = solver.get_model().unwrap();
+            let result = extract_real(&model, &x).unwrap();
+            assert!((result - 3.5).abs() < 1e-9);
+        });
+    }
+
+    #[test]
+    fn test_extract_real_integer_value() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let solver = Solver::new();
+            let x = Real::new_const("x");
+            let val = Real::from_rational(5, 1);
+            solver.assert(&x._eq(&val));
+            assert_eq!(solver.check(), SatResult::Sat);
+            let model = solver.get_model().unwrap();
+            let result = extract_real(&model, &x).unwrap();
+            assert!((result - 5.0).abs() < 1e-9);
+        });
+    }
+
+    #[test]
+    fn test_extract_int_positive() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let solver = Solver::new();
+            let x = Int::new_const("x");
+            let val = Int::from_i64(42);
+            solver.assert(&x._eq(&val));
+            assert_eq!(solver.check(), SatResult::Sat);
+            let model = solver.get_model().unwrap();
+            let result = extract_int(&model, &x).unwrap();
+            assert_eq!(result, 42);
+        });
+    }
+
+    #[test]
+    fn test_extract_int_zero() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let solver = Solver::new();
+            let x = Int::new_const("x");
+            let val = Int::from_i64(0);
+            solver.assert(&x._eq(&val));
+            assert_eq!(solver.check(), SatResult::Sat);
+            let model = solver.get_model().unwrap();
+            let result = extract_int(&model, &x).unwrap();
+            assert_eq!(result, 0);
+        });
+    }
+
+    #[test]
+    fn test_y_proximity_sat_when_close() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let solver = Solver::new();
+            let py1 = Real::new_const("py1");
+            let py2 = Real::new_const("py2");
+            solver.assert(&py1._eq(&Real::from_rational(10, 10)));
+            solver.assert(&py2._eq(&Real::from_rational(20, 10)));
+            solver.assert(&encode_y_proximity_constraint(&py1, &py2, 3.5));
+            assert_eq!(solver.check(), SatResult::Sat);
+        });
+    }
+
+    #[test]
+    fn test_y_proximity_unsat_when_far() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let solver = Solver::new();
+            let py1 = Real::new_const("py1");
+            let py2 = Real::new_const("py2");
+            solver.assert(&py1._eq(&Real::from_rational(0, 1)));
+            solver.assert(&py2._eq(&Real::from_rational(50, 10)));
+            solver.assert(&encode_y_proximity_constraint(&py1, &py2, 3.5));
+            assert_eq!(solver.check(), SatResult::Unsat);
+        });
+    }
+
+    #[test]
+    fn test_same_lane_discrete_match_sat() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let solver = Solver::new();
+            let lane1 = Int::new_const("lane1");
+            let lane2 = Int::new_const("lane2");
+            let py1 = Real::new_const("py1");
+            let py2 = Real::new_const("py2");
+            solver.assert(&lane1._eq(&Int::from_i64(2)));
+            solver.assert(&lane2._eq(&Int::from_i64(2)));
+            solver.assert(&py1._eq(&Real::from_rational(0, 1)));
+            solver.assert(&py2._eq(&Real::from_rational(100, 1)));
+            solver.assert(&encode_same_lane_constraint(&lane1, &lane2, &py1, &py2, 3.5));
+            assert_eq!(solver.check(), SatResult::Sat);
+        });
+    }
+
+    #[test]
+    fn test_same_lane_proximity_match_sat() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let solver = Solver::new();
+            let lane1 = Int::new_const("lane1");
+            let lane2 = Int::new_const("lane2");
+            let py1 = Real::new_const("py1");
+            let py2 = Real::new_const("py2");
+            solver.assert(&lane1._eq(&Int::from_i64(1)));
+            solver.assert(&lane2._eq(&Int::from_i64(2)));
+            solver.assert(&py1._eq(&Real::from_rational(10, 10)));
+            solver.assert(&py2._eq(&Real::from_rational(20, 10)));
+            solver.assert(&encode_same_lane_constraint(&lane1, &lane2, &py1, &py2, 3.5));
+            assert_eq!(solver.check(), SatResult::Sat);
+        });
+    }
+
+    #[test]
+    fn test_same_lane_different_lanes_far_y_unsat() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let solver = Solver::new();
+            let lane1 = Int::new_const("lane1");
+            let lane2 = Int::new_const("lane2");
+            let py1 = Real::new_const("py1");
+            let py2 = Real::new_const("py2");
+            solver.assert(&lane1._eq(&Int::from_i64(1)));
+            solver.assert(&lane2._eq(&Int::from_i64(3)));
+            solver.assert(&py1._eq(&Real::from_rational(0, 1)));
+            solver.assert(&py2._eq(&Real::from_rational(50, 1)));
+            solver.assert(&encode_same_lane_constraint(&lane1, &lane2, &py1, &py2, 3.5));
+            assert_eq!(solver.check(), SatResult::Unsat);
+        });
     }
 }

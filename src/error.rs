@@ -76,3 +76,129 @@ pub enum ScenarioGenError {
 
 /// Convenience alias used throughout the crate.
 pub type Result<T> = std::result::Result<T, ScenarioGenError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_unsatisfiable() {
+        let e = ScenarioGenError::Unsatisfiable;
+        let msg = e.to_string();
+        assert!(msg.to_lowercase().contains("unsat"), "got: {msg}");
+    }
+
+    #[test]
+    fn display_invalid_spec() {
+        let e = ScenarioGenError::InvalidSpec("msg".into());
+        assert!(e.to_string().contains("msg"));
+    }
+
+    #[test]
+    fn display_z3_encoding() {
+        let e = ScenarioGenError::Z3Encoding("detail".into());
+        assert!(e.to_string().contains("detail"));
+    }
+
+    #[test]
+    fn display_extraction_failed() {
+        let e = ScenarioGenError::ExtractionFailed("reason".into());
+        assert!(e.to_string().contains("reason"));
+    }
+
+    #[test]
+    fn display_xosc_export() {
+        let e = ScenarioGenError::XoscExport("err".into());
+        assert!(e.to_string().contains("err"));
+    }
+
+    #[test]
+    fn display_gif_export() {
+        let e = ScenarioGenError::GifExport("err".into());
+        assert!(e.to_string().contains("err"));
+    }
+
+    #[test]
+    fn display_open_label_export() {
+        let e = ScenarioGenError::OpenLabelExport("err".into());
+        assert!(e.to_string().contains("err"));
+    }
+
+    #[test]
+    fn display_ltl_generation() {
+        let e = ScenarioGenError::LTLGeneration("err".into());
+        assert!(e.to_string().contains("err"));
+    }
+
+    #[test]
+    fn display_z3_model_parsing() {
+        let e = ScenarioGenError::Z3ModelParsing("err".into());
+        assert!(e.to_string().contains("err"));
+    }
+
+    #[test]
+    fn display_font_loading() {
+        let e = ScenarioGenError::FontLoading("err".into());
+        assert!(e.to_string().contains("err"));
+    }
+
+    #[test]
+    fn display_yaml_structure() {
+        let e = ScenarioGenError::YamlStructure("err".into());
+        assert!(e.to_string().contains("err"));
+    }
+
+    #[test]
+    fn display_actor_not_found() {
+        let e = ScenarioGenError::ActorNotFound("actor1".into());
+        assert!(e.to_string().contains("actor1"));
+    }
+
+    #[test]
+    fn from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
+        let e: ScenarioGenError = io_err.into();
+        assert!(e.to_string().contains("file missing"));
+        assert!(matches!(e, ScenarioGenError::Io(_)));
+    }
+
+    #[test]
+    fn result_type_alias() {
+        let ok: Result<i32> = Ok(42);
+        assert_eq!(ok.unwrap(), 42);
+
+        let err: Result<i32> = Err(ScenarioGenError::Unsatisfiable);
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn debug_all_variants() {
+        let variants: Vec<ScenarioGenError> = vec![
+            ScenarioGenError::Unsatisfiable,
+            ScenarioGenError::InvalidSpec("x".into()),
+            ScenarioGenError::LTLGeneration("x".into()),
+            ScenarioGenError::Z3Encoding("x".into()),
+            ScenarioGenError::ExtractionFailed("x".into()),
+            ScenarioGenError::XoscExport("x".into()),
+            ScenarioGenError::GifExport("x".into()),
+            ScenarioGenError::OpenLabelExport("x".into()),
+            ScenarioGenError::Io(std::io::Error::new(std::io::ErrorKind::Other, "x")),
+            ScenarioGenError::Z3ModelParsing("x".into()),
+            ScenarioGenError::FontLoading("x".into()),
+            ScenarioGenError::YamlStructure("x".into()),
+            ScenarioGenError::ActorNotFound("x".into()),
+        ];
+        for v in &variants {
+            let _ = format!("{:?}", v);
+        }
+    }
+
+    #[test]
+    fn pattern_matching() {
+        let e = ScenarioGenError::ActorNotFound("ego".into());
+        match e {
+            ScenarioGenError::ActorNotFound(name) => assert_eq!(name, "ego"),
+            _ => panic!("wrong variant"),
+        }
+    }
+}
