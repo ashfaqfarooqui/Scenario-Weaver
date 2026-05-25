@@ -105,7 +105,11 @@ fn generate_with_optimizer(
         dsl::types::OptimizationTarget::MinimizeDistance => BackendTarget::MinimizeDistance,
         dsl::types::OptimizationTarget::MinimizeSeverity => BackendTarget::MinimizeSeverity,
         dsl::types::OptimizationTarget::MaximizeTtc => BackendTarget::MaximizeTtc,
-        dsl::types::OptimizationTarget::None => unreachable!(),
+        dsl::types::OptimizationTarget::None => {
+            return Err(ScenarioGenError::InvalidSpec(
+                "OptimizationTarget::None passed to optimizer path".to_string(),
+            ));
+        }
     };
 
     let cfg = z3::Config::new();
