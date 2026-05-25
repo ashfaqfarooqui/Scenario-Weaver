@@ -8,6 +8,7 @@ pub mod gif_animator;
 pub mod model;
 pub mod openlabel_exporter;
 pub mod svg_visualizer;
+pub mod visualization_common;
 pub mod xodr_exporter;
 pub mod xosc_exporter;
 
