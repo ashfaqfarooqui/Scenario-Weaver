@@ -150,15 +150,15 @@ fn test_pedestrian_crossing_scenario() {
 // =========================================================================
 
 #[test]
-fn test_bicycle_straight_scenario() {
+fn test_bicycle_forward_motion() {
     let yaml =
-        std::fs::read_to_string("examples/bicycle_straight.yaml").expect("file should exist");
+        std::fs::read_to_string("examples/bicycle_lane_change.yaml").expect("file should exist");
 
     match generate_or_unsat(&yaml) {
         Ok(scenario) => {
             assert!(scenario.actors.len() >= 2);
             let ego = scenario.get_actor("ego").expect("ego");
-            let expected_steps = (5.0 / 0.5) as usize + 1; // 11
+            let expected_steps = (10.0 / 0.1) as usize + 1; // 101
             assert_eq!(ego.states.len(), expected_steps);
 
             // Forward-moving: x should increase
@@ -168,10 +168,10 @@ fn test_bicycle_straight_scenario() {
                 x_last > x_first,
                 "Ego x should increase: {x_first} -> {x_last}"
             );
-            println!("bicycle_straight: ego x {x_first:.1} -> {x_last:.1}");
+            println!("bicycle_lane_change: ego x {x_first:.1} -> {x_last:.1}");
         }
         Err(ScenarioGenError::Unsatisfiable) => {
-            println!("bicycle_straight UNSAT — acceptable");
+            println!("bicycle_lane_change UNSAT — acceptable");
         }
         Err(e) => panic!("Unexpected error: {e}"),
     }
@@ -179,7 +179,7 @@ fn test_bicycle_straight_scenario() {
 
 #[test]
 fn test_bicycle_lane_change_scenario() {
-    let yaml = std::fs::read_to_string("examples/bicycle_lane_change_simple.yaml")
+    let yaml = std::fs::read_to_string("examples/bicycle_lane_change.yaml")
         .expect("file should exist");
 
     match generate_or_unsat(&yaml) {
