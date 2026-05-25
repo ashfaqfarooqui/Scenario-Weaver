@@ -19,7 +19,7 @@ use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;
 
 /// Head-on overtake scenario model
-pub struct HeadOnModel;
+pub(crate) struct HeadOnModel;
 
 impl ScenarioModel for HeadOnModel {
     fn validate(&self, spec: &ScenarioSpec) -> Result<()> {
@@ -64,7 +64,7 @@ impl ScenarioModel for HeadOnModel {
         }
 
         // Passing lane must exist (ego.lane + 1 must be valid)
-        let num_lanes = spec.road.as_ref().map(|r| r.num_lanes).unwrap_or(2);
+        let num_lanes = spec.road.as_ref().map_or(2, |r| r.num_lanes);
         if ego.lane + 1 >= num_lanes {
             return Err(ScenarioGenError::InvalidSpec(format!(
                 "Head-on scenario: no lane to the right of ego (lane {}). Need at least {} lanes.",
@@ -181,7 +181,7 @@ impl ScenarioModel for HeadOnModel {
             .negate()))
         } else {
             // constraints is non-empty here due to the is_empty() check above
-            Ok(constraints.into_iter().reduce(|acc, c| acc.and(c)).unwrap())
+            Ok(LTLFormula::conjunction(constraints))
         }
     }
 

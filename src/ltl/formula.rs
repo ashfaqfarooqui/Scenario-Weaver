@@ -172,6 +172,17 @@ impl LTLFormula {
     pub fn next(self) -> Self {
         LTLFormula::Next(Box::new(self))
     }
+
+    /// Combine multiple formulas with AND.
+    ///
+    /// Returns the conjunction of all formulas. Panics if the input is empty.
+    /// For a safe version that handles empty input, check the length first.
+    pub fn conjunction(formulas: Vec<Self>) -> Self {
+        formulas
+            .into_iter()
+            .reduce(|acc, f| acc.and(f))
+            .expect("conjunction requires at least one formula")
+    }
 }
 
 /// Display implementation for debugging

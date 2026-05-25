@@ -10,7 +10,7 @@ use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;
 
 /// Pedestrian crossing scenario model
-pub struct PedestrianCrossingModel;
+pub(crate) struct PedestrianCrossingModel;
 
 impl ScenarioModel for PedestrianCrossingModel {
     fn validate(&self, spec: &ScenarioSpec) -> Result<()> {
@@ -25,7 +25,7 @@ impl ScenarioModel for PedestrianCrossingModel {
         }
 
         // Validate roles
-        let _ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
+        let _ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let pedestrian = &spec.npcs()[0];
 
         if pedestrian.role != ActorRole::Pedestrian {
@@ -49,7 +49,7 @@ impl ScenarioModel for PedestrianCrossingModel {
         match direction {
             "left_to_right" | "right_to_left" => Ok(()),
             _ => {
-                return Err(ScenarioGenError::InvalidSpec(format!(
+                Err(ScenarioGenError::InvalidSpec(format!(
                     "Invalid direction '{}': must be 'left_to_right' or 'right_to_left'",
                     direction
                 )))
@@ -60,7 +60,7 @@ impl ScenarioModel for PedestrianCrossingModel {
     fn generate_safety(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
         use crate::dsl::types::{ActorRole, ConstraintMode};
 
-        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
+        let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let npcs = spec.npcs();
         let pedestrian = npcs
             .iter()
@@ -106,14 +106,14 @@ impl ScenarioModel for PedestrianCrossingModel {
             })
             .negate()))
         } else {
-            Ok(constraints.into_iter().reduce(|acc, c| acc.and(c)).unwrap())
+            Ok(LTLFormula::conjunction(constraints))
         }
     }
 
     fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
         use crate::dsl::types::ActorRole;
 
-        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
+        let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let ego_id = ego.id.as_str();
 
         // Ego stays in its lane

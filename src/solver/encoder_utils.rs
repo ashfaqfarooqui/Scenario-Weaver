@@ -104,8 +104,8 @@ pub fn collect_lane_change_data(
                     let duration_steps_max = (duration_max / dt) as usize;
 
                     // Use midpoint for now (TODO: make solver variables)
-                    let start_step = (start_step_min + start_step_max) / 2;
-                    let duration_steps = (duration_steps_min + duration_steps_max) / 2;
+                    let start_step = usize::midpoint(start_step_min, start_step_max);
+                    let duration_steps = usize::midpoint(duration_steps_min, duration_steps_max);
                     let end_step = (start_step + duration_steps).min(horizon);
 
                     LaneChangeSteps {

@@ -432,11 +432,10 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                     let max_speed = actor
                         .behavior
                         .get("walking_mode")
-                        .map(|mode| match mode.as_str() {
+                        .map_or(PEDESTRIAN_WALK_MAX_SPEED, |mode| match mode.as_str() {
                             Some("run") => PEDESTRIAN_RUN_MAX_SPEED,
                             _ => PEDESTRIAN_WALK_MAX_SPEED,
-                        })
-                        .unwrap_or(PEDESTRIAN_WALK_MAX_SPEED);
+                        });
 
                     let max_speed_real = Real::from_rational((max_speed * 10.0) as i64, 10_i64);
                     let neg_max_speed = -max_speed;
@@ -559,34 +558,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
     }
 
     fn encode_velocity_constraints(&mut self) {
-        // NOTE: This method is not currently called by the main encoder pipeline.
         // Velocity direction constraints are handled by encode_lane_velocity_constraints().
-        // This implementation is kept for potential future use or direct trait usage.
-        //
-        // In Cartesian system, velocity direction constraints are based on actor direction
-        let zero = Real::from_rational(0_i64, 1_i64);
-
-        for actor in &self.spec.actors {
-            let actor_id = &actor.id;
-
-            // Skip pedestrians - they don't follow lane-based kinematics
-            if actor.role == ActorRole::Pedestrian {
-                continue;
-            }
-
-            for t in 0..=self.horizon {
-                let vx_t = &self.velocities_x[actor_id][t];
-
-                // Constrain velocity direction based on actor direction
-                if actor.direction == 1 {
-                    // Forward direction: vx >= 0
-                    self.backend.assert(&vx_t.ge(&zero));
-                } else if actor.direction == -1 {
-                    // Backward direction: vx <= 0
-                    self.backend.assert(&vx_t.le(&zero));
-                }
-            }
-        }
+        // This trait method is intentionally a no-op for CartesianEncoder.
     }
 
     fn encode_acceleration_constraints(&mut self) {

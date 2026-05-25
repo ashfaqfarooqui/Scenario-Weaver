@@ -647,15 +647,13 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             .actors
             .iter()
             .find(|a| a.id == actor1)
-            .map(|a| a.direction)
-            .unwrap_or(1);
+            .map_or(1, |a| a.direction);
         let actor2_dir = self
             .spec
             .actors
             .iter()
             .find(|a| a.id == actor2)
-            .map(|a| a.direction)
-            .unwrap_or(1);
+            .map_or(1, |a| a.direction);
 
         let same_lane = if actor1_dir != actor2_dir {
             // Opposite-direction: use y-proximity in addition to discrete lane match.
@@ -671,10 +669,10 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 &py_diff_pos.lt(&lane_width_real),
                 &py_diff_neg.lt(&lane_width_real),
             ]);
-            z3::ast::Bool::or(&[&lane1.eq(&*lane2), &y_proximity])
+            z3::ast::Bool::or(&[&lane1.eq(lane2), &y_proximity])
         } else {
             // Same-direction: only discrete lane match (original behavior).
-            lane1.eq(&*lane2)
+            lane1.eq(lane2)
         };
 
         // Determine who is ahead and who is behind
@@ -916,10 +914,11 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
 
         scenario.validation.max_acceleration = max_accel;
         scenario.validation.max_deceleration = max_decel;
-        scenario.validation.acceleration_violations = accel_violations.clone();
+        let has_accel_violations = !accel_violations.is_empty();
+        scenario.validation.acceleration_violations = accel_violations;
 
         // Update all_constraints_satisfied if there are acceleration violations
-        if !accel_violations.is_empty() {
+        if has_accel_violations {
             scenario.validation.all_constraints_satisfied = false;
         }
 
@@ -935,7 +934,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             min_distance
         };
         scenario.validation.all_constraints_satisfied =
-            violations.is_empty() && accel_violations.is_empty();
+            violations.is_empty() && !has_accel_violations;
         scenario.validation.safety_violations = violations;
 
         Ok(())

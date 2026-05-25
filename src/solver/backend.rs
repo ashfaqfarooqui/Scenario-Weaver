@@ -21,14 +21,6 @@ pub trait Z3Backend {
     fn get_model(&self) -> Option<Model>;
 }
 
-/// Extension trait providing convenience methods for [`Z3Backend`] implementors.
-pub trait Z3BackendExt: Z3Backend {
-    /// Assert an owned constraint (convenience method)
-    fn assert_owned(&self, constraint: Bool) {
-        self.assert(&constraint);
-    }
-}
-
 /// Backend using Z3's standard Solver (SAT checking only)
 pub struct SolverBackend {
     solver: Solver,
