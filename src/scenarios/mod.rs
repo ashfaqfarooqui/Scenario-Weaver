@@ -217,21 +217,7 @@ fn generate_default_safety(spec: &ScenarioSpec) -> LTLFormula {
         }
     }
 
-    if constraints.is_empty() {
-        // Return tautology (always true)
-        let ego = spec.ego().unwrap();
-        LTLFormula::Atom(Proposition::InLane {
-            actor: ego.id.clone(),
-            lane: ego.lane,
-        })
-        .or(LTLFormula::Atom(Proposition::InLane {
-            actor: ego.id.clone(),
-            lane: ego.lane,
-        })
-        .negate())
-    } else {
-        LTLFormula::conjunction(constraints)
-    }
+    LTLFormula::conjunction(constraints)
 }
 
 pub(crate) mod cut_in_left;

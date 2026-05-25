@@ -14,6 +14,11 @@ pub enum LTLFormula {
     /// Atomic proposition about scenario state at a single time step.
     Atom(Proposition),
 
+    /// Boolean literal true — trivially satisfied.
+    True,
+    /// Boolean literal false — trivially unsatisfiable.
+    False,
+
     /// Logical negation.
     Not(Box<LTLFormula>),
     /// Logical conjunction.
@@ -175,13 +180,22 @@ impl LTLFormula {
 
     /// Combine multiple formulas with AND.
     ///
-    /// Returns the conjunction of all formulas. Panics if the input is empty.
-    /// For a safe version that handles empty input, check the length first.
+    /// Returns `True` for an empty input (the identity of conjunction).
     pub fn conjunction(formulas: Vec<Self>) -> Self {
         formulas
             .into_iter()
             .reduce(|acc, f| acc.and(f))
-            .expect("conjunction requires at least one formula")
+            .unwrap_or(Self::True)
+    }
+
+    /// Combine multiple formulas with OR.
+    ///
+    /// Returns `False` for an empty input (the identity of disjunction).
+    pub fn disjunction(formulas: Vec<Self>) -> Self {
+        formulas
+            .into_iter()
+            .reduce(|acc, f| acc.or(f))
+            .unwrap_or(Self::False)
     }
 }
 
@@ -189,6 +203,8 @@ impl LTLFormula {
 impl fmt::Display for LTLFormula {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            LTLFormula::True => write!(f, "⊤"),
+            LTLFormula::False => write!(f, "⊥"),
             LTLFormula::Atom(p) => write!(f, "{:?}", p),
             LTLFormula::Not(phi) => write!(f, "¬({})", phi),
             LTLFormula::And(phi, psi) => write!(f, "({} ∧ {})", phi, psi),
@@ -245,5 +261,37 @@ mod tests {
         let display = format!("{}", formula);
         assert!(display.contains("F("));
         println!("Display: {}", display);
+    }
+
+    #[test]
+    fn test_true_display() {
+        assert_eq!(format!("{}", LTLFormula::True), "⊤");
+    }
+
+    #[test]
+    fn test_false_display() {
+        assert_eq!(format!("{}", LTLFormula::False), "⊥");
+    }
+
+    #[test]
+    fn test_conjunction_empty_returns_true() {
+        assert_eq!(LTLFormula::conjunction(vec![]), LTLFormula::True);
+    }
+
+    #[test]
+    fn test_disjunction_empty_returns_false() {
+        assert_eq!(LTLFormula::disjunction(vec![]), LTLFormula::False);
+    }
+
+    #[test]
+    fn test_conjunction_single() {
+        let f = LTLFormula::True;
+        assert_eq!(LTLFormula::conjunction(vec![f.clone()]), f);
+    }
+
+    #[test]
+    fn test_disjunction_single() {
+        let f = LTLFormula::False;
+        assert_eq!(LTLFormula::disjunction(vec![f.clone()]), f);
     }
 }

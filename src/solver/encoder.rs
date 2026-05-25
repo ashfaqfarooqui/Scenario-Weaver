@@ -223,6 +223,10 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         use crate::ltl::formula::LTLFormula;
 
         match formula {
+            // Boolean literals
+            LTLFormula::True => z3::ast::Bool::from_bool(true),
+            LTLFormula::False => z3::ast::Bool::from_bool(false),
+
             // Atomic proposition - encode at specific time
             LTLFormula::Atom(prop) => self.encode_proposition(prop, time),
 

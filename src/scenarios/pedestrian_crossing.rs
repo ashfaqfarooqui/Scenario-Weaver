@@ -94,20 +94,7 @@ impl ScenarioModel for PedestrianCrossingModel {
             constraints.push(ttc);
         }
 
-        if constraints.is_empty() {
-            // Return tautology
-            Ok(LTLFormula::Atom(Proposition::InLane {
-                actor: ego.id.clone(),
-                lane: ego.lane,
-            })
-            .or(LTLFormula::Atom(Proposition::InLane {
-                actor: ego.id.clone(),
-                lane: ego.lane,
-            })
-            .negate()))
-        } else {
-            Ok(LTLFormula::conjunction(constraints))
-        }
+        Ok(LTLFormula::conjunction(constraints))
     }
 
     fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
