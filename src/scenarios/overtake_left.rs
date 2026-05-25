@@ -90,10 +90,10 @@ impl ScenarioModel for OvertakeLeftModel {
         let npc_id = npc.id.as_str();
 
         // Initial conditions
-        let init = self.initial_conditions(spec, ego_id, npc_id);
+        let init = self.initial_conditions(spec, ego_id, npc_id)?;
 
         // Overtake behavior (three-phase)
-        let behavior = self.overtake_behavior(spec, ego_id, npc_id);
+        let behavior = self.overtake_behavior(spec, ego_id, npc_id)?;
 
         Ok(init.and(behavior))
     }
@@ -115,8 +115,8 @@ impl ScenarioModel for OvertakeLeftModel {
 
 impl OvertakeLeftModel {
     /// Generate initial conditions LTL
-    fn initial_conditions(&self, spec: &ScenarioSpec, ego_id: &str, npc_id: &str) -> LTLFormula {
-        let ego = spec.ego().unwrap();
+    fn initial_conditions(&self, spec: &ScenarioSpec, ego_id: &str, npc_id: &str) -> Result<LTLFormula> {
+        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
         let npc = &spec.npcs()[0];
 
         // Both start in the same lane
@@ -136,12 +136,12 @@ impl OvertakeLeftModel {
             actor2: npc_id.to_string(),
         });
 
-        ego_lane.and(npc_lane).and(ego_ahead)
+        Ok(ego_lane.and(npc_lane).and(ego_ahead))
     }
 
     /// Generate three-phase overtake behavior LTL
-    fn overtake_behavior(&self, spec: &ScenarioSpec, ego_id: &str, npc_id: &str) -> LTLFormula {
-        let ego = spec.ego().unwrap();
+    fn overtake_behavior(&self, spec: &ScenarioSpec, ego_id: &str, npc_id: &str) -> Result<LTLFormula> {
+        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
         let original_lane = ego.lane;
         let passing_lane = ego.lane - 1; // Left lane
 
@@ -169,7 +169,7 @@ impl OvertakeLeftModel {
         let phase_1_to_2 = in_original.clone().until(in_passing);
         let return_ahead = in_original.and(npc_ahead).eventually();
 
-        phase_1_to_2.and(return_ahead)
+        Ok(phase_1_to_2.and(return_ahead))
     }
 }
 

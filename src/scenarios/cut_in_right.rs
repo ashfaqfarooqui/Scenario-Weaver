@@ -41,7 +41,7 @@ impl ScenarioModel for CutInRightModel {
         let npc_id = npc.id.as_str();
 
         // Initial conditions
-        let init = self.initial_conditions(spec, ego_id, npc_id);
+        let init = self.initial_conditions(spec, ego_id, npc_id)?;
 
         // Cut-in behavior
         let behavior = self.cut_in_behavior(spec, ego_id, npc_id);
@@ -61,11 +61,11 @@ impl ScenarioModel for CutInRightModel {
 }
 
 impl CutInRightModel {
-    fn initial_conditions(&self, spec: &ScenarioSpec, ego_id: &str, npc_id: &str) -> LTLFormula {
-        let ego = spec.ego().unwrap();
+    fn initial_conditions(&self, spec: &ScenarioSpec, ego_id: &str, npc_id: &str) -> Result<LTLFormula> {
+        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
         let npc = spec.npcs()[0];
 
-        LTLFormula::Atom(Proposition::InLane {
+        Ok(LTLFormula::Atom(Proposition::InLane {
             actor: ego_id.to_string(),
             lane: ego.lane,
         })
@@ -76,7 +76,7 @@ impl CutInRightModel {
         .and(LTLFormula::Atom(Proposition::Ahead {
             actor1: npc_id.to_string(),
             actor2: ego_id.to_string(),
-        }))
+        })))
     }
 
     fn cut_in_behavior(&self, spec: &ScenarioSpec, _ego_id: &str, npc_id: &str) -> LTLFormula {

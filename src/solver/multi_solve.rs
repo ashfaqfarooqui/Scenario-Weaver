@@ -59,7 +59,7 @@ where
 
             // Add blocking clauses for all previous scenarios
             for prev_scenario in &scenarios {
-                let blocking_clause = create_blocking_clause(&encoder, prev_scenario);
+                let blocking_clause = create_blocking_clause(&encoder, prev_scenario)?;
                 encoder.assert_constraint(&blocking_clause);
             }
 
@@ -118,7 +118,7 @@ where
 /// The blocking clause is: !(actor1_equal AND actor2_equal AND ...)
 /// Which is equivalent to: (actor1_differs OR actor2_differs OR ...)
 /// At least one non-ego actor must have different initial conditions from previous scenarios.
-fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool {
+fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Result<Bool> {
     let mut all_blocking_clauses = Vec::new();
 
     // Get all non-ego actors from the spec
@@ -131,7 +131,7 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
         // Get actor trajectory from previous scenario
         let actor_traj = prev_scenario
             .get_actor(&actor.id)
-            .expect(&format!("Actor {} trajectory missing", actor.id));
+            .ok_or_else(|| ScenarioGenError::ActorNotFound(actor.id.clone()))?;
 
         // Get actor initial state (t=0)
         let actor_initial = &actor_traj.states[0];
@@ -197,13 +197,11 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Bool
 
     // Combine with OR: at least one actor must differ
     if all_blocking_clauses.is_empty() {
-        // Edge case: no non-ego actors (shouldn't happen in practice)
-        // Return a constraint that's always satisfiable
-        Bool::from_bool(true)
+        Ok(Bool::from_bool(true))
     } else if all_blocking_clauses.len() == 1 {
-        all_blocking_clauses.into_iter().next().unwrap()
+        Ok(all_blocking_clauses.into_iter().next().expect("len checked above"))
     } else {
-        Bool::or(&all_blocking_clauses)
+        Ok(Bool::or(&all_blocking_clauses))
     }
 }
 
@@ -383,7 +381,7 @@ mod tests {
             // Safety constraints are now included in LTL formula via generate_safety()
 
             // Add blocking clause
-            let blocking = create_blocking_clause(&enc, &scenario1);
+            let blocking = create_blocking_clause(&enc, &scenario1).unwrap();
             enc.assert_constraint(&blocking);
 
             // Should still be satisfiable (with different solution)
