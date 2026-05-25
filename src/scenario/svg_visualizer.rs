@@ -5,6 +5,7 @@
 
 use crate::error::Result;
 use crate::scenario::model::Scenario;
+use super::visualization_common::{self, ActorVisualRole, ViewportBounds};
 use svg::node::element::{Circle, Group, Line, Path, Rectangle, Text};
 use svg::Document;
 
@@ -71,34 +72,16 @@ struct VisualizerConfig {
 impl VisualizerConfig {
     fn from_scenario(scenario: &Scenario) -> Self {
         // Find bounds of all trajectories
-        let (mut x_min, mut x_max, mut y_min, mut y_max) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-
-        for actor in &scenario.actors {
-            for state in &actor.states {
-                x_min = x_min.min(state.position().x);
-                x_max = x_max.max(state.position().x);
-                y_min = y_min.min(state.position().y);
-                y_max = y_max.max(state.position().y);
-            }
-        }
-
-        // Include road extent in bounds to ensure all lanes are visible
-        y_min = y_min.min(0.0);
-        y_max = y_max.max(scenario.road.num_lanes as f64 * scenario.road.lane_width);
-
-        // Add padding (10% on each side)
-        let x_range = x_max - x_min;
-        let y_range = y_max - y_min;
-        x_min -= x_range * 0.1;
-        x_max += x_range * 0.1;
-        y_min -= y_range * 0.1;
-        y_max += y_range * 0.1;
+        let bounds = ViewportBounds::from_scenario(scenario);
+        let x_min = bounds.x_min;
+        let x_max = bounds.x_max;
+        let y_max = bounds.y_max;
 
         // Compute scales
         let drawable_width = CANVAS_WIDTH - 2.0 * MARGIN;
         let drawable_height = CANVAS_HEIGHT - ROAD_MARGIN_TOP - MARGIN;
         let x_scale = drawable_width / (x_max - x_min);
-        let y_scale = drawable_height / (y_max - y_min);
+        let y_scale = drawable_height / bounds.height();
 
         Self {
             canvas_width: CANVAS_WIDTH,
@@ -164,23 +147,19 @@ impl<'a> SvgVisualizer<'a> {
 
     /// Get color for an actor based on role
     fn get_actor_color(&self, actor_id: &str) -> &'static str {
-        if actor_id.to_lowercase().contains("ego") {
-            COLOR_EGO
-        } else if actor_id.to_lowercase().contains("pedestrian") {
-            COLOR_PEDESTRIAN
-        } else {
-            COLOR_NPC
+        match visualization_common::classify_actor(actor_id) {
+            ActorVisualRole::Ego => COLOR_EGO,
+            ActorVisualRole::Pedestrian => COLOR_PEDESTRIAN,
+            ActorVisualRole::Npc => COLOR_NPC,
         }
     }
 
     /// Get trajectory path color for an actor
     fn get_actor_path_color(&self, actor_id: &str) -> &'static str {
-        if actor_id.to_lowercase().contains("ego") {
-            COLOR_EGO_PATH
-        } else if actor_id.to_lowercase().contains("pedestrian") {
-            COLOR_PEDESTRIAN_PATH
-        } else {
-            COLOR_NPC_PATH
+        match visualization_common::classify_actor(actor_id) {
+            ActorVisualRole::Ego => COLOR_EGO_PATH,
+            ActorVisualRole::Pedestrian => COLOR_PEDESTRIAN_PATH,
+            ActorVisualRole::Npc => COLOR_NPC_PATH,
         }
     }
 
@@ -387,30 +366,26 @@ impl<'a> SvgVisualizer<'a> {
         if !self.scenario.validation.safety_violations.is_empty() {
             for violation in &self.scenario.validation.safety_violations {
                 // Parse time from violation string (format: "at t=X.Xs")
-                if let Some(time_str) = violation.split("t=").nth(1) {
-                    if let Some(time_val) = time_str.split('s').next() {
-                        if let Ok(time) = time_val.parse::<f64>() {
-                            // Find positions at this time for all actors
-                            // Use dynamic tolerance based on time_step (matching GIF animator)
-                            let tolerance = self.scenario.time_step / 2.0;
-                            for actor in &self.scenario.actors {
-                                if let Some(state) = actor
-                                    .states
-                                    .iter()
-                                    .find(|s| (s.time - time).abs() < tolerance)
-                                {
-                                    let (svg_x, svg_y) = self
-                                        .transform_coords(state.position().x, state.position().y);
-                                    let marker = Circle::new()
-                                        .set("cx", svg_x)
-                                        .set("cy", svg_y)
-                                        .set("r", 8)
-                                        .set("fill", "none")
-                                        .set("stroke", COLOR_VIOLATION)
-                                        .set("stroke-width", 3);
-                                    group = group.add(marker);
-                                }
-                            }
+                if let Some(time) = visualization_common::parse_violation_time(violation) {
+                    // Find positions at this time for all actors
+                    // Use dynamic tolerance based on time_step (matching GIF animator)
+                    let tolerance = self.scenario.time_step / 2.0;
+                    for actor in &self.scenario.actors {
+                        if let Some(state) = actor
+                            .states
+                            .iter()
+                            .find(|s| (s.time - time).abs() < tolerance)
+                        {
+                            let (svg_x, svg_y) = self
+                                .transform_coords(state.position().x, state.position().y);
+                            let marker = Circle::new()
+                                .set("cx", svg_x)
+                                .set("cy", svg_y)
+                                .set("r", 8)
+                                .set("fill", "none")
+                                .set("stroke", COLOR_VIOLATION)
+                                .set("stroke-width", 3);
+                            group = group.add(marker);
                         }
                     }
                 }

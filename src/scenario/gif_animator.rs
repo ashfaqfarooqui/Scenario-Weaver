@@ -5,6 +5,7 @@
 
 use crate::error::{Result, ScenarioGenError};
 use crate::scenario::model::{Scenario, Velocity};
+use super::visualization_common::{self, ActorVisualRole, ViewportBounds};
 use ab_glyph::{FontArc, PxScale};
 use gif::{Encoder, Frame, Repeat};
 use image::{Rgb, RgbImage};
@@ -143,28 +144,10 @@ impl AnimatorConfig {
         let frame_skip = if scenario.duration > 5.0 { 2 } else { 1 };
 
         // Find bounds of all trajectories
-        let (mut x_min, mut x_max, mut y_min, mut y_max) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-
-        for actor in &scenario.actors {
-            for state in &actor.states {
-                x_min = x_min.min(state.position().x);
-                x_max = x_max.max(state.position().x);
-                y_min = y_min.min(state.position().y);
-                y_max = y_max.max(state.position().y);
-            }
-        }
-
-        // Include road extent in bounds to ensure all lanes are visible
-        y_min = y_min.min(0.0);
-        y_max = y_max.max(scenario.road.num_lanes as f64 * scenario.road.lane_width);
-
-        // Add padding (10% on each side)
-        let x_range = x_max - x_min;
-        let y_range = y_max - y_min;
-        x_min -= x_range * 0.1;
-        x_max += x_range * 0.1;
-        y_min -= y_range * 0.1;
-        y_max += y_range * 0.1;
+        let bounds = ViewportBounds::from_scenario(scenario);
+        let x_min = bounds.x_min;
+        let x_max = bounds.x_max;
+        let y_max = bounds.y_max;
 
         // Get canvas dimensions from resolution
         let canvas_width = resolution.width();
@@ -176,7 +159,7 @@ impl AnimatorConfig {
         let drawable_width = (canvas_width - 2 * margin) as f64;
         let drawable_height = (canvas_height - road_area_top - margin) as f64;
         let x_scale = drawable_width / (x_max - x_min);
-        let y_scale = drawable_height / (y_max - y_min);
+        let y_scale = drawable_height / bounds.height();
 
         // Number of frames = number of states
         let num_frames = if !scenario.actors.is_empty() {
@@ -301,23 +284,19 @@ impl<'a> GifAnimator<'a> {
 
     /// Get color for an actor based on role
     fn get_actor_color(&self, actor_id: &str) -> Rgb<u8> {
-        if actor_id.to_lowercase().contains("ego") {
-            COLOR_EGO
-        } else if actor_id.to_lowercase().contains("pedestrian") {
-            COLOR_PEDESTRIAN
-        } else {
-            COLOR_NPC
+        match visualization_common::classify_actor(actor_id) {
+            ActorVisualRole::Ego => COLOR_EGO,
+            ActorVisualRole::Pedestrian => COLOR_PEDESTRIAN,
+            ActorVisualRole::Npc => COLOR_NPC,
         }
     }
 
     /// Get trail color for an actor
     fn get_trail_color(&self, actor_id: &str) -> Rgb<u8> {
-        if actor_id.to_lowercase().contains("ego") {
-            COLOR_EGO_TRAIL
-        } else if actor_id.to_lowercase().contains("pedestrian") {
-            COLOR_PEDESTRIAN_TRAIL
-        } else {
-            COLOR_NPC_TRAIL
+        match visualization_common::classify_actor(actor_id) {
+            ActorVisualRole::Ego => COLOR_EGO_TRAIL,
+            ActorVisualRole::Pedestrian => COLOR_PEDESTRIAN_TRAIL,
+            ActorVisualRole::Npc => COLOR_NPC_TRAIL,
         }
     }
 
@@ -547,14 +526,7 @@ impl<'a> GifAnimator<'a> {
 
     /// Parse violation time from violation string
     fn parse_violation_time(&self, violation: &str) -> Option<f64> {
-        // Parse format: "... at t=X.Xs ..."
-        violation
-            .split("t=")
-            .nth(1)?
-            .split('s')
-            .next()?
-            .parse::<f64>()
-            .ok()
+        visualization_common::parse_violation_time(violation)
     }
 
     /// Parse actor names from violation string
