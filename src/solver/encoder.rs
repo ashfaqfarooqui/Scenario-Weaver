@@ -11,11 +11,12 @@ use crate::solver::encoders::cartesian::CartesianEncoder;
 
 /// Z3 SMT encoder for scenario constraints (generic over backend)
 ///
-/// This is now a thin facade that dispatches to coordinate-specific encoders
+/// A thin facade that dispatches to coordinate-specific encoders
 /// (CartesianEncoder or BicycleEncoder) via the CoordinateEncoder trait.
 ///
-/// The encoder can work with either `SolverBackend` (SAT checking)
-/// or `OptimizerBackend` (optimization objectives).
+/// Works with either `SolverBackend` (SAT checking) or `OptimizerBackend`
+/// (optimization objectives). The type alias `Z3Encoder = GenericEncoder<SolverBackend>`
+/// is provided for the common SAT-solving case.
 ///
 /// Supports both Cartesian (x, y) and Bicycle (x, y, θ, v) coordinate systems.
 ///
@@ -637,8 +638,44 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         let min_ttc_val = Real::from_rational((min_ttc * 10.0) as i64, 10_i64);
         let epsilon = Real::from_rational(1_i64, 100_i64); // 0.01 m/s to avoid division by zero
 
-        // Same lane condition
-        let same_lane = lane1.eq(lane2);
+        // "Same lane" condition for TTC.
+        // For same-direction actors: use discrete lane match only.
+        // For opposite-direction actors: also use y-position proximity since they approach
+        // from different lanes and TTC is still relevant when they're laterally overlapping.
+        let actor1_dir = self
+            .spec
+            .actors
+            .iter()
+            .find(|a| a.id == actor1)
+            .map(|a| a.direction)
+            .unwrap_or(1);
+        let actor2_dir = self
+            .spec
+            .actors
+            .iter()
+            .find(|a| a.id == actor2)
+            .map(|a| a.direction)
+            .unwrap_or(1);
+
+        let same_lane = if actor1_dir != actor2_dir {
+            // Opposite-direction: use y-proximity in addition to discrete lane match.
+            // During a lane change transition, the NPC's y-position passes through the
+            // ego's lane space, making head-on TTC relevant.
+            let py1 = self.get_lateral_pos(actor1, time);
+            let py2 = self.get_lateral_pos(actor2, time);
+            let lane_width = self.spec.get_lane_width();
+            let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+            let py_diff_pos = py1 - py2;
+            let py_diff_neg = py2 - py1;
+            let y_proximity = z3::ast::Bool::and(&[
+                &py_diff_pos.lt(&lane_width_real),
+                &py_diff_neg.lt(&lane_width_real),
+            ]);
+            z3::ast::Bool::or(&[&lane1.eq(&*lane2), &y_proximity])
+        } else {
+            // Same-direction: only discrete lane match (original behavior).
+            lane1.eq(&*lane2)
+        };
 
         // Determine who is ahead and who is behind
         // If px1 > px2, then actor1 is ahead (lead), actor2 is behind (follow)

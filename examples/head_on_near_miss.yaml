@@ -1,22 +1,23 @@
 # ─── Scenario: Head-On Near Miss ───
 #
-# Oncoming NPC changes lanes on a bidirectional road while safety constraints are enforced, producing a near-miss.
+# Oncoming NPC on a 4-lane bidirectional road moves further from ego (right lane change
+# toward lane 3), maintaining safety constraints while approaching head-on.
 #
 # Actors:
-#   - ego: lane 0, 20 m/s forward, starting at 50m
-#   - npc: lane 2 (oncoming), 18 m/s backward, starting at 150m, left lane change at 2.5-4.0s
+#   - ego: lane 0, 15 m/s forward, starting at 50m
+#   - npc: lane 2 (oncoming), 15 m/s backward, starting at 150m, right lane change at 1.0-2.0s
 #
 # Road: 4 lanes, 3.5m wide, bidirectional [1, 1, -1, -1]
 # Coordinate System: cartesian (default)
 # Duration: 10.0s at 0.5s time steps
 #
 # Key Features:
-#   - Oncoming NPC performs left lane change (toward lane 3, away from ego)
-#   - High closing speed but safety maintained via enforced constraints
-#   - NPC merges to adjacent backward lane to avoid collision
+#   - Oncoming NPC performs right lane change (toward lane 3, further from ego)
+#   - Actors pass each other in different lanes maintaining safe distance
+#   - TTC and distance enforced — solver must find safe trajectories
 #
 # Safety Constraints:
-#   - min TTC: 3.0s (enforced)
+#   - min TTC: 2.0s (enforced)
 #   - min distance: 5.0m (enforced)
 #
 # Run:
@@ -28,11 +29,11 @@ scenario_type: cut_in_left
 time_step: 0.5
 duration: 10.0
 
-# Road specification
+# Road specification: 4-lane bidirectional
 road:
   num_lanes: 4
   lane_width: 3.5
-  lane_directions: [1, 1, -1, -1]
+  lane_directions: [1, 1, -1, -1]  # Lanes 0,1 forward; 2,3 backward
 
 # Actors
 actors:
@@ -40,24 +41,25 @@ actors:
     role: ego
     lane: 0
     position: 50.0
-    speed: 20.0
+    speed: 15.0
     direction: 1               # Forward (+x)
-    acceleration: [-8.0, 3.0]
+    acceleration: [-5.0, 2.0]
 
   - id: npc
     role: npc
     lane: 2
     position: 150.0
-    speed: 18.0                 # Slightly slower, creates near miss
+    speed: 15.0
     direction: -1              # Backward (-x) - oncoming traffic!
-    acceleration: [-2.0, 0.0]
+    acceleration: [-2.0, 1.0]
     lane_changes:
-      - direction: left
-        start_time: [2.5, 4.0]
+      # NPC moves to lane 3 (further from ego) to maintain safety
+      - direction: right
+        start_time: [1.0, 2.0]
         duration: [2.0, 3.0]
 
 # Safety constraints - ENFORCE to maintain safety
-min_ttc: 3.0
+min_ttc: 2.0
 min_distance: 5.0
 num_scenarios: 1
 
@@ -65,4 +67,4 @@ constraint_modes:
   min_ttc: enforce
   min_distance: enforce
 
-# Expected: NPC may merge to lane 3 to avoid collision
+# Expected: NPC merges to lane 3 while both actors pass safely in their own lanes

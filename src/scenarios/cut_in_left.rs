@@ -4,7 +4,7 @@
 //! ahead of the ego vehicle in the right lane (lane 1), and eventually
 //! changes lanes to cut in front of the ego vehicle.
 
-use crate::dsl::types::ScenarioSpec;
+use crate::dsl::types::{LaneChangeDirection, ScenarioSpec};
 use crate::error::{Result, ScenarioGenError};
 use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;
@@ -24,7 +24,6 @@ impl ScenarioModel for CutInLeftModel {
 
         let npc = &spec.npcs()[0];
 
-        // Both coordinate systems now require lane_changes config
         if npc.lane_changes.is_empty() {
             return Err(ScenarioGenError::InvalidSpec(
                 "Cut-in-left requires at least one lane_change in lane_changes".to_string(),
@@ -57,8 +56,6 @@ impl ScenarioModel for CutInLeftModel {
         _backend: &dyn crate::solver::Z3Backend,
         _horizon: usize,
     ) -> Result<()> {
-        // Lane change constraints are now handled by the encoder
-        // based on lane_change config in the actor spec
         Ok(())
     }
 }
@@ -83,11 +80,23 @@ impl CutInLeftModel {
     }
 
     fn cut_in_behavior(&self, spec: &ScenarioSpec, _ego_id: &str, npc_id: &str) -> LTLFormula {
-        let ego = spec.ego().unwrap();
         let npc = spec.npcs()[0];
 
-        let target_lane = ego.lane;
         let initial_lane = npc.lane;
+
+        // Compute actual final target lane by accumulating all lane change deltas.
+        // This must match what the kinematics encoder computes for the last lane change.
+        // Using ego.lane as the target is wrong when the NPC needs multiple changes
+        // (e.g., opposite-traffic bidirectional roads).
+        let total_delta: i64 = npc
+            .lane_changes
+            .iter()
+            .map(|lc| match lc.direction {
+                LaneChangeDirection::Left => -1i64,
+                LaneChangeDirection::Right => 1i64,
+            })
+            .sum();
+        let target_lane = (initial_lane as i64 + total_delta).max(0) as usize;
 
         // NPC stays in initial lane UNTIL it switches to target lane
         // This ensures a clean transition without oscillation during the switch

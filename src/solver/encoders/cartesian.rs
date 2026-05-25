@@ -611,14 +611,12 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         let epsilon = Real::from_rational(1_i64, 100_i64); // 0.01 m/s to avoid division by zero
 
         // Enhanced "same lane" condition: discrete lane match OR y-position proximity
-        // This handles lane change transitions where discrete lane != smooth y-position
+        // This handles lane change transitions and head-on / opposite-direction actors
+        // that are laterally overlapping.
         let same_lane_discrete = lane1.eq(lane2);
 
-        // Y-position proximity: |py1 - py2| < lane_width (vehicles in same lateral space)
-        // FIXED: Use AND to properly check |py1 - py2| < lane_width
-        // Both (py1-py2) < lane_width AND (py2-py1) < lane_width must be true
-        // Using OR would be incorrect: if py1-py2 = 5.0 and lane_width = 3.5,
-        // py2-py1 = -5.0 < 3.5 is TRUE, so OR would incorrectly return TRUE
+        // Y-position proximity: |py1 - py2| < lane_width catches actors whose y-positions
+        // overlap within one lane width (covers mid-transition and laterally-aligned actors).
         let lane_width = self.spec.get_lane_width();
         let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
         let py_diff_pos = py1 - py2;
@@ -686,14 +684,12 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         let min_dist_val = Real::from_rational((min_dist * 10.0) as i64, 10_i64);
 
         // Enhanced "same lane" condition: discrete lane match OR y-position proximity
-        // This handles lane change transitions where discrete lane != smooth y-position
+        // This handles lane change transitions and head-on / opposite-direction actors
+        // that are laterally overlapping.
         let same_lane_discrete = lane1.eq(lane2);
 
-        // Y-position proximity: |py1 - py2| < lane_width (vehicles in same lateral space)
-        // FIXED: Use AND to properly check |py1 - py2| < lane_width
-        // Both (py1-py2) < lane_width AND (py2-py1) < lane_width must be true
-        // Using OR would be incorrect: if py1-py2 = 5.0 and lane_width = 3.5,
-        // py2-py1 = -5.0 < 3.5 is TRUE, so OR would incorrectly return TRUE
+        // Y-position proximity: |py1 - py2| < lane_width catches actors whose y-positions
+        // overlap within one lane width (covers mid-transition and laterally-aligned actors).
         let lane_width = self.spec.get_lane_width();
         let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
         let py_diff_pos = py1 - py2;
