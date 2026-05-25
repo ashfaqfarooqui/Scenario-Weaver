@@ -143,7 +143,17 @@ pub fn export_to_openlabel(scenario: &Scenario) -> Result<String> {
 // Tag helpers
 // ---------------------------------------------------------------------------
 
+/// Minimum absolute acceleration (m/s²) to emit MotionAccelerate/MotionDecelerate tags.
+/// Chosen above typical sensor noise floor to avoid tagging near-constant-speed trajectories.
+const ACCELERATION_TAG_THRESHOLD: f64 = 0.5;
+
 fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
+    debug_assert_eq!(
+        scenario.road.num_lanes,
+        scenario.road.lane_directions.len(),
+        "RoadSpec invariant violated: num_lanes != lane_directions.len()"
+    );
+
     let mut tags: Vec<OpenLabelTag> = Vec::new();
 
     // Motion: map scenario type to ontology motion tag
@@ -151,6 +161,7 @@ fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
         t if t.contains("cut_in") => "MotionCutIn",
         t if t.contains("cut_out") => "MotionCutOut",
         t if t.contains("overtake") => "MotionOvertake",
+        t if t.contains("pedestrian") => "MotionWalk",
         _ => "MotionDrive",
     };
     tags.push(simple_tag(motion_tag));
@@ -184,28 +195,38 @@ fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
         tags.push(simple_tag("HumanPedestrian"));
     }
 
-    // Road type — inferred from lane count and directionality
-    let all_same_direction = scenario
-        .road
-        .lane_directions
-        .windows(2)
-        .all(|w| w[0] == w[1]);
-    let road_type_tag = if scenario.road.num_lanes >= 3 && all_same_direction {
-        "RoadTypeMotorway"
-    } else if scenario.road.num_lanes == 2 && all_same_direction {
-        "RoadTypeDistributor"
-    } else {
+    // Road type is inferred from lane count and directionality as a best-effort heuristic.
+    // These mappings are NOT derived from the ASAM ontology definitions (which are access-control
+    // based), but approximate the most common usage in generated scenarios. For precise road
+    // classification, add a `road_class` field to RoadSpec.
+    let lane_count = scenario.road.lane_directions.len();
+    let road_type_tag = if lane_count == 0 {
         "RoadTypeMinor"
+    } else {
+        let all_same_direction = scenario
+            .road
+            .lane_directions
+            .windows(2)
+            .all(|w| w[0] == w[1]);
+        if lane_count >= 3 && all_same_direction {
+            "RoadTypeMotorway"
+        } else if lane_count == 2 && all_same_direction {
+            "RoadTypeDistributor"
+        } else {
+            "RoadTypeMinor"
+        }
     };
     tags.push(simple_tag(road_type_tag));
 
-    // Lane travel direction — always emit the category tag, then directional tags
-    tags.push(simple_tag("LaneSpecificationTravelDirection"));
-    if scenario.road.lane_directions.iter().any(|&d| d == 1) {
-        tags.push(simple_tag("TravelDirectionRight"));
-    }
-    if scenario.road.lane_directions.iter().any(|&d| d == -1) {
-        tags.push(simple_tag("TravelDirectionLeft"));
+    // Lane travel direction — only emit when lane_directions is non-empty
+    if lane_count > 0 {
+        tags.push(simple_tag("LaneSpecificationTravelDirection"));
+        if scenario.road.lane_directions.iter().any(|&d| d == 1) {
+            tags.push(simple_tag("TravelDirectionRight"));
+        }
+        if scenario.road.lane_directions.iter().any(|&d| d == -1) {
+            tags.push(simple_tag("TravelDirectionLeft"));
+        }
     }
 
     // Special structure — pedestrian crossing
@@ -213,10 +234,7 @@ fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
         tags.push(simple_tag("SpecialStructurePedestrianCrossing"));
     }
 
-    // Zone tags
-    if scenario.scenario_type.contains("school") {
-        tags.push(simple_tag("ZoneSchool"));
-    }
+    // ZoneSchool: emit when a school_zone scenario type is added
 
     // Lane count with tag_data
     tags.push(OpenLabelTag {
@@ -231,25 +249,24 @@ fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
     });
 
     tags.into_iter()
-        .enumerate()
-        .map(|(i, t)| (i.to_string(), t))
+        .map(|t| (t.tag_type.clone(), t))
         .collect()
 }
 
-/// Returns true if any actor has any state with ax > 0.5 (meaningful acceleration).
+/// Returns true if any actor has any state with ax > threshold (meaningful acceleration).
 fn has_acceleration(scenario: &Scenario) -> bool {
     scenario
         .actors
         .iter()
-        .any(|actor| actor.states.iter().any(|s| s.cartesian.acceleration.ax > 0.5))
+        .any(|actor| actor.states.iter().any(|s| s.cartesian.acceleration.ax > ACCELERATION_TAG_THRESHOLD))
 }
 
-/// Returns true if any actor has any state with ax < -0.5 (meaningful deceleration).
+/// Returns true if any actor has any state with ax < -threshold (meaningful deceleration).
 fn has_deceleration(scenario: &Scenario) -> bool {
     scenario
         .actors
         .iter()
-        .any(|actor| actor.states.iter().any(|s| s.cartesian.acceleration.ax < -0.5))
+        .any(|actor| actor.states.iter().any(|s| s.cartesian.acceleration.ax < -ACCELERATION_TAG_THRESHOLD))
 }
 
 fn simple_tag(name: &str) -> OpenLabelTag {
@@ -651,5 +668,73 @@ mod tests {
         let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
         assert!(types.contains(&"MotionLaneChangeRight"));
         assert!(!types.contains(&"MotionLaneChangeLeft"));
+    }
+
+    #[test]
+    fn test_empty_lane_directions() {
+        // lane_directions: vec![] → RoadTypeMinor, no TravelDirectionRight/Left, no panic
+        let road = RoadSpec {
+            num_lanes: 0,
+            lane_width: 3.5,
+            lane_directions: vec![],
+            road_length: None,
+        };
+        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
+        scenario.validation = ValidationInfo {
+            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
+            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            acceleration_violations: vec![],
+        };
+        let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
+        ego.add_state(State::new(0.0, Position::new(50.0, 5.25), Velocity::new(15.0, 0.0), Acceleration::new(0.0, 0.0), 0));
+        scenario.add_actor(ego);
+
+        let result = export_to_openlabel(&scenario).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let tags = parsed["openlabel"]["tags"].as_object().unwrap();
+        let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
+        assert!(types.contains(&"RoadTypeMinor"), "expected RoadTypeMinor for empty lane_directions");
+        assert!(!types.contains(&"TravelDirectionRight"), "TravelDirectionRight must not appear for empty lane_directions");
+        assert!(!types.contains(&"TravelDirectionLeft"), "TravelDirectionLeft must not appear for empty lane_directions");
+        assert!(!types.contains(&"LaneSpecificationTravelDirection"), "LaneSpecificationTravelDirection must not appear for empty lane_directions");
+    }
+
+    #[test]
+    fn test_pedestrian_scenario_motion_tag() {
+        let road = RoadSpec {
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            road_length: None,
+        };
+        let mut scenario = Scenario::new("pedestrian_crossing".to_string(), 0.1, 5.0, road);
+        scenario.validation = ValidationInfo {
+            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
+            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            acceleration_violations: vec![],
+        };
+        let mut ped = ActorTrajectory::new("ped".to_string(), "pedestrian".to_string());
+        ped.add_state(State::new(0.0, Position::new(30.0, 0.0), Velocity::new(1.0, 0.0), Acceleration::new(0.0, 0.0), 0));
+        scenario.add_actor(ped);
+
+        let result = export_to_openlabel(&scenario).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let tags = parsed["openlabel"]["tags"].as_object().unwrap();
+        let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
+        assert!(types.contains(&"MotionWalk"), "expected MotionWalk for pedestrian_crossing scenario");
+        assert!(!types.contains(&"MotionDrive"), "MotionDrive must not appear for pedestrian scenario");
+    }
+
+    #[test]
+    fn test_tag_keys_are_type_strings() {
+        // Tag map keys must be the tag type string, not positional integers
+        let scenario = make_scenario(true);
+        let result = export_to_openlabel(&scenario).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let tags = parsed["openlabel"]["tags"].as_object().unwrap();
+        // Keys should be type strings like "MotionCutIn", not "0", "1", "2"
+        assert!(tags.contains_key("MotionCutIn"), "expected key 'MotionCutIn' in tags map");
+        assert!(tags.contains_key("RoadTypeDistributor"), "expected key 'RoadTypeDistributor' in tags map");
+        assert!(!tags.contains_key("0"), "positional integer keys must not appear");
     }
 }
