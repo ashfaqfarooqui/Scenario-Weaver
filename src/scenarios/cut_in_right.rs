@@ -85,13 +85,14 @@ impl CutInRightModel {
         let initial_lane = npc.lane;
 
         // Compute actual final target lane by accumulating all lane change deltas.
-        // Must match the kinematics encoder: source_lane + sum(deltas).
+        // For backward actors (direction=-1), Right means lane-1 and Left means lane+1
+        // (relative to road frame). Must match the kinematics encoder.
         let total_delta: i64 = npc
             .lane_changes
             .iter()
             .map(|lc| match lc.direction {
-                LaneChangeDirection::Left => -1i64,
-                LaneChangeDirection::Right => 1i64,
+                LaneChangeDirection::Left => -(npc.direction as i64),
+                LaneChangeDirection::Right => npc.direction as i64,
             })
             .sum();
         let target_lane = (initial_lane as i64 + total_delta).max(0) as usize;

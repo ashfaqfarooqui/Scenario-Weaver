@@ -65,18 +65,26 @@ impl CutInLeftModel {
         let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let npc = spec.npcs()[0];
 
-        Ok(LTLFormula::Atom(Proposition::InLane {
+        let base = LTLFormula::Atom(Proposition::InLane {
             actor: ego_id.to_string(),
             lane: ego.lane,
         })
         .and(LTLFormula::Atom(Proposition::InLane {
             actor: npc_id.to_string(),
             lane: npc.lane,
-        }))
-        .and(LTLFormula::Atom(Proposition::Ahead {
-            actor1: npc_id.to_string(),
-            actor2: ego_id.to_string(),
-        })))
+        }));
+
+        // Only enforce the "NPC is ahead of ego" constraint when both actors travel in the
+        // same direction. For bidirectional roads with actors in opposite-direction lanes,
+        // the Ahead proposition is not meaningful (they're in separate traffic streams).
+        if ego.direction == npc.direction {
+            Ok(base.and(LTLFormula::Atom(Proposition::Ahead {
+                actor1: npc_id.to_string(),
+                actor2: ego_id.to_string(),
+            })))
+        } else {
+            Ok(base)
+        }
     }
 
     fn cut_in_behavior(&self, spec: &ScenarioSpec, _ego_id: &str, npc_id: &str) -> LTLFormula {
@@ -85,15 +93,14 @@ impl CutInLeftModel {
         let initial_lane = npc.lane;
 
         // Compute actual final target lane by accumulating all lane change deltas.
-        // This must match what the kinematics encoder computes for the last lane change.
-        // Using ego.lane as the target is wrong when the NPC needs multiple changes
-        // (e.g., opposite-traffic bidirectional roads).
+        // For backward actors (direction=-1), Right means lane-1 and Left means lane+1
+        // (relative to road frame), because their right is the opposite road direction.
         let total_delta: i64 = npc
             .lane_changes
             .iter()
             .map(|lc| match lc.direction {
-                LaneChangeDirection::Left => -1i64,
-                LaneChangeDirection::Right => 1i64,
+                LaneChangeDirection::Left => -(npc.direction as i64),
+                LaneChangeDirection::Right => npc.direction as i64,
             })
             .sum();
         let target_lane = (initial_lane as i64 + total_delta).max(0) as usize;

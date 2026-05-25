@@ -214,21 +214,22 @@ fn print_scenario_summary(scenario: &scenario_weaver::scenario::model::Scenario)
     println!("Scenario ID: {}", scenario.scenario_id);
     println!("Type: {}", scenario.scenario_type);
     println!("Duration: {:.1}s", scenario.duration);
-    println!("Time steps: {}", scenario.actors[0].states.len());
+    println!("Time steps: {}", scenario.actors.first().map_or(0, |a| a.states.len()));
 
     // Print actor initial conditions
     for actor in &scenario.actors {
-        let initial = &actor.states[0];
-        println!(
-            "  {} [{}]: lane={}, pos=({:.2}, {:.2}), vel=({:.2}, {:.2})",
-            actor.id,
-            actor.role,
-            initial.lane(),
-            initial.position().x,
-            initial.position().y,
-            initial.velocity().vx,
-            initial.velocity().vy
-        );
+        if let Some(initial) = actor.states.first() {
+            println!(
+                "  {} [{}]: lane={}, pos=({:.2}, {:.2}), vel=({:.2}, {:.2})",
+                actor.id,
+                actor.role,
+                initial.lane(),
+                initial.position().x,
+                initial.position().y,
+                initial.velocity().vx,
+                initial.velocity().vy
+            );
+        }
     }
 
     // Print validation metrics

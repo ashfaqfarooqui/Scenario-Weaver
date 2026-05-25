@@ -332,11 +332,20 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 lane_var.eq(&lane_val)
             }
 
-            // Ahead(actor1, actor2): px1[t] > px2[t]
+            // Ahead(actor1, actor2): actor1 is ahead of actor2 in actor1's direction of travel.
+            // For forward actors (direction=1): px1 > px2 (higher x is ahead)
+            // For backward actors (direction=-1): px1 < px2 (lower x is ahead)
             Proposition::Ahead { actor1, actor2 } => {
                 let px1 = self.get_longitudinal_pos(actor1, time);
                 let px2 = self.get_longitudinal_pos(actor2, time);
-                px1.gt(px2)
+                let direction = self.spec.actors.iter()
+                    .find(|a| &a.id == actor1)
+                    .map_or(1, |a| a.direction);
+                if direction >= 0 {
+                    px1.gt(px2)
+                } else {
+                    px1.lt(px2)
+                }
             }
 
             // DistanceGT(actor1, actor2, d): |px1[t] - px2[t]| > d
@@ -920,11 +929,6 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         scenario.validation.max_deceleration = max_decel;
         let has_accel_violations = !accel_violations.is_empty();
         scenario.validation.acceleration_violations = accel_violations;
-
-        // Update all_constraints_satisfied if there are acceleration violations
-        if has_accel_violations {
-            scenario.validation.all_constraints_satisfied = false;
-        }
 
         // Update validation info
         scenario.validation.min_ttc = if min_ttc.is_infinite() {

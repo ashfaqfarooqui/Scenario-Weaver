@@ -408,7 +408,9 @@ impl RoadSpec {
     pub fn validate(&self) -> Result<(), String> {
         if self.lane_directions.len() != self.num_lanes {
             return Err(format!(
-                "lane_directions length ({}) must equal num_lanes ({})",
+                "lane_directions length ({}) must equal num_lanes ({}). \
+                 If lane_directions was omitted it defaults to 2 forward lanes; \
+                 set it explicitly for roads with != 2 lanes",
                 self.lane_directions.len(),
                 self.num_lanes
             ));
@@ -746,11 +748,24 @@ impl ScenarioSpec {
             }
         }
 
+        // Validate shorthand constraint mode string
+        if let ConstraintModes::Shorthand(ref s) = self.constraint_modes {
+            match s.as_str() {
+                "violate_all" | "ignore_all" | "enforce_all" => {}
+                other => {
+                    return Err(format!(
+                        "Unknown constraint_modes shorthand '{}'. Valid values: violate_all, ignore_all, enforce_all",
+                        other
+                    ));
+                }
+            }
+        }
+
         // Warn if violating constraints
         if self.constraint_modes.min_ttc() == ConstraintMode::Violate
             || self.constraint_modes.min_distance() == ConstraintMode::Violate
         {
-            eprintln!("WARNING: Adversarial mode enabled - constraints will be violated");
+            tracing::warn!("Adversarial mode enabled - constraints will be violated");
         }
 
         // Validate bicycle configuration
@@ -1014,5 +1029,14 @@ num_scenarios: 1
         assert_eq!(spec.get_lane_width(), 3.5);
         assert_eq!(spec.get_lane_direction(0), 1);
         assert_eq!(spec.get_lane_direction(2), -1);
+    }
+
+    #[test]
+    fn test_constraint_modes_unknown_shorthand() {
+        let modes = ConstraintModes::Shorthand("enforce_al".to_string()); // typo
+        // Shorthand itself doesn't validate — validation happens in ScenarioSpec::validate()
+        // Check that the shorthand accessor still falls back to Enforce (existing behaviour
+        // is unchanged for the accessor; the *error* is raised in validate()).
+        assert_eq!(modes.min_ttc(), ConstraintMode::Enforce);
     }
 }

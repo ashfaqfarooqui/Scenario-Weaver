@@ -25,6 +25,20 @@ pub fn parse_yaml(yaml_content: &str) -> Result<ScenarioSpec> {
         road.road_length = Some(road_length);
     }
 
+    // Resolve each actor's direction from lane_directions when a road spec is present.
+    // This ensures actors in backward lanes (-1) get direction = -1 regardless of what
+    // was written in the YAML, so velocity-sign constraints are consistent with the road.
+    if let Some(road) = &spec.road {
+        let lane_directions = road.lane_directions.clone();
+        for actor in &mut spec.actors {
+            let lane_dir = lane_directions
+                .get(actor.lane)
+                .copied()
+                .unwrap_or(1);
+            actor.direction = lane_dir;
+        }
+    }
+
     Ok(spec)
 }
 

@@ -210,10 +210,19 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         // Get source lane from step before transition starts
         let source_lane = &self.lanes[actor_id][start_step.saturating_sub(1)];
 
-        // Calculate target lane
+        // Calculate target lane, accounting for actor's direction of travel.
+        // For a forward actor (direction=1): Right=lane+1, Left=lane-1 (road-frame).
+        // For a backward actor (direction=-1): Right=lane-1, Left=lane+1 (road-frame),
+        // because the actor's "right" is the opposite road-frame direction.
+        let actor_direction = self
+            .spec
+            .actors
+            .iter()
+            .find(|a| a.id == actor_id)
+            .map_or(1, |a| a.direction);
         let lane_delta = match direction {
-            crate::dsl::types::LaneChangeDirection::Right => 1,
-            crate::dsl::types::LaneChangeDirection::Left => -1,
+            crate::dsl::types::LaneChangeDirection::Right => actor_direction as i64,
+            crate::dsl::types::LaneChangeDirection::Left => -(actor_direction as i64),
         };
         let target_lane_int = source_lane.add(&Int::from_i64(lane_delta));
 
