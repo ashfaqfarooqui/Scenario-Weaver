@@ -221,10 +221,10 @@ fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
     // Lane travel direction — only emit when lane_directions is non-empty
     if lane_count > 0 {
         tags.push(simple_tag("LaneSpecificationTravelDirection"));
-        if scenario.road.lane_directions.iter().any(|&d| d == 1) {
+        if scenario.road.lane_directions.contains(&1) {
             tags.push(simple_tag("TravelDirectionRight"));
         }
-        if scenario.road.lane_directions.iter().any(|&d| d == -1) {
+        if scenario.road.lane_directions.contains(&-1) {
             tags.push(simple_tag("TravelDirectionLeft"));
         }
     }

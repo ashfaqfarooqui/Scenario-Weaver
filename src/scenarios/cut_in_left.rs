@@ -10,7 +10,7 @@ use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;
 
 /// Cut-in from left scenario model
-pub struct CutInLeftModel;
+pub(crate) struct CutInLeftModel;
 
 impl ScenarioModel for CutInLeftModel {
     fn validate(&self, spec: &ScenarioSpec) -> Result<()> {
@@ -34,7 +34,7 @@ impl ScenarioModel for CutInLeftModel {
     }
 
     fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
-        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
+        let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let npc = &spec.npcs()[0];
 
         let ego_id = ego.id.as_str();
@@ -62,7 +62,7 @@ impl ScenarioModel for CutInLeftModel {
 
 impl CutInLeftModel {
     fn initial_conditions(&self, spec: &ScenarioSpec, ego_id: &str, npc_id: &str) -> Result<LTLFormula> {
-        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
+        let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let npc = spec.npcs()[0];
 
         Ok(LTLFormula::Atom(Proposition::InLane {

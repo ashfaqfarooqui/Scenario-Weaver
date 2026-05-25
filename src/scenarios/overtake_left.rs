@@ -14,7 +14,7 @@ use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;
 
 /// Overtake from left scenario model
-pub struct OvertakeLeftModel;
+pub(crate) struct OvertakeLeftModel;
 
 impl ScenarioModel for OvertakeLeftModel {
     fn validate(&self, spec: &ScenarioSpec) -> Result<()> {
@@ -26,7 +26,7 @@ impl ScenarioModel for OvertakeLeftModel {
             )));
         }
 
-        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
+        let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let npc = &spec.npcs()[0];
 
         // Validate NPC starts in same lane as ego
@@ -83,7 +83,7 @@ impl ScenarioModel for OvertakeLeftModel {
     }
 
     fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
-        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
+        let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let npc = &spec.npcs()[0];
 
         let ego_id = ego.id.as_str();
@@ -116,7 +116,7 @@ impl ScenarioModel for OvertakeLeftModel {
 impl OvertakeLeftModel {
     /// Generate initial conditions LTL
     fn initial_conditions(&self, spec: &ScenarioSpec, ego_id: &str, npc_id: &str) -> Result<LTLFormula> {
-        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
+        let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let npc = &spec.npcs()[0];
 
         // Both start in the same lane
@@ -141,7 +141,7 @@ impl OvertakeLeftModel {
 
     /// Generate three-phase overtake behavior LTL
     fn overtake_behavior(&self, spec: &ScenarioSpec, ego_id: &str, npc_id: &str) -> Result<LTLFormula> {
-        let ego = spec.ego().map_err(|e| ScenarioGenError::InvalidSpec(e))?;
+        let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let original_lane = ego.lane;
         let passing_lane = ego.lane - 1; // Left lane
 

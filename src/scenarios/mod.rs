@@ -230,12 +230,12 @@ fn generate_default_safety(spec: &ScenarioSpec) -> LTLFormula {
         })
         .negate())
     } else {
-        constraints.into_iter().reduce(|acc, c| acc.and(c)).unwrap()
+        LTLFormula::conjunction(constraints)
     }
 }
 
-pub mod cut_in_left;
-pub mod cut_in_right;
-pub mod head_on;
-pub mod overtake_left;
-pub mod pedestrian_crossing;
+pub(crate) mod cut_in_left;
+pub(crate) mod cut_in_right;
+pub(crate) mod head_on;
+pub(crate) mod overtake_left;
+pub(crate) mod pedestrian_crossing;

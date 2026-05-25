@@ -595,8 +595,7 @@ impl ScenarioSpec {
     pub fn get_lane_width(&self) -> f64 {
         self.road
             .as_ref()
-            .map(|r| r.lane_width)
-            .unwrap_or(self.lane_width)
+            .map_or(self.lane_width, |r| r.lane_width)
     }
 
     /// Get lane direction (backward compatible)
@@ -604,13 +603,12 @@ impl ScenarioSpec {
     pub fn get_lane_direction(&self, lane: usize) -> i32 {
         self.road
             .as_ref()
-            .map(|r| r.get_lane_direction(lane))
-            .unwrap_or(1) // Default: all forward
+            .map_or(1, |r| r.get_lane_direction(lane)) // Default: all forward
     }
 
     /// Get number of lanes (backward compatible)
     pub fn get_num_lanes(&self) -> usize {
-        self.road.as_ref().map(|r| r.num_lanes).unwrap_or(2) // Default: 2 lanes
+        self.road.as_ref().map_or(2, |r| r.num_lanes) // Default: 2 lanes
     }
 
     /// Get bicycle parameters for an actor (uses actor-specific params or scenario defaults)

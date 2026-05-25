@@ -244,14 +244,25 @@ impl<'a> GifAnimator<'a> {
         // Pre-render static background once (road, lanes) for performance
         let static_background = self.render_static_background();
 
+        // Reuse a working image buffer across frames to avoid per-frame allocation
+        let mut working_image = RgbImage::new(self.config.canvas_width, self.config.canvas_height);
+
         // Generate frame for each time step (with frame skipping for long scenarios)
         for frame_idx in (0..self.config.num_frames).step_by(self.config.frame_skip) {
-            let image = self.render_frame(frame_idx, &static_background);
+            // Reset to static background
+            working_image.copy_from_slice(static_background.as_raw());
+
+            // Draw dynamic elements on top
+            self.draw_trajectory_trails(&mut working_image, frame_idx);
+            self.draw_vehicles(&mut working_image, frame_idx);
+            self.draw_violations(&mut working_image, frame_idx);
+            self.draw_metrics_overlay(&mut working_image, frame_idx);
+
             // Increase encoding speed from 10 to 20 for faster generation
             let mut frame = Frame::from_rgb_speed(
                 self.config.canvas_width as u16,
                 self.config.canvas_height as u16,
-                &image.into_raw(),
+                working_image.as_raw(),
                 20,
             );
             frame.delay = FRAME_DELAY_CENTISECONDS;
@@ -265,27 +276,16 @@ impl<'a> GifAnimator<'a> {
     }
 
     /// Render static background elements (background, road, lane markings)
-    /// This is rendered once and cloned for each frame for performance
+    /// This is rendered once and reused for each frame for performance
     fn render_static_background(&self) -> RgbImage {
-        let mut image = RgbImage::new(self.config.canvas_width, self.config.canvas_height);
+        let mut image = RgbImage::from_pixel(
+            self.config.canvas_width,
+            self.config.canvas_height,
+            COLOR_BACKGROUND,
+        );
 
-        self.draw_background(&mut image);
         self.draw_road_surface(&mut image);
         self.draw_lane_markings(&mut image);
-
-        image
-    }
-
-    /// Render a single frame at given time index
-    fn render_frame(&self, frame_idx: usize, static_background: &RgbImage) -> RgbImage {
-        // Clone the pre-rendered static background
-        let mut image = static_background.clone();
-
-        // Only render dynamic elements
-        self.draw_trajectory_trails(&mut image, frame_idx);
-        self.draw_vehicles(&mut image, frame_idx);
-        self.draw_violations(&mut image, frame_idx);
-        self.draw_metrics_overlay(&mut image, frame_idx);
 
         image
     }
@@ -318,13 +318,6 @@ impl<'a> GifAnimator<'a> {
             COLOR_PEDESTRIAN_TRAIL
         } else {
             COLOR_NPC_TRAIL
-        }
-    }
-
-    /// Add background rectangle
-    fn draw_background(&self, image: &mut RgbImage) {
-        for pixel in image.pixels_mut() {
-            *pixel = COLOR_BACKGROUND;
         }
     }
 
@@ -417,11 +410,7 @@ impl<'a> GifAnimator<'a> {
             let trail_color = self.get_trail_color(&actor.id);
 
             // Draw trail from start to current frame, limited to MAX_TRAIL_LENGTH most recent positions
-            let trail_start = if current_frame > MAX_TRAIL_LENGTH {
-                current_frame - MAX_TRAIL_LENGTH
-            } else {
-                0
-            };
+            let trail_start = current_frame.saturating_sub(MAX_TRAIL_LENGTH);
 
             for t in trail_start..=current_frame {
                 if t >= actor.states.len() {

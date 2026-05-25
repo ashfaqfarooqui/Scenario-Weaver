@@ -15,7 +15,7 @@ pub fn parse_yaml(yaml_content: &str) -> Result<ScenarioSpec> {
     // Calculate and store road length for consistency
     if let Some(road) = &mut spec.road {
         // Use provided road_length, or calculate based on duration + max speed buffer
-        let road_length = road.road_length.unwrap_or_else(|| {
+        let road_length = road.road_length.unwrap_or({
             // Calculate road length based on duration + max speed assumption
             // Use 30 m/s (~108 km/h) as reasonable max speed for scenario generation
             spec.duration * 30.0

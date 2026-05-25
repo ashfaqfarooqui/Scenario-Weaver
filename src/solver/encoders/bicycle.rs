@@ -671,13 +671,11 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         let actor1_dir = self
             .spec
             .get_actor(actor1)
-            .map(|a| a.direction)
-            .unwrap_or(1);
+            .map_or(1, |a| a.direction);
         let actor2_dir = self
             .spec
             .get_actor(actor2)
-            .map(|a| a.direction)
-            .unwrap_or(1);
+            .map_or(1, |a| a.direction);
         let raw_v1 = &self.speed_v[actor1][time];
         let raw_v2 = &self.speed_v[actor2][time];
         let v1 = if actor1_dir == 1 {
