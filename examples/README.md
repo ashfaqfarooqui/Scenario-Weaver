@@ -1,100 +1,161 @@
-# Coordinate System Examples
+# Examples
 
-This directory contains example YAML specifications demonstrating different coordinate systems for scenario generation.
+This directory contains 16 YAML scenario specifications covering the full range of ScenarioWeaver features.
 
-## Overview
+## Running an Example
 
-The system supports two coordinate systems via the `coordinate_system` field in YAML specifications:
-
-### Cartesian (default)
-- Uses traditional x, y coordinates
-- Direct position and velocity variables in Z3
-- Smooth lane changes using linear interpolation
-- Useful for general scenarios
-
-### Bicycle
-- Uses kinematic bicycle model with heading tracking (x, y, θ, v)
-- Realistic vehicle dynamics with steering constraints
-- Enforces turn radius and steering rate limits
-- Recommended for realistic vehicle behavior
-
-## Coordinate System Architecture
-
-The encoder system uses a **trait-based plugin architecture**:
-
-1. **`CoordinateEncoder<B>` trait**: Defines interface for all coordinate-specific encoders
-2. **`GenericEncoder<B>`**: Facade that dispatches to appropriate encoder based on `coordinate_system` field
-3. **Coordinate-specific implementations**:
-   - `CartesianEncoder`: Z3 variables are `positions_x`, `positions_y`, `velocities_x`, `velocities_y`, `lanes`
-   - `BicycleEncoder`: Z3 variables are `positions_x`, `positions_y`, `heading_theta`, `speed_v`, `steering_delta`, `accelerations`, `lanes`
-
-## Specifying Coordinate System
-
-Add the `coordinate_system` field to your YAML:
-
-```yaml
-# Use Cartesian coordinates (default)
-coordinate_system: cartesian
-
-actors:
-  - id: ego
-    lane: 1
-    position: [0.0, 20.0]
-    speed: 15.0
+```bash
+cargo run --release -- -i examples/cut_in_left.yaml -o output/
 ```
 
-Or specify Bicycle model:
+Each run produces six output files: `.json`, `.xosc`, `.xodr`, `.svg`, `.gif`, `.ol.json`.
 
+---
+
+## Core Scenarios
+
+### cut_in_left.yaml
+NPC in the left lane cuts right into the ego's lane on a 3-lane bidirectional road.
+Canonical reference example. Generates 5 diverse scenarios.
+```bash
+cargo run --release -- -i examples/cut_in_left.yaml -o output/
+```
+
+### cut_in_right.yaml
+Mirror of cut_in_left: NPC in the right lane cuts left into the ego's lane.
+```bash
+cargo run --release -- -i examples/cut_in_right.yaml -o output/
+```
+
+### overtake_left.yaml
+NPC overtakes ego using two sequential lane changes: move left into passing lane, accelerate past, then return right. Demonstrates multi-step lane change maneuvers.
+```bash
+cargo run --release -- -i examples/overtake_left.yaml -o output/
+```
+
+### pedestrian_crossing.yaml
+Pedestrian crosses a two-lane road while the ego vehicle approaches. The only pedestrian scenario type.
+```bash
+cargo run --release -- -i examples/pedestrian_crossing.yaml -o output/
+```
+
+---
+
+## Bicycle Model Scenarios
+
+These use the kinematic bicycle model (`coordinate_system: bicycle`) with heading tracking and steering constraints.
+
+### bicycle_lane_change.yaml
+Cut-in-left scenario using the bicycle model. Demonstrates realistic vehicle dynamics with wheelbase, max steering angle, and steering rate configuration.
+```bash
+cargo run --release -- -i examples/bicycle_lane_change.yaml -o output/
+```
+
+### cut_in_right_bicycle.yaml
+Right-side cut-in using the bicycle model on a 3-lane highway. Mirror of `bicycle_lane_change.yaml`.
+```bash
+cargo run --release -- -i examples/cut_in_right_bicycle.yaml -o output/
+```
+
+---
+
+## Adversarial Scenarios
+
+These intentionally violate safety constraints to generate edge cases for AV testing.
+
+### cut_in_left_adversarial_all.yaml
+Cut-in with `constraint_modes: violate_all` — both TTC and distance constraints are violated. Generates 5 worst-case scenarios.
+```bash
+cargo run --release -- -i examples/cut_in_left_adversarial_all.yaml -o output/
+```
+
+### cut_in_left_adversarial_ttc.yaml
+Selective adversarial: violates TTC while enforcing minimum distance. Demonstrates fine-grained constraint mode control.
+```bash
+cargo run --release -- -i examples/cut_in_left_adversarial_ttc.yaml -o output/
+```
+
+### head_on_collision.yaml
+Oncoming NPC on a 4-lane bidirectional road changes into the ego's lane with safety constraints violated. Closing speed ~40 m/s.
+```bash
+cargo run --release -- -i examples/head_on_collision.yaml -o output/
+```
+
+### speed_limit_violation.yaml
+Ego exceeds a 22 m/s speed limit (`max_velocity: violate`) while TTC and distance remain enforced. Demonstrates `VelocityGT` proposition.
+```bash
+cargo run --release -- -i examples/speed_limit_violation.yaml -o output/
+```
+
+### unsafe_following.yaml
+NPC cuts in with a relative speed >10 m/s above the ego (`max_relative_velocity: violate`). Demonstrates `RelativeVelocityGT` proposition.
+```bash
+cargo run --release -- -i examples/unsafe_following.yaml -o output/
+```
+
+### multi_lane_safety.yaml
+NPC lane change violates the lateral distance threshold (`min_lateral_distance: violate`) while TTC and longitudinal distance stay enforced. Demonstrates `LateralDistanceGT` proposition.
+```bash
+cargo run --release -- -i examples/multi_lane_safety.yaml -o output/
+```
+
+---
+
+## Bidirectional Road Scenarios
+
+### simple_bidirectional.yaml
+Basic cut-in on a 4-lane bidirectional road (2 forward, 2 backward). Both actors travel in the forward direction.
+```bash
+cargo run --release -- -i examples/simple_bidirectional.yaml -o output/
+```
+
+### head_on_near_miss.yaml
+Oncoming NPC on a bidirectional road changes lanes with safety enforced — the safe counterpart to `head_on_collision.yaml`.
+```bash
+cargo run --release -- -i examples/head_on_near_miss.yaml -o output/
+```
+
+### overtake_with_opposite.yaml
+NPC cuts into ego's lane on a 3-lane road with one oncoming lane. Tests mixed-direction lane configurations.
+```bash
+cargo run --release -- -i examples/overtake_with_opposite.yaml -o output/
+```
+
+---
+
+## Feature Demonstrations
+
+### with_import.yaml
+Cut-in scenario that imports its road definition from `roads/4_lane_bidirectional.yaml`. Demonstrates the road library import feature.
+```bash
+cargo run --release -- -i examples/with_import.yaml -o output/
+```
+
+---
+
+## Coordinate Systems
+
+All examples use one of two coordinate systems set via `coordinate_system` in the YAML:
+
+| System | Variables | Use case |
+|--------|-----------|----------|
+| `cartesian` (default) | x, y, vx, vy | General scenarios, fast solving |
+| `bicycle` | x, y, θ, v, δ | Realistic dynamics with heading and steering |
+
+The bicycle model requires a `bicycle_config` block:
 ```yaml
-# Use Bicycle model
 coordinate_system: bicycle
-
 bicycle_config:
   default_wheelbase: 2.7
   default_max_steering_angle: 0.6
   default_max_steering_rate: 0.5
-
-actors:
-  - id: ego
-    lane: 1
-    position: [0.0, 20.0]
-    speed: 15.0
 ```
 
-## Examples
-
-### cut_in_left.yaml
-Basic cut-in scenario using Cartesian coordinates (default)
-
-### bicycle_lane_change.yaml
-Lane change scenario using Bicycle kinematic model with heading tracking
-
-### bicycle_straight.yaml
-Straight-line driving scenario demonstrating Bicycle model dynamics
-
-### cut_in_right.yaml
-Right-side cut-in scenario
-
-### overtake_left.yaml
-Overtaking maneuver scenario
-
-### pedestrian_crossing.yaml
-Pedestrian crossing scenario
-
-### speed_limit_violation.yaml
-Adversarial scenario demonstrating speed limit violation
-
-### school_zone.yaml
-Speed-limited scenario for school zone
-
-### unsafe_following.yaml
-Unsafe following distance scenario
-
-**Note:** Multi-road junction scenarios (t_junction, crossroads) are planned but not yet implemented.
+---
 
 ## Output Format
 
-The JSON output contains coordinates in Cartesian format for visualization and CARLA:
+All scenarios (both coordinate systems) produce Cartesian output for compatibility with visualization and simulation tools:
 
 ```json
 {
@@ -104,19 +165,4 @@ The JSON output contains coordinates in Cartesian format for visualization and C
   "acceleration": {"ax": 0.0, "ay": 0.0},
   "lane": 1
 }
-```
-
-Both coordinate systems (Cartesian and Bicycle) output in this format for consistency with visualization tools and CARLA.
-
-## Running Examples
-
-Generate a single scenario with Cartesian coordinates:
-```bash
-cargo run --release -- -i examples/cut_in_left.yaml -o output/
-```
-
-Generate with Bicycle model:
-```bash
-# Add to YAML: coordinate_system: bicycle
-cargo run --release -- -i examples/bicycle_lane_change.yaml -o output/
 ```
