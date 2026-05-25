@@ -120,7 +120,10 @@ impl OptimizerBackend {
         if let Some(ref obj_var) = self.objective_var {
             if let Some(val) = model.eval(obj_var, true) {
                 let val_str = val.to_string();
-                self.optimal_value = parse_z3_real(&val_str);
+                self.optimal_value = parse_z3_real(&val_str).or_else(|| {
+                    tracing::warn!("Failed to parse Z3 optimal value: {}", val_str);
+                    None
+                });
             }
         }
     }

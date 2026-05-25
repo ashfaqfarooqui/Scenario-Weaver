@@ -13,6 +13,11 @@ impl LTLGenerator {
     /// Combines the scenario-specific behavioral formula (lane changes, ordering)
     /// with pairwise safety constraints (TTC, distance) according to the
     /// configured [`ConstraintModes`](crate::dsl::types::ConstraintModes).
+    ///
+    /// **Canonical validation point.** All public generation paths
+    /// (`generate_single_scenario_from_spec`, `generate_multiple_scenarios_from_spec`)
+    /// funnel through here, so validation runs exactly once per call.
+    /// Callers must not call `model.validate()` themselves before invoking this.
     pub fn generate(spec: &ScenarioSpec) -> Result<crate::ltl::formula::LTLFormula> {
         let model = spec.scenario_type.get_model();
         model.validate(spec)?;

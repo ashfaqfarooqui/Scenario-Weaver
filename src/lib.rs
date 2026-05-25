@@ -39,10 +39,14 @@ pub fn generate_single_scenario(yaml_content: &str) -> Result<Scenario> {
 ///
 /// Use this when you have already parsed and possibly modified the spec,
 /// to avoid a fragile YAML round-trip.
+///
+/// Validation is performed inside [`ltl::generator::LTLGenerator::generate`],
+/// which is the single canonical validation point for all generation paths.
 pub fn generate_single_scenario_from_spec(spec: dsl::types::ScenarioSpec) -> Result<Scenario> {
     let scenario_model = spec.scenario_type.get_model();
-    scenario_model.validate(&spec)?;
 
+    // Validation is intentionally omitted here; LTLGenerator::generate is the
+    // canonical validation point and runs unconditionally on all code paths.
     let ltl_formula = ltl::generator::LTLGenerator::generate(&spec)?;
 
     match spec.optimization_target {
@@ -130,7 +134,7 @@ fn generate_with_optimizer(
         // Scenario-specific Z3 constraints are skipped in optimizer mode:
         // add_z3_constraints() requires a SolverBackend, and all built-in
         // scenario types have no-op implementations anyway.
-        tracing::debug!("Scenario-specific Z3 constraints skipped in optimizer mode");
+        tracing::warn!("Scenario-specific Z3 constraints skipped in optimizer mode");
 
         encoder.encode_objective();
 
