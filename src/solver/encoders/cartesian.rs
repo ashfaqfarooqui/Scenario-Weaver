@@ -412,8 +412,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                 let expected_py = py_t + &(vy_t * &dt_real);
                 self.backend.assert(&py_t1.eq(&expected_py));
 
-                // Ego never changes lanes (vy = 0)
-                if actor.role == ActorRole::Ego {
+                // Ego without lane changes never changes lanes (vy = 0)
+                if actor.role == ActorRole::Ego && actor.lane_changes.is_empty() {
                     self.backend.assert(&vy_t.eq(&zero));
                 }
 
@@ -815,8 +815,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         let neg_one = Int::from_i64(-1);
 
         for actor in &self.spec.actors {
-            if actor.role != ActorRole::Ego {
-                // Ego already constrained (vy = 0, lane never changes)
+            if actor.role != ActorRole::Ego || !actor.lane_changes.is_empty() {
+                // Apply lane-jump constraint to NPCs and ego with lane changes
                 let actor_id = &actor.id;
                 for t in 0..self.horizon {
                     let lane_t = &self.lanes[actor_id][t];
@@ -839,8 +839,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         let neg_max_vy_real = Real::from_rational((-max_vy * 10.0) as i64, 10_i64);
 
         for actor in &self.spec.actors {
-            if actor.role != ActorRole::Ego {
-                // Ego vy already constrained to 0 (no lane changes)
+            if actor.role != ActorRole::Ego || !actor.lane_changes.is_empty() {
+                // Apply lateral velocity bounds to NPCs and ego with lane changes
                 let actor_id = &actor.id;
                 for t in 0..=self.horizon {
                     let vy_t = &self.velocities_y[actor_id][t];

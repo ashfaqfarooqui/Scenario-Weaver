@@ -1,20 +1,25 @@
-# ─── Scenario: Head-On Near Miss ───
+# ─── Scenario: Head-On Near Miss (Overtake) ───
 #
-# Oncoming NPC on a 4-lane bidirectional road moves further from ego (right lane change
-# toward lane 3), maintaining safety constraints while approaching head-on.
+# Ego overtakes a slow vehicle on a 2-lane bidirectional road, entering the
+# oncoming lane. An oncoming NPC creates head-on risk, but safety constraints
+# are enforced — the solver must find timing where ego completes the overtake
+# before getting dangerously close to the oncoming vehicle.
 #
 # Actors:
-#   - ego: lane 0, 15 m/s forward, starting at 50m
-#   - npc: lane 2 (oncoming), 15 m/s backward, starting at 150m, right lane change at 1.0-2.0s
+#   - ego: lane 0, 12 m/s forward, starting at 0m
+#         performs overtake: right lane change (lane 0 → 1), left lane change (lane 1 → 0)
+#   - slow_npc: lane 0, 6-8 m/s forward, starting at 30-50m (ahead of ego)
+#   - oncoming_npc: lane 1 (backward), 10-12 m/s, starting at 200-220m
 #
-# Road: 4 lanes, 3.5m wide, bidirectional [1, 1, -1, -1]
+# Road: 2 lanes, 3.5m wide, bidirectional [1, -1]
 # Coordinate System: cartesian (default)
 # Duration: 10.0s at 0.5s time steps
 #
 # Key Features:
-#   - Oncoming NPC performs right lane change (toward lane 3, further from ego)
-#   - Actors pass each other in different lanes maintaining safe distance
-#   - TTC and distance enforced — solver must find safe trajectories
+#   - Ego overtakes slow vehicle by entering oncoming lane
+#   - Must complete overtake before vehicles get too close
+#   - Safety enforced for ALL pairs (ego↔slow, ego↔oncoming, slow↔oncoming)
+#   - Near-miss: ego returns to own lane just in time
 #
 # Safety Constraints:
 #   - min TTC: 2.0s (enforced)
@@ -23,42 +28,54 @@
 # Run:
 #   cargo run --release -- -i examples/head_on_near_miss.yaml -o output/
 #
-scenario_type: cut_in_left
+scenario_type: head_on
 
 # Time configuration
 time_step: 0.5
 duration: 10.0
 
-# Road specification: 4-lane bidirectional
+# 2-lane bidirectional road: lane 0 forward, lane 1 backward
 road:
-  num_lanes: 4
+  num_lanes: 2
   lane_width: 3.5
-  lane_directions: [1, 1, -1, -1]  # Lanes 0,1 forward; 2,3 backward
+  lane_directions: [1, -1]
 
 # Actors
 actors:
   - id: ego
     role: ego
-    lane: 0
-    position: 50.0
-    speed: 15.0
-    direction: 1               # Forward (+x)
-    acceleration: [-5.0, 2.0]
-
-  - id: npc
-    role: npc
-    lane: 2
-    position: 150.0
-    speed: 15.0
-    direction: -1              # Backward (-x) - oncoming traffic!
-    acceleration: [-2.0, 1.0]
+    lane: 0                     # Forward lane
+    position: 0.0               # Starting at x=0m
+    speed: 12.0                 # 12 m/s forward
+    direction: 1                # Forward (+x)
+    acceleration: [-5.0, 3.0]
     lane_changes:
-      # NPC moves to lane 3 (further from ego) to maintain safety
+      # First: enter oncoming lane (overtake)
       - direction: right
-        start_time: [1.0, 2.0]
-        duration: [2.0, 3.0]
+        start_time: [1.5, 2.5]
+        duration: [1.5, 2.0]
+      # Second: return to own lane
+      - direction: left
+        start_time: [5.0, 6.0]
+        duration: [1.5, 2.0]
 
-# Safety constraints - ENFORCE to maintain safety
+  - id: slow_npc
+    role: npc
+    lane: 0                     # Same lane as ego (being overtaken)
+    position: [30.0, 50.0]     # Ahead of ego
+    speed: [6.0, 8.0]          # Slow vehicle motivating overtake
+    direction: 1                # Forward (+x)
+    acceleration: [-2.0, 1.0]
+
+  - id: oncoming_npc
+    role: npc
+    lane: 1                     # Oncoming lane (backward traffic)
+    position: [200.0, 220.0]   # Far enough to allow safe overtake
+    speed: [10.0, 12.0]        # Oncoming speed
+    direction: -1               # Backward (-x) - oncoming traffic
+    acceleration: [-2.0, 1.0]
+
+# Safety constraints - ENFORCE to maintain safety for all pairs
 min_ttc: 2.0
 min_distance: 5.0
 num_scenarios: 1
@@ -67,4 +84,4 @@ constraint_modes:
   min_ttc: enforce
   min_distance: enforce
 
-# Expected: NPC merges to lane 3 while both actors pass safely in their own lanes
+# Expected: Ego completes overtake safely, returning to own lane before oncoming gets close

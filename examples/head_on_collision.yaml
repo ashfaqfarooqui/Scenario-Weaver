@@ -1,23 +1,24 @@
-# ─── Scenario: Head-On Collision ───
+# ─── Scenario: Head-On Collision (Overtake) ───
 #
-# Adversarial head-on scenario: oncoming NPC crosses into ego's lane on a 2-lane
-# bidirectional road, violating TTC and distance constraints.
+# Adversarial head-on scenario: ego overtakes a slow vehicle on a 2-lane
+# bidirectional road by entering the oncoming lane. An oncoming NPC creates
+# the head-on collision risk. Safety constraints are violated.
 #
 # Actors:
 #   - ego: lane 0, 15 m/s forward, starting at 0m
-#   - npc: lane 1 (oncoming, backward), 15 m/s, starting at 80m
-#         performs one left lane change: lane 1 → lane 0 (enters ego's lane head-on)
+#         performs overtake: right lane change (lane 0 → 1), left lane change (lane 1 → 0)
+#   - slow_npc: lane 0, 8-10 m/s forward, starting at 40-60m (ahead of ego)
+#   - oncoming_npc: lane 1 (backward), 12-15 m/s, starting at 150-180m
 #
 # Road: 2 lanes, 3.5m wide, bidirectional [1, -1]
 # Coordinate System: cartesian (default)
-# Duration: 8.0s at 0.5s time steps
+# Duration: 10.0s at 0.5s time steps
 #
 # Key Features:
-#   - Simple 2-lane bidirectional road (one lane each direction)
-#   - NPC crosses into ego's lane during early phase
-#   - Closing speed of ~30 m/s (both vehicles approaching each other)
-#   - Adversarial: safety constraints intentionally violated
-#   - Lane change occurs early (t=0.5-1.5s) so actors are still approaching when NPC enters ego's lane
+#   - Ego overtakes slow vehicle by entering oncoming lane
+#   - Oncoming NPC approaching at combined closing speed ~27-30 m/s
+#   - Adversarial: TTC and distance constraints intentionally violated
+#   - Head-on risk while ego is in lane 1 (oncoming lane)
 #
 # Safety Constraints:
 #   - min TTC: 2.0s (violated)
@@ -26,11 +27,11 @@
 # Run:
 #   cargo run --release -- -i examples/head_on_collision.yaml -o output/
 #
-scenario_type: cut_in_left
+scenario_type: head_on
 
 # Time configuration
 time_step: 0.5
-duration: 8.0
+duration: 10.0
 
 # 2-lane bidirectional road: lane 0 forward, lane 1 backward
 road:
@@ -45,23 +46,35 @@ actors:
     lane: 0                     # Forward lane
     position: 0.0               # Starting at x=0m
     speed: 15.0                 # 15 m/s forward
-    direction: 1               # Forward (+x)
-    acceleration: [-5.0, 2.0]
-
-  - id: npc
-    role: npc
-    lane: 1                     # Backward lane (oncoming)
-    position: 80.0              # Starts at x=80m (ahead of ego in x-coordinate)
-    speed: 15.0                 # 15 m/s backward (toward ego)
-    direction: -1              # Backward (-x) - oncoming traffic!
-    acceleration: [-2.0, 1.0]
+    direction: 1                # Forward (+x)
+    acceleration: [-5.0, 3.0]
     lane_changes:
-      # Lane change: lane 1 → lane 0 (crosses into ego's lane)
+      # First: enter oncoming lane (overtake)
+      - direction: right
+        start_time: [2.0, 3.0]
+        duration: [2.0, 3.0]
+      # Second: return to own lane
       - direction: left
-        start_time: [0.5, 1.5]
+        start_time: [6.0, 7.0]
         duration: [2.0, 3.0]
 
-# Safety constraints - VIOLATE to force dangerous approach
+  - id: slow_npc
+    role: npc
+    lane: 0                     # Same lane as ego (being overtaken)
+    position: [40.0, 60.0]     # Ahead of ego
+    speed: [8.0, 10.0]         # Slow vehicle motivating overtake
+    direction: 1                # Forward (+x)
+    acceleration: [-3.0, 1.0]
+
+  - id: oncoming_npc
+    role: npc
+    lane: 1                     # Oncoming lane (backward traffic)
+    position: [150.0, 180.0]   # Approaching from ahead
+    speed: [12.0, 15.0]        # Oncoming speed
+    direction: -1               # Backward (-x) - oncoming traffic
+    acceleration: [-2.0, 1.0]
+
+# Safety constraints - VIOLATE to force head-on danger
 min_ttc: 2.0
 min_distance: 5.0
 num_scenarios: 1
@@ -70,4 +83,4 @@ constraint_modes:
   min_ttc: violate
   min_distance: violate
 
-# Expected: NPC enters ego's lane while approaching head-on, violating TTC/distance
+# Expected: Ego enters oncoming lane while NPC approaches, violating TTC/distance

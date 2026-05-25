@@ -337,6 +337,8 @@ pub enum ScenarioType {
     OvertakeLeft,
     /// Pedestrian crosses the road while ego approaches.
     PedestrianCrossing,
+    /// Ego overtakes a slow vehicle on a bidirectional road, entering the oncoming lane.
+    HeadOn,
 }
 
 impl std::fmt::Display for ScenarioType {
@@ -346,6 +348,7 @@ impl std::fmt::Display for ScenarioType {
             ScenarioType::CutInRight => write!(f, "cut_in_right"),
             ScenarioType::OvertakeLeft => write!(f, "overtake_left"),
             ScenarioType::PedestrianCrossing => write!(f, "pedestrian_crossing"),
+            ScenarioType::HeadOn => write!(f, "head_on"),
         }
     }
 }
@@ -362,6 +365,7 @@ impl ScenarioType {
             ScenarioType::PedestrianCrossing => {
                 Box::new(crate::scenarios::pedestrian_crossing::PedestrianCrossingModel)
             }
+            ScenarioType::HeadOn => Box::new(crate::scenarios::head_on::HeadOnModel),
         }
     }
 }
