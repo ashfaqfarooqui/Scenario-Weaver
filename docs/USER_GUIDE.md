@@ -394,6 +394,18 @@ constraint_modes:
   max_velocity: ignore       # don't care about speed
 ```
 
+The following optional threshold fields activate their constraint when present:
+
+| Field | Mode-controlled? | Description |
+|-------|-----------------|-------------|
+| `max_velocity` | Yes (`constraint_modes.max_velocity`) | Global speed limit (m/s) |
+| `min_velocity` | Yes (`constraint_modes.min_velocity`) | Global minimum speed (m/s) |
+| `min_lateral_distance` | Yes (`constraint_modes.min_lateral_distance`) | Side-by-side clearance (m) |
+| `max_relative_velocity` | Yes (`constraint_modes.max_relative_velocity`) | Max speed difference between actors (m/s) |
+| `max_acceleration` | Yes (`constraint_modes.max_acceleration`) | Max longitudinal acceleration (m/s²) |
+| `max_deceleration` | No — always enforced when present | Max deceleration (must be negative, e.g. `-8.0`) |
+| `max_lateral_acceleration` | No — always enforced when present | Max lateral acceleration during lane changes (default: `2.0` m/s²) |
+
 ### Shorthand modes
 
 Apply the same mode to all constraints:

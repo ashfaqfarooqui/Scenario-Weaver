@@ -1,8 +1,8 @@
 //! Multiple scenario generation with blocking clauses
 //!
-//! This module implements Phase 11 - generating multiple diverse scenarios
-//! from the same specification by using blocking clauses to prevent
-//! duplicate solutions.
+//! Generates multiple diverse scenarios from the same specification by using
+//! blocking clauses to prevent duplicate solutions. Diversity is enforced on
+//! NPC initial position and velocity.
 
 use crate::dsl::types::{ActorRole, ScenarioSpec};
 use crate::error::{Result, ScenarioGenError};
@@ -40,15 +40,12 @@ where
     let mut scenarios = Vec::new();
 
     for i in 0..num_scenarios {
-        // Get scenario model for scenario-specific constraints
         let scenario_model = spec.scenario_type.get_model();
 
-        // Create fresh Z3 context for each scenario
         let cfg = Config::new();
         let result = z3::with_z3_config(&cfg, || {
             let mut encoder = Z3Encoder::new(spec.clone());
 
-            // Setup encoder (same as single scenario)
             encoder.create_variables();
             encoder.encode_initial_conditions();
             encoder.encode_kinematics();
@@ -58,7 +55,7 @@ where
             encoder.encode_lateral_velocity_bounds();
             encoder.encode_ltl(ltl_formula);
             encoder.encode_scenario_specific_constraints(&*scenario_model)?;
-            // Note: Safety constraints now handled via LTL propositions only
+            // Safety constraints are encoded via LTL propositions inside encode_ltl().
 
             // Add blocking clauses for all previous scenarios
             for prev_scenario in &scenarios {

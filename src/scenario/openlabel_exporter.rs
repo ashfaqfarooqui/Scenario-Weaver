@@ -248,25 +248,27 @@ fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
         }),
     });
 
-    tags.into_iter()
-        .map(|t| (t.tag_type.clone(), t))
-        .collect()
+    tags.into_iter().map(|t| (t.tag_type.clone(), t)).collect()
 }
 
 /// Returns true if any actor has any state with ax > threshold (meaningful acceleration).
 fn has_acceleration(scenario: &Scenario) -> bool {
-    scenario
-        .actors
-        .iter()
-        .any(|actor| actor.states.iter().any(|s| s.cartesian.acceleration.ax > ACCELERATION_TAG_THRESHOLD))
+    scenario.actors.iter().any(|actor| {
+        actor
+            .states
+            .iter()
+            .any(|s| s.cartesian.acceleration.ax > ACCELERATION_TAG_THRESHOLD)
+    })
 }
 
 /// Returns true if any actor has any state with ax < -threshold (meaningful deceleration).
 fn has_deceleration(scenario: &Scenario) -> bool {
-    scenario
-        .actors
-        .iter()
-        .any(|actor| actor.states.iter().any(|s| s.cartesian.acceleration.ax < -ACCELERATION_TAG_THRESHOLD))
+    scenario.actors.iter().any(|actor| {
+        actor
+            .states
+            .iter()
+            .any(|s| s.cartesian.acceleration.ax < -ACCELERATION_TAG_THRESHOLD)
+    })
 }
 
 fn simple_tag(name: &str) -> OpenLabelTag {
@@ -424,8 +426,15 @@ mod tests {
         let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
 
         // 2-lane unidirectional → RoadTypeDistributor (not Motorway)
-        assert!(types.contains(&"RoadTypeDistributor"), "expected RoadTypeDistributor, got: {:?}", types);
-        assert!(!types.contains(&"RoadTypeMotorway"), "RoadTypeMotorway must not appear for 2-lane road");
+        assert!(
+            types.contains(&"RoadTypeDistributor"),
+            "expected RoadTypeDistributor, got: {:?}",
+            types
+        );
+        assert!(
+            !types.contains(&"RoadTypeMotorway"),
+            "RoadTypeMotorway must not appear for 2-lane road"
+        );
         // ego actor present → VehicleCar and HumanDriver
         assert!(types.contains(&"VehicleCar"));
         assert!(types.contains(&"HumanDriver"));
@@ -448,19 +457,32 @@ mod tests {
         };
         let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
-            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            min_ttc: 3.0,
+            min_distance: 10.0,
+            all_constraints_satisfied: true,
+            safety_violations: vec![],
+            max_acceleration: 2.0,
+            max_deceleration: -3.0,
             acceleration_violations: vec![],
         };
         let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
-        ego.add_state(State::new(0.0, Position::new(50.0, 5.25), Velocity::new(15.0, 0.0), Acceleration::new(0.0, 0.0), 1));
+        ego.add_state(State::new(
+            0.0,
+            Position::new(50.0, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        ));
         scenario.add_actor(ego);
 
         let result = export_to_openlabel(&scenario).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         let tags = parsed["openlabel"]["tags"].as_object().unwrap();
         let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
-        assert!(types.contains(&"RoadTypeMotorway"), "expected RoadTypeMotorway for 4-lane unidirectional");
+        assert!(
+            types.contains(&"RoadTypeMotorway"),
+            "expected RoadTypeMotorway for 4-lane unidirectional"
+        );
         assert!(!types.contains(&"RoadTypeDistributor"));
         assert!(!types.contains(&"RoadTypeMinor"));
     }
@@ -476,19 +498,32 @@ mod tests {
         };
         let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
-            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            min_ttc: 3.0,
+            min_distance: 10.0,
+            all_constraints_satisfied: true,
+            safety_violations: vec![],
+            max_acceleration: 2.0,
+            max_deceleration: -3.0,
             acceleration_violations: vec![],
         };
         let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
-        ego.add_state(State::new(0.0, Position::new(50.0, 5.25), Velocity::new(15.0, 0.0), Acceleration::new(0.0, 0.0), 1));
+        ego.add_state(State::new(
+            0.0,
+            Position::new(50.0, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        ));
         scenario.add_actor(ego);
 
         let result = export_to_openlabel(&scenario).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         let tags = parsed["openlabel"]["tags"].as_object().unwrap();
         let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
-        assert!(types.contains(&"RoadTypeMinor"), "expected RoadTypeMinor for bidirectional road");
+        assert!(
+            types.contains(&"RoadTypeMinor"),
+            "expected RoadTypeMinor for bidirectional road"
+        );
         assert!(!types.contains(&"RoadTypeMotorway"));
         assert!(!types.contains(&"RoadTypeDistributor"));
     }
@@ -503,12 +538,22 @@ mod tests {
         };
         let mut scenario = Scenario::new("pedestrian_crossing".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
-            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            min_ttc: 3.0,
+            min_distance: 10.0,
+            all_constraints_satisfied: true,
+            safety_violations: vec![],
+            max_acceleration: 2.0,
+            max_deceleration: -3.0,
             acceleration_violations: vec![],
         };
         let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
-        ego.add_state(State::new(0.0, Position::new(50.0, 5.25), Velocity::new(15.0, 0.0), Acceleration::new(0.0, 0.0), 1));
+        ego.add_state(State::new(
+            0.0,
+            Position::new(50.0, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        ));
         scenario.add_actor(ego);
 
         let result = export_to_openlabel(&scenario).unwrap();
@@ -542,12 +587,22 @@ mod tests {
         };
         let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
-            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            min_ttc: 3.0,
+            min_distance: 10.0,
+            all_constraints_satisfied: true,
+            safety_violations: vec![],
+            max_acceleration: 2.0,
+            max_deceleration: -3.0,
             acceleration_violations: vec![],
         };
         let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
-        ego.add_state(State::new(0.0, Position::new(50.0, 5.25), Velocity::new(15.0, 0.0), Acceleration::new(0.0, 0.0), 1));
+        ego.add_state(State::new(
+            0.0,
+            Position::new(50.0, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        ));
         scenario.add_actor(ego);
 
         let result = export_to_openlabel(&scenario).unwrap();
@@ -568,27 +623,49 @@ mod tests {
         };
         let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
-            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            min_ttc: 3.0,
+            min_distance: 10.0,
+            all_constraints_satisfied: true,
+            safety_violations: vec![],
+            max_acceleration: 2.0,
+            max_deceleration: -3.0,
             acceleration_violations: vec![],
         };
 
         // Actor with ax > 0.5 (accelerating)
         let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
-        ego.add_state(State::new(0.0, Position::new(50.0, 5.25), Velocity::new(15.0, 0.0), Acceleration::new(1.5, 0.0), 1));
+        ego.add_state(State::new(
+            0.0,
+            Position::new(50.0, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(1.5, 0.0),
+            1,
+        ));
         scenario.add_actor(ego);
 
         // Actor with ax < -0.5 (decelerating)
         let mut npc = ActorTrajectory::new("npc".to_string(), "npc".to_string());
-        npc.add_state(State::new(0.0, Position::new(70.0, 1.75), Velocity::new(18.0, 0.0), Acceleration::new(-2.0, 0.0), 0));
+        npc.add_state(State::new(
+            0.0,
+            Position::new(70.0, 1.75),
+            Velocity::new(18.0, 0.0),
+            Acceleration::new(-2.0, 0.0),
+            0,
+        ));
         scenario.add_actor(npc);
 
         let result = export_to_openlabel(&scenario).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         let tags = parsed["openlabel"]["tags"].as_object().unwrap();
         let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
-        assert!(types.contains(&"MotionAccelerate"), "expected MotionAccelerate for ax=1.5");
-        assert!(types.contains(&"MotionDecelerate"), "expected MotionDecelerate for ax=-2.0");
+        assert!(
+            types.contains(&"MotionAccelerate"),
+            "expected MotionAccelerate for ax=1.5"
+        );
+        assert!(
+            types.contains(&"MotionDecelerate"),
+            "expected MotionDecelerate for ax=-2.0"
+        );
     }
 
     #[test]
@@ -601,20 +678,33 @@ mod tests {
         };
         let mut scenario = Scenario::new("pedestrian_crossing".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
-            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            min_ttc: 3.0,
+            min_distance: 10.0,
+            all_constraints_satisfied: true,
+            safety_violations: vec![],
+            max_acceleration: 2.0,
+            max_deceleration: -3.0,
             acceleration_violations: vec![],
         };
 
         let mut ped = ActorTrajectory::new("ped".to_string(), "pedestrian".to_string());
-        ped.add_state(State::new(0.0, Position::new(30.0, 0.0), Velocity::new(1.0, 0.0), Acceleration::new(0.0, 0.0), 0));
+        ped.add_state(State::new(
+            0.0,
+            Position::new(30.0, 0.0),
+            Velocity::new(1.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            0,
+        ));
         scenario.add_actor(ped);
 
         let result = export_to_openlabel(&scenario).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         let tags = parsed["openlabel"]["tags"].as_object().unwrap();
         let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
-        assert!(!types.contains(&"VehicleCar"), "VehicleCar must not appear in pedestrian-only scenario");
+        assert!(
+            !types.contains(&"VehicleCar"),
+            "VehicleCar must not appear in pedestrian-only scenario"
+        );
         assert!(types.contains(&"HumanPedestrian"));
     }
 
@@ -681,22 +771,44 @@ mod tests {
         };
         let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
-            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            min_ttc: 3.0,
+            min_distance: 10.0,
+            all_constraints_satisfied: true,
+            safety_violations: vec![],
+            max_acceleration: 2.0,
+            max_deceleration: -3.0,
             acceleration_violations: vec![],
         };
         let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
-        ego.add_state(State::new(0.0, Position::new(50.0, 5.25), Velocity::new(15.0, 0.0), Acceleration::new(0.0, 0.0), 0));
+        ego.add_state(State::new(
+            0.0,
+            Position::new(50.0, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            0,
+        ));
         scenario.add_actor(ego);
 
         let result = export_to_openlabel(&scenario).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         let tags = parsed["openlabel"]["tags"].as_object().unwrap();
         let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
-        assert!(types.contains(&"RoadTypeMinor"), "expected RoadTypeMinor for empty lane_directions");
-        assert!(!types.contains(&"TravelDirectionRight"), "TravelDirectionRight must not appear for empty lane_directions");
-        assert!(!types.contains(&"TravelDirectionLeft"), "TravelDirectionLeft must not appear for empty lane_directions");
-        assert!(!types.contains(&"LaneSpecificationTravelDirection"), "LaneSpecificationTravelDirection must not appear for empty lane_directions");
+        assert!(
+            types.contains(&"RoadTypeMinor"),
+            "expected RoadTypeMinor for empty lane_directions"
+        );
+        assert!(
+            !types.contains(&"TravelDirectionRight"),
+            "TravelDirectionRight must not appear for empty lane_directions"
+        );
+        assert!(
+            !types.contains(&"TravelDirectionLeft"),
+            "TravelDirectionLeft must not appear for empty lane_directions"
+        );
+        assert!(
+            !types.contains(&"LaneSpecificationTravelDirection"),
+            "LaneSpecificationTravelDirection must not appear for empty lane_directions"
+        );
     }
 
     #[test]
@@ -709,20 +821,36 @@ mod tests {
         };
         let mut scenario = Scenario::new("pedestrian_crossing".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
-            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            min_ttc: 3.0,
+            min_distance: 10.0,
+            all_constraints_satisfied: true,
+            safety_violations: vec![],
+            max_acceleration: 2.0,
+            max_deceleration: -3.0,
             acceleration_violations: vec![],
         };
         let mut ped = ActorTrajectory::new("ped".to_string(), "pedestrian".to_string());
-        ped.add_state(State::new(0.0, Position::new(30.0, 0.0), Velocity::new(1.0, 0.0), Acceleration::new(0.0, 0.0), 0));
+        ped.add_state(State::new(
+            0.0,
+            Position::new(30.0, 0.0),
+            Velocity::new(1.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            0,
+        ));
         scenario.add_actor(ped);
 
         let result = export_to_openlabel(&scenario).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         let tags = parsed["openlabel"]["tags"].as_object().unwrap();
         let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
-        assert!(types.contains(&"MotionWalk"), "expected MotionWalk for pedestrian_crossing scenario");
-        assert!(!types.contains(&"MotionDrive"), "MotionDrive must not appear for pedestrian scenario");
+        assert!(
+            types.contains(&"MotionWalk"),
+            "expected MotionWalk for pedestrian_crossing scenario"
+        );
+        assert!(
+            !types.contains(&"MotionDrive"),
+            "MotionDrive must not appear for pedestrian scenario"
+        );
     }
 
     #[test]
@@ -733,8 +861,17 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         let tags = parsed["openlabel"]["tags"].as_object().unwrap();
         // Keys should be type strings like "MotionCutIn", not "0", "1", "2"
-        assert!(tags.contains_key("MotionCutIn"), "expected key 'MotionCutIn' in tags map");
-        assert!(tags.contains_key("RoadTypeDistributor"), "expected key 'RoadTypeDistributor' in tags map");
-        assert!(!tags.contains_key("0"), "positional integer keys must not appear");
+        assert!(
+            tags.contains_key("MotionCutIn"),
+            "expected key 'MotionCutIn' in tags map"
+        );
+        assert!(
+            tags.contains_key("RoadTypeDistributor"),
+            "expected key 'RoadTypeDistributor' in tags map"
+        );
+        assert!(
+            !tags.contains_key("0"),
+            "positional integer keys must not appear"
+        );
     }
 }

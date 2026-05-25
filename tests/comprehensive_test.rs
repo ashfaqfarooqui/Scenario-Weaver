@@ -179,8 +179,8 @@ fn test_bicycle_forward_motion() {
 
 #[test]
 fn test_bicycle_lane_change_scenario() {
-    let yaml = std::fs::read_to_string("examples/bicycle_lane_change.yaml")
-        .expect("file should exist");
+    let yaml =
+        std::fs::read_to_string("examples/bicycle_lane_change.yaml").expect("file should exist");
 
     match generate_or_unsat(&yaml) {
         Ok(scenario) => {

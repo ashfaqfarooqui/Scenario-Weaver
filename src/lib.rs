@@ -10,6 +10,7 @@ pub mod scenario;
 pub mod scenarios;
 pub mod solver;
 
+use dsl::types::OptimizationTarget;
 use error::{Result, ScenarioGenError};
 use scenario::model::Scenario;
 use z3::SatResult;
@@ -42,16 +43,10 @@ pub fn generate_single_scenario_from_spec(spec: dsl::types::ScenarioSpec) -> Res
     let scenario_model = spec.scenario_type.get_model();
     scenario_model.validate(&spec)?;
 
-    // Generate LTL using trait (behavior + safety combined)
     let ltl_formula = ltl::generator::LTLGenerator::generate(&spec)?;
 
-    // Check if optimization is requested
-    use dsl::types::OptimizationTarget;
     match spec.optimization_target {
-        OptimizationTarget::None => {
-            // Standard SAT solving - find any satisfying solution
-            generate_with_solver(spec, &ltl_formula, &*scenario_model)
-        }
+        OptimizationTarget::None => generate_with_solver(spec, &ltl_formula, &*scenario_model),
         target => {
             tracing::info!("Optimization target: {:?}", target);
             generate_with_optimizer(spec, &ltl_formula, target)
@@ -69,27 +64,19 @@ fn generate_with_solver(
     z3::with_z3_config(&cfg, || {
         let mut encoder = solver::Z3Encoder::new(spec);
 
-        // Create variables
         encoder.create_variables();
-
-        // Encode initial conditions and kinematics
         encoder.encode_initial_conditions();
         encoder.encode_kinematics();
         encoder.encode_velocity_constraints();
         encoder.encode_acceleration_constraints();
         encoder.encode_lane_velocity_constraints();
         encoder.encode_lateral_velocity_bounds();
-
-        // Encode LTL formula
         encoder.encode_ltl(ltl_formula);
 
-        // Call scenario-specific Z3 constraints (if any)
+        // Safety constraints are encoded via LTL propositions inside encode_ltl();
+        // there is no separate encode_safety() call to avoid duplicate assertions.
         encoder.encode_scenario_specific_constraints(scenario_model)?;
 
-        // Note: Safety constraints are now handled via LTL propositions in generate_safety()
-        // No need for direct encode_safety() call - avoids redundant constraints
-
-        // Solve and extract scenario
         match encoder.check() {
             SatResult::Sat => {
                 let model = encoder.get_model().ok_or_else(|| {
@@ -136,12 +123,11 @@ fn generate_with_optimizer(
         encoder.encode_lateral_velocity_bounds();
         encoder.encode_ltl(ltl_formula);
 
-        // Scenario-specific constraints are skipped in optimizer mode because
-        // ScenarioModel::add_z3_constraints takes &Z3Encoder (SolverBackend).
-        // Most scenarios have no-op implementations, so this is safe.
+        // Scenario-specific Z3 constraints are skipped in optimizer mode:
+        // add_z3_constraints() requires a SolverBackend, and all built-in
+        // scenario types have no-op implementations anyway.
         tracing::debug!("Scenario-specific Z3 constraints skipped in optimizer mode");
 
-        // Encode the optimization objective
         encoder.encode_objective();
 
         match encoder.check() {
@@ -172,8 +158,9 @@ fn generate_with_optimizer(
 
 /// Generate multiple diverse scenarios from YAML specification
 ///
-/// This is the main entry point for Phase 11 - multiple scenario generation.
-/// Uses blocking clauses to generate diverse scenarios.
+/// Uses blocking clauses to ensure each generated scenario is structurally
+/// different from the previous ones (diversity based on NPC initial position
+/// and velocity).
 ///
 /// # Arguments
 /// * `yaml_content` - YAML specification string
@@ -210,15 +197,13 @@ where
     F: FnMut(usize, &Scenario) -> Result<()>,
 {
     let ltl_formula = ltl::generator::LTLGenerator::generate(&spec)?;
-
-    // Use multi-solve module to generate multiple scenarios
     solver::multi_solve::generate_scenarios(&spec, &ltl_formula, num_scenarios, callback)
 }
 
 /// Export a scenario to OpenSCENARIO XML format
 ///
 /// Converts an internally generated scenario to OpenSCENARIO (.xosc) format
-/// for use with simulation platforms like .
+/// for use with OpenSCENARIO-compliant simulation platforms (e.g. CARLA).
 ///
 /// # Arguments
 /// * `scenario` - The scenario to export

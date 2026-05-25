@@ -21,7 +21,7 @@ Automatically generate diverse, safety-critical driving test scenarios from high
 
 ```bash
 git clone <repo-url>
-cd scenario-generator
+cd ScenarioGenerationWorkspace/main
 cargo build --release
 ```
 
@@ -101,7 +101,7 @@ min_distance: 5.0
 - `position: 50.0` — Z3 must use exactly 50.0
 - `position: [45.0, 55.0]` — Z3 chooses any value in range
 
-Road definitions can be shared across files using `road_import: roads/highway_4lane.yaml`.
+Road definitions can be shared across files using `imports: [roads/3_lane_highway.yaml]`.
 
 ## Output Formats
 

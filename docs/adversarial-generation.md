@@ -94,6 +94,20 @@ constraint_modes:
   max_acceleration: enforce     # Acceleration bounds
 ```
 
+The following optional threshold fields activate the corresponding constraint when present in the YAML:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `max_velocity` | `f64` (m/s) | Global speed limit for all actors |
+| `min_velocity` | `f64` (m/s) | Global minimum speed for all actors |
+| `min_lateral_distance` | `f64` (m) | Minimum side-by-side clearance between actors |
+| `max_relative_velocity` | `f64` (m/s) | Maximum speed difference between any two actors |
+| `max_acceleration` | `f64` (m/s²) | Maximum longitudinal acceleration (positive) |
+| `max_deceleration` | `f64` (m/s²) | Maximum deceleration (must be a negative value, e.g. `-8.0`) |
+| `max_lateral_acceleration` | `f64` (m/s²) | Maximum lateral acceleration during lane changes (default: `2.0`) |
+
+Note: `max_deceleration` and `max_lateral_acceleration` do not have corresponding `constraint_modes` entries — they are always enforced when present.
+
 ---
 
 ## Speed Limit Violation Example

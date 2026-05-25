@@ -1,7 +1,7 @@
 //! Trait definition for coordinate system encoders
 //!
 //! This module defines the `CoordinateEncoder` trait that abstracts over
-//! different coordinate systems (Cartesian, Frenet, etc.).
+//! different coordinate systems (Cartesian, Bicycle, etc.).
 
 use z3::ast::{Bool, Int, Real};
 use z3::Model;
@@ -13,7 +13,7 @@ use crate::solver::backend::Z3Backend;
 
 /// Trait for coordinate-system-specific encoding logic
 ///
-/// Each coordinate system (Cartesian, Frenet) implements this trait
+/// Each coordinate system (Cartesian, Bicycle) implements this trait
 /// to provide its own variable creation, kinematics, and constraint encoding.
 ///
 /// # Method Usage Notes

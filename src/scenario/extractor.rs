@@ -1,14 +1,15 @@
 //! Scenario extraction from Z3 models
 //!
-//! This module provides utilities for extracting scenario data from Z3 models.
-//! The main extraction logic is implemented in the Z3Encoder (Phase 9).
+//! This module provides a public helper for extracting scenario data from a Z3
+//! model via [`GenericEncoder::extract_scenario`](crate::solver::encoder::GenericEncoder).
+//! The primary extraction logic lives in the encoder itself; this module exists
+//! to expose a stable public API and as an extension point.
 
 use crate::scenario::model::Scenario;
 
-/// Extract scenario from Z3 model
+/// Extract scenario from a Z3 model using the given encoder.
 ///
-/// Note: The actual extraction is implemented in Z3Encoder::extract_scenario()
-/// This module exists to provide a clean public API and future extensions.
+/// Delegates to [`GenericEncoder::extract_scenario`](crate::solver::encoder::GenericEncoder::extract_scenario).
 pub fn extract_scenario_from_model(
     encoder: &crate::solver::encoder::Z3Encoder,
     model: &z3::Model,

@@ -104,7 +104,11 @@ pub struct Acceleration {
     pub ay: f64,
 }
 
-/// Optimization result information
+/// Result of an optimization run, attached to a [`Scenario`] when `--optimize` is used.
+///
+/// Contains the optimization target that was requested and the optimal objective
+/// value found by the Z3 Optimize solver (e.g. minimum distance in metres,
+/// minimum TTC in seconds).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OptimizationInfo {
     /// Optimization target that was used

@@ -117,9 +117,9 @@ fn main() -> Result<()> {
     if num_scenarios == 1 {
         write_scenarios(&scenarios, &cli.output)?;
     } else {
-        // For multiple scenarios, print summary since files already written
+        // For multiple scenarios, print summary since files already written via callback
         tracing::info!(
-            "Wrote {} scenario quadruplet(s) (JSON+XOSC+SVG+GIF+XODR+OL+TXT) to directory: {:?}",
+            "Wrote {} scenario(s) (JSON+XOSC+XODR+SVG+GIF+OL) to directory: {:?}",
             scenarios.len(),
             cli.output
         );
@@ -147,7 +147,7 @@ fn write_scenario(
 ) -> Result<()> {
     std::fs::create_dir_all(output_dir)?;
 
-    // For single scenario, use "scenario" as base name
+    // For single scenario, use "scenario" as base name.
     // For multiple scenarios, use "scenario_0", "scenario_1", etc.
     let base = if total_scenarios == 1 {
         "scenario".to_string()
@@ -155,7 +155,6 @@ fn write_scenario(
         format!("scenario_{}", index)
     };
 
-    // Write JSON
     let json_path = output_dir.join(format!("{}.json", base));
     let json = serde_json::to_string_pretty(scenario)?;
     std::fs::write(&json_path, json)?;
@@ -168,26 +167,22 @@ fn write_scenario(
     std::fs::write(&xodr_path, xodr_xml)?;
     tracing::debug!("Wrote XODR to: {:?}", xodr_path);
 
-    // Write XOSC with a relative reference to the companion .xodr file
     let xosc_path = output_dir.join(format!("{}.xosc", base));
     let xosc_xml =
         scenario_weaver::scenario::export_to_xosc_with_road_file(scenario, &xodr_filename)?;
     std::fs::write(&xosc_path, xosc_xml)?;
     tracing::debug!("Wrote XOSC to: {:?}", xosc_path);
 
-    // Write SVG
     let svg_path = output_dir.join(format!("{}.svg", base));
     let svg = scenario_weaver::scenario::export_to_svg(scenario)?;
     std::fs::write(&svg_path, svg)?;
     tracing::debug!("Wrote SVG to: {:?}", svg_path);
 
-    // Write GIF
     let gif_path = output_dir.join(format!("{}.gif", base));
     let gif_bytes = scenario_weaver::scenario::export_to_gif(scenario)?;
     std::fs::write(&gif_path, gif_bytes)?;
     tracing::debug!("Wrote GIF to: {:?}", gif_path);
 
-    // Write OpenLabel
     let openlabel_path = output_dir.join(format!("{}.ol.json", base));
     let openlabel = scenario_weaver::scenario::export_to_openlabel(scenario)?;
     std::fs::write(&openlabel_path, openlabel)?;
@@ -206,7 +201,7 @@ fn write_scenarios(
     }
 
     tracing::info!(
-        "Wrote {} scenario quadruplet(s) (JSON+XOSC+SVG+GIF+XODR+OL+TXT) to directory: {:?}",
+        "Wrote {} scenario(s) (JSON+XOSC+XODR+SVG+GIF+OL) to directory: {:?}",
         scenarios.len(),
         output_dir
     );

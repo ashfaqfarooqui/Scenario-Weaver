@@ -97,6 +97,12 @@ See [Creating New Scenario Types](scenario-types.md) for a step-by-step guide.
 
 ## Key Design Decisions
 
+**`Z3Encoder` type alias**
+`Z3Encoder` is a convenience type alias for `GenericEncoder<SolverBackend>` defined in `src/solver/encoder.rs`. It is the default encoder used in standard SAT-solving mode. The optimizer path uses `GenericEncoder<OptimizerBackend>` directly.
+
+**Optimizer limitation**
+When `--optimize` is used, the encoder runs `generate_with_optimizer()` in `src/lib.rs`, which skips the `encode_scenario_specific_constraints()` call. For all built-in scenario types this is a no-op, so it has no practical effect. Any custom scenario type that overrides `add_z3_constraints()` will not have those assertions applied in optimizer mode.
+
 **Constraint modes (Enforce / Violate / Ignore)**
 - `Enforce` → `G(constraint)` added to LTL *and* as a direct Z3 assertion
 - `Violate` → `F(NOT constraint)` added to LTL only; no direct assertion
@@ -111,6 +117,17 @@ Blocking clauses exclude previous solutions, forcing Z3 to find structurally dif
 **Two-layer encoding**
 1. LTL temporal operators expanded over all time steps (all modes)
 2. Direct Z3 assertions for `Enforce` mode only — avoids conflicting with `Violate`/`Ignore`
+
+---
+
+## Test Files
+
+| File | Coverage |
+|------|----------|
+| `tests/integration_test.rs` | Full pipeline YAML → JSON for all scenario types |
+| `tests/cartesian_physics_test.rs` | Velocity ratio constraints, heading angle bounds |
+| `tests/bidirectional_test.rs` | Bidirectional lane scenarios, backward velocity constraints |
+| `tests/comprehensive_test.rs` | Broad constraint mode combinations, edge cases |
 
 ---
 
@@ -133,7 +150,7 @@ src/
     encoders/
       cartesian.rs           CartesianEncoder
       bicycle.rs             BicycleEncoder
-    physics.rs               Kinematic constraint helpers
+    encoder_utils.rs         Shared helpers: lane change resolution, Z3 value extraction
     multi_solve.rs           Blocking-clause diversity
     backend.rs               SolverBackend / OptimizerBackend traits
   scenarios/

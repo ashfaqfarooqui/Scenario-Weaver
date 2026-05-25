@@ -71,7 +71,7 @@ Valid OpenSCENARIO 1.0+ XML for simulator compatibility.
 **Programmatic export:**
 
 ```rust
-use scenario_generator::{generate_single_scenario, export_scenario_to_xosc};
+use scenario_weaver::{generate_single_scenario, export_scenario_to_xosc};
 
 let yaml = std::fs::read_to_string("scenario.yaml")?;
 let scenario = generate_single_scenario(&yaml)?;
@@ -82,7 +82,7 @@ std::fs::write("scenario.xosc", xosc_xml)?;
 To include a road file reference:
 
 ```rust
-use scenario_generator::export_scenario_to_xosc_with_road_file;
+use scenario_weaver::export_scenario_to_xosc_with_road_file;
 let xosc_xml = export_scenario_to_xosc_with_road_file(&scenario, "scenario.xodr")?;
 ```
 
@@ -101,7 +101,7 @@ OpenDRIVE 1.7 road network XML describing the scenario's road geometry.
 **Programmatic export:**
 
 ```rust
-use scenario_generator::{generate_single_scenario, export_scenario_to_xodr};
+use scenario_weaver::{generate_single_scenario, export_scenario_to_xodr};
 
 let yaml = std::fs::read_to_string("scenario.yaml")?;
 let scenario = generate_single_scenario(&yaml)?;
@@ -125,7 +125,7 @@ Static vector graphic showing the complete scenario trajectory.
 **Programmatic export:**
 
 ```rust
-use scenario_generator::{generate_single_scenario, export_scenario_to_svg};
+use scenario_weaver::{generate_single_scenario, export_scenario_to_svg};
 
 let yaml = std::fs::read_to_string("scenario.yaml")?;
 let scenario = generate_single_scenario(&yaml)?;
@@ -149,7 +149,7 @@ Animated visualization showing vehicles moving through the scenario.
 **Programmatic export:**
 
 ```rust
-use scenario_generator::{generate_single_scenario, export_scenario_to_gif};
+use scenario_weaver::{generate_single_scenario, export_scenario_to_gif};
 
 let yaml = std::fs::read_to_string("scenario.yaml")?;
 let scenario = generate_single_scenario(&yaml)?;
@@ -160,9 +160,11 @@ std::fs::write("scenario.gif", gif_bytes)?;
 Custom resolution:
 
 ```rust
-use scenario_generator::export_scenario_to_gif_with_resolution;
-let gif_bytes = export_scenario_to_gif_with_resolution(&scenario, 1920, 1080)?;
+use scenario_weaver::{export_scenario_to_gif_with_resolution, Resolution};
+let gif_bytes = export_scenario_to_gif_with_resolution(&scenario, Resolution::High)?;
 ```
+
+Available variants: `Resolution::High` (1200×600), `Resolution::Medium` (900×450), `Resolution::Low` (600×300).
 
 **Implementation notes:**
 - Uses `image`, `gif`, `imageproc`, and `ab_glyph` crates
@@ -184,7 +186,7 @@ OpenLabel 1.0.0 JSON metadata describing scenario semantics.
 **Programmatic export:**
 
 ```rust
-use scenario_generator::{generate_single_scenario, export_scenario_to_openlabel};
+use scenario_weaver::{generate_single_scenario, export_scenario_to_openlabel};
 
 let yaml = std::fs::read_to_string("scenario.yaml")?;
 let scenario = generate_single_scenario(&yaml)?;
@@ -199,8 +201,8 @@ std::fs::write("scenario.ol.json", openlabel_json)?;
 To avoid a YAML round-trip when generating programmatically:
 
 ```rust
-use scenario_generator::generate_single_scenario_from_spec;
-use scenario_generator::dsl::parser::parse_yaml;
+use scenario_weaver::generate_single_scenario_from_spec;
+use scenario_weaver::dsl::parser::parse_yaml;
 
 let yaml = std::fs::read_to_string("scenario.yaml")?;
 let spec = parse_yaml(&yaml)?;

@@ -14,19 +14,15 @@ impl LTLGenerator {
     /// with pairwise safety constraints (TTC, distance) according to the
     /// configured [`ConstraintModes`](crate::dsl::types::ConstraintModes).
     pub fn generate(spec: &ScenarioSpec) -> Result<crate::ltl::formula::LTLFormula> {
-        // Get scenario model
         let model = spec.scenario_type.get_model();
-
-        // Validate scenario-specific requirements
         model.validate(spec)?;
 
-        // Generate behavioral LTL
         let behavior = model.generate_ltl(spec)?;
 
-        // Generate safety constraints (uses trait default or override)
+        // generate_safety() uses the trait default (pairwise TTC + distance) unless the
+        // scenario type overrides it.
         let safety = model.generate_safety(spec)?;
 
-        // Combine: behavior AND safety
         Ok(behavior.and(safety))
     }
 }
