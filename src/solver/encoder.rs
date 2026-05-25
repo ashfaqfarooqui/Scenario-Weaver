@@ -1160,6 +1160,7 @@ mod tests {
             let _npc_px = encoder.get_longitudinal_pos("npc", 0);
 
             // If we get here without panicking, variables were created successfully
+            assert_eq!(encoder.horizon(), 20);
         });
     }
 
@@ -1196,6 +1197,14 @@ mod tests {
                 .eval(encoder.get_longitudinal_vel("ego", 0), true)
                 .unwrap();
             println!("Ego initial speed: {:?}", ego_vx_0);
+
+            let ego_pos_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_px_0.to_string());
+            let npc_pos_f64: f64 = crate::solver::backend::parse_z3_real_pub(&npc_px_0.to_string());
+            let ego_spd_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_vx_0.to_string());
+
+            assert!((ego_pos_f64 - 50.0).abs() < 0.1, "ego_pos should be ~50.0, got {}", ego_pos_f64);
+            assert!((ego_spd_f64 - 15.0).abs() < 0.1, "ego_speed should be ~15.0, got {}", ego_spd_f64);
+            assert!(npc_pos_f64 >= 60.0 && npc_pos_f64 <= 80.0, "npc_pos should be in [60,80], got {}", npc_pos_f64);
         });
     }
 
@@ -1219,6 +1228,12 @@ mod tests {
             // NPC in lane 0, should have py = 0 * 3.5 + 1.75 = 1.75
             let npc_py_0 = model.eval(encoder.get_lateral_pos("npc", 0), true).unwrap();
             println!("NPC lateral position: {:?}", npc_py_0);
+
+            let ego_py_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_py_0.to_string());
+            let npc_py_f64: f64 = crate::solver::backend::parse_z3_real_pub(&npc_py_0.to_string());
+
+            assert!((ego_py_f64 - 5.25).abs() < 0.5, "ego_py should be ~5.25, got {}", ego_py_f64);
+            assert!((npc_py_f64 - 1.75).abs() < 0.5, "npc_py should be ~1.75, got {}", npc_py_f64);
         });
     }
 
@@ -1255,6 +1270,12 @@ mod tests {
 
             // px[1] should be px[0] + vx[0] * 0.5
             // 50.0 + 15.0 * 0.5 = 57.5
+            let px0_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_px_0.to_string());
+            let px1_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_px_1.to_string());
+            let vx0_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_vx_0.to_string());
+
+            assert!((px1_f64 - (px0_f64 + vx0_f64 * 0.5)).abs() < 0.1,
+                "kinematic relation violated: px1={}, px0={}, vx0={}", px1_f64, px0_f64, vx0_f64);
         });
     }
 
