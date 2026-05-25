@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 # run_examples.sh
 #
 # Build ScenarioWeaver and run all (or selected) examples, writing each
@@ -99,11 +100,11 @@ for yaml in "${EXAMPLES[@]}"; do
         elapsed=$(( SECONDS - start ))
         count=$(ls "$out"/*.json 2>/dev/null | wc -l | tr -d ' ')
         ok "${count} scenario(s) in ${elapsed}s"
-        (( PASS++ ))
+        PASS=$(( PASS + 1 ))
     else
         elapsed=$(( SECONDS - start ))
         fail "FAILED after ${elapsed}s  (see $out/run.log)"
-        (( FAIL++ ))
+        FAIL=$(( FAIL + 1 ))
         FAIL_NAMES+=("$name")
     fi
 done
