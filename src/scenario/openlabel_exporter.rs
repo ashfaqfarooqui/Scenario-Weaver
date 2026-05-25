@@ -91,7 +91,7 @@ struct TagValue {
 /// Export a scenario to OpenLabel 1.0.0 JSON format.
 pub fn export_to_openlabel(scenario: &Scenario) -> Result<String> {
     let now = Utc::now().to_rfc3339();
-    let scenario_id = format!("SCEN-{}", scenario.scenario_id.to_uppercase());
+    let scenario_id = format!("SW-{}", scenario.scenario_id.to_uppercase());
     let comment = format!(
         "Generated {} scenario with {} actor(s)",
         scenario.scenario_type,
@@ -146,7 +146,7 @@ pub fn export_to_openlabel(scenario: &Scenario) -> Result<String> {
 fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
     let mut tags: Vec<OpenLabelTag> = Vec::new();
 
-    // Behaviour: map scenario type to ontology motion tag
+    // Motion: map scenario type to ontology motion tag
     let motion_tag = match scenario.scenario_type.as_str() {
         t if t.contains("cut_in") => "MotionCutIn",
         t if t.contains("cut_out") => "MotionCutOut",
@@ -155,7 +155,7 @@ fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
     };
     tags.push(simple_tag(motion_tag));
 
-    // Lane change direction(s) detected from trajectories
+    // Motion: lane change direction(s) detected from trajectories
     if has_lane_change_left(scenario) {
         tags.push(simple_tag("MotionLaneChangeLeft"));
     }
@@ -163,10 +163,20 @@ fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
         tags.push(simple_tag("MotionLaneChangeRight"));
     }
 
-    // Vehicle types
-    tags.push(simple_tag("VehicleCar"));
+    // Motion: accelerate/decelerate detected from trajectory ax values
+    if has_acceleration(scenario) {
+        tags.push(simple_tag("MotionAccelerate"));
+    }
+    if has_deceleration(scenario) {
+        tags.push(simple_tag("MotionDecelerate"));
+    }
 
-    // Human roles
+    // Vehicle types — only when at least one non-pedestrian actor exists
+    if scenario.actors.iter().any(|a| a.role != "pedestrian") {
+        tags.push(simple_tag("VehicleCar"));
+    }
+
+    // Human roles — conditional on actor roles
     if scenario.actors.iter().any(|a| a.role == "ego") {
         tags.push(simple_tag("HumanDriver"));
     }
@@ -174,8 +184,39 @@ fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
         tags.push(simple_tag("HumanPedestrian"));
     }
 
-    // Road type — single-road scenarios are modelled as motorway/highway
-    tags.push(simple_tag("RoadTypeMotorway"));
+    // Road type — inferred from lane count and directionality
+    let all_same_direction = scenario
+        .road
+        .lane_directions
+        .windows(2)
+        .all(|w| w[0] == w[1]);
+    let road_type_tag = if scenario.road.num_lanes >= 3 && all_same_direction {
+        "RoadTypeMotorway"
+    } else if scenario.road.num_lanes == 2 && all_same_direction {
+        "RoadTypeDistributor"
+    } else {
+        "RoadTypeMinor"
+    };
+    tags.push(simple_tag(road_type_tag));
+
+    // Lane travel direction — always emit the category tag, then directional tags
+    tags.push(simple_tag("LaneSpecificationTravelDirection"));
+    if scenario.road.lane_directions.iter().any(|&d| d == 1) {
+        tags.push(simple_tag("TravelDirectionRight"));
+    }
+    if scenario.road.lane_directions.iter().any(|&d| d == -1) {
+        tags.push(simple_tag("TravelDirectionLeft"));
+    }
+
+    // Special structure — pedestrian crossing
+    if scenario.scenario_type.contains("pedestrian") {
+        tags.push(simple_tag("SpecialStructurePedestrianCrossing"));
+    }
+
+    // Zone tags
+    if scenario.scenario_type.contains("school") {
+        tags.push(simple_tag("ZoneSchool"));
+    }
 
     // Lane count with tag_data
     tags.push(OpenLabelTag {
@@ -193,6 +234,22 @@ fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
         .enumerate()
         .map(|(i, t)| (i.to_string(), t))
         .collect()
+}
+
+/// Returns true if any actor has any state with ax > 0.5 (meaningful acceleration).
+fn has_acceleration(scenario: &Scenario) -> bool {
+    scenario
+        .actors
+        .iter()
+        .any(|actor| actor.states.iter().any(|s| s.cartesian.acceleration.ax > 0.5))
+}
+
+/// Returns true if any actor has any state with ax < -0.5 (meaningful deceleration).
+fn has_deceleration(scenario: &Scenario) -> bool {
+    scenario
+        .actors
+        .iter()
+        .any(|actor| actor.states.iter().any(|s| s.cartesian.acceleration.ax < -0.5))
 }
 
 fn simple_tag(name: &str) -> OpenLabelTag {
@@ -324,7 +381,7 @@ mod tests {
         assert!(parsed["openlabel"]["metadata"]["ScenarioId"]
             .as_str()
             .unwrap()
-            .starts_with("SCEN-"));
+            .starts_with("SW-"));
     }
 
     #[test]
@@ -341,6 +398,7 @@ mod tests {
 
     #[test]
     fn test_ontology_tags_always_present() {
+        // make_scenario: 2-lane unidirectional [1,1] with ego + npc actors
         let scenario = make_scenario(true);
         let result = export_to_openlabel(&scenario).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
@@ -348,7 +406,10 @@ mod tests {
         let tags = parsed["openlabel"]["tags"].as_object().unwrap();
         let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
 
-        assert!(types.contains(&"RoadTypeMotorway"));
+        // 2-lane unidirectional → RoadTypeDistributor (not Motorway)
+        assert!(types.contains(&"RoadTypeDistributor"), "expected RoadTypeDistributor, got: {:?}", types);
+        assert!(!types.contains(&"RoadTypeMotorway"), "RoadTypeMotorway must not appear for 2-lane road");
+        // ego actor present → VehicleCar and HumanDriver
         assert!(types.contains(&"VehicleCar"));
         assert!(types.contains(&"HumanDriver"));
         assert!(types.contains(&"MotionCutIn"));
@@ -357,6 +418,187 @@ mod tests {
         assert!(!types.contains(&"highway"));
         assert!(!types.contains(&"ego_vehicle"));
         assert!(!types.contains(&"npc_vehicle"));
+    }
+
+    #[test]
+    fn test_road_type_motorway() {
+        // 4-lane unidirectional → RoadTypeMotorway
+        let road = RoadSpec {
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1, 1, 1],
+            road_length: None,
+        };
+        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
+        scenario.validation = ValidationInfo {
+            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
+            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            acceleration_violations: vec![],
+        };
+        let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
+        ego.add_state(State::new(0.0, Position::new(50.0, 5.25), Velocity::new(15.0, 0.0), Acceleration::new(0.0, 0.0), 1));
+        scenario.add_actor(ego);
+
+        let result = export_to_openlabel(&scenario).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let tags = parsed["openlabel"]["tags"].as_object().unwrap();
+        let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
+        assert!(types.contains(&"RoadTypeMotorway"), "expected RoadTypeMotorway for 4-lane unidirectional");
+        assert!(!types.contains(&"RoadTypeDistributor"));
+        assert!(!types.contains(&"RoadTypeMinor"));
+    }
+
+    #[test]
+    fn test_road_type_minor_bidirectional() {
+        // 4-lane bidirectional [1,1,-1,-1] → RoadTypeMinor
+        let road = RoadSpec {
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1, -1, -1],
+            road_length: None,
+        };
+        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
+        scenario.validation = ValidationInfo {
+            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
+            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            acceleration_violations: vec![],
+        };
+        let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
+        ego.add_state(State::new(0.0, Position::new(50.0, 5.25), Velocity::new(15.0, 0.0), Acceleration::new(0.0, 0.0), 1));
+        scenario.add_actor(ego);
+
+        let result = export_to_openlabel(&scenario).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let tags = parsed["openlabel"]["tags"].as_object().unwrap();
+        let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
+        assert!(types.contains(&"RoadTypeMinor"), "expected RoadTypeMinor for bidirectional road");
+        assert!(!types.contains(&"RoadTypeMotorway"));
+        assert!(!types.contains(&"RoadTypeDistributor"));
+    }
+
+    #[test]
+    fn test_pedestrian_crossing_tag() {
+        let road = RoadSpec {
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            road_length: None,
+        };
+        let mut scenario = Scenario::new("pedestrian_crossing".to_string(), 0.1, 5.0, road);
+        scenario.validation = ValidationInfo {
+            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
+            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            acceleration_violations: vec![],
+        };
+        let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
+        ego.add_state(State::new(0.0, Position::new(50.0, 5.25), Velocity::new(15.0, 0.0), Acceleration::new(0.0, 0.0), 1));
+        scenario.add_actor(ego);
+
+        let result = export_to_openlabel(&scenario).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let tags = parsed["openlabel"]["tags"].as_object().unwrap();
+        let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
+        assert!(types.contains(&"SpecialStructurePedestrianCrossing"));
+    }
+
+    #[test]
+    fn test_travel_direction_tags_unidirectional() {
+        // All +1 lanes → TravelDirectionRight only
+        let scenario = make_scenario(true); // uses [1, 1]
+        let result = export_to_openlabel(&scenario).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let tags = parsed["openlabel"]["tags"].as_object().unwrap();
+        let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
+        assert!(types.contains(&"LaneSpecificationTravelDirection"));
+        assert!(types.contains(&"TravelDirectionRight"));
+        assert!(!types.contains(&"TravelDirectionLeft"));
+    }
+
+    #[test]
+    fn test_travel_direction_tags_bidirectional() {
+        // Mixed [1,1,-1,-1] → both TravelDirectionRight AND TravelDirectionLeft
+        let road = RoadSpec {
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1, -1, -1],
+            road_length: None,
+        };
+        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
+        scenario.validation = ValidationInfo {
+            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
+            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            acceleration_violations: vec![],
+        };
+        let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
+        ego.add_state(State::new(0.0, Position::new(50.0, 5.25), Velocity::new(15.0, 0.0), Acceleration::new(0.0, 0.0), 1));
+        scenario.add_actor(ego);
+
+        let result = export_to_openlabel(&scenario).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let tags = parsed["openlabel"]["tags"].as_object().unwrap();
+        let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
+        assert!(types.contains(&"TravelDirectionRight"));
+        assert!(types.contains(&"TravelDirectionLeft"));
+    }
+
+    #[test]
+    fn test_motion_accelerate_decelerate() {
+        let road = RoadSpec {
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            road_length: None,
+        };
+        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
+        scenario.validation = ValidationInfo {
+            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
+            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            acceleration_violations: vec![],
+        };
+
+        // Actor with ax > 0.5 (accelerating)
+        let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
+        ego.add_state(State::new(0.0, Position::new(50.0, 5.25), Velocity::new(15.0, 0.0), Acceleration::new(1.5, 0.0), 1));
+        scenario.add_actor(ego);
+
+        // Actor with ax < -0.5 (decelerating)
+        let mut npc = ActorTrajectory::new("npc".to_string(), "npc".to_string());
+        npc.add_state(State::new(0.0, Position::new(70.0, 1.75), Velocity::new(18.0, 0.0), Acceleration::new(-2.0, 0.0), 0));
+        scenario.add_actor(npc);
+
+        let result = export_to_openlabel(&scenario).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let tags = parsed["openlabel"]["tags"].as_object().unwrap();
+        let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
+        assert!(types.contains(&"MotionAccelerate"), "expected MotionAccelerate for ax=1.5");
+        assert!(types.contains(&"MotionDecelerate"), "expected MotionDecelerate for ax=-2.0");
+    }
+
+    #[test]
+    fn test_no_vehicle_car_for_pedestrian_only() {
+        let road = RoadSpec {
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            road_length: None,
+        };
+        let mut scenario = Scenario::new("pedestrian_crossing".to_string(), 0.1, 5.0, road);
+        scenario.validation = ValidationInfo {
+            min_ttc: 3.0, min_distance: 10.0, all_constraints_satisfied: true,
+            safety_violations: vec![], max_acceleration: 2.0, max_deceleration: -3.0,
+            acceleration_violations: vec![],
+        };
+
+        let mut ped = ActorTrajectory::new("ped".to_string(), "pedestrian".to_string());
+        ped.add_state(State::new(0.0, Position::new(30.0, 0.0), Velocity::new(1.0, 0.0), Acceleration::new(0.0, 0.0), 0));
+        scenario.add_actor(ped);
+
+        let result = export_to_openlabel(&scenario).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let tags = parsed["openlabel"]["tags"].as_object().unwrap();
+        let types: Vec<&str> = tags.values().map(|t| t["type"].as_str().unwrap()).collect();
+        assert!(!types.contains(&"VehicleCar"), "VehicleCar must not appear in pedestrian-only scenario");
+        assert!(types.contains(&"HumanPedestrian"));
     }
 
     #[test]
