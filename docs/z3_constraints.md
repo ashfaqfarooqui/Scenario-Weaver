@@ -691,20 +691,32 @@ All LRA. Adds ~4–6 assertions per prior scenario.
 
 ---
 
-## 7. TTC and Distance Constraints (Bicycle-specific encoding)
+## 7. TTC and Distance Constraints (Y-Proximity Encoding)
 
-Source: `src/solver/encoders/bicycle.rs`, `encode_ttc_constraint()` and
-`encode_distance_constraint()`
+Source: `src/solver/encoder.rs` (`encode_ttc_constraint()`),
+`src/solver/encoders/cartesian.rs`, and `src/solver/encoders/bicycle.rs`
 
-Both the TTC and distance constraints in the bicycle encoder use an enhanced
-"same lane" condition that handles lane change transitions:
+The TTC and distance constraints use a "same lane" condition to determine when
+the constraint applies. The condition varies by context:
 
+**Same-direction actor pairs** (both actors have same `direction` value):
+```
+same_lane = lane[a1][t] == lane[a2][t]           LIA (discrete match only)
+```
+
+**Opposite-direction actor pairs** (actors have different `direction` values):
 ```
 same_lane = lane[a1][t] == lane[a2][t]           LIA (discrete match)
          OR (|py[a1] - py[a2]| < lane_width)     LRA (y-proximity)
 ```
 
-The y-proximity check uses AND to correctly encode absolute value:
+The y-proximity check is needed for opposite-direction actors because during a
+lane change transition, an oncoming vehicle may be laterally close enough to
+collide even before the discrete lane variable flips. This check is applied in
+both the GenericEncoder (for LTL-based TTC) and the Cartesian/Bicycle encoders
+(for direct safety assertions).
+
+The y-proximity condition uses AND to correctly encode absolute value:
 ```
 (py1 - py2 < lw) AND (py2 - py1 < lw)           LRA
 ```

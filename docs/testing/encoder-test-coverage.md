@@ -79,7 +79,7 @@ The two-case TTC encoding (actor1 behind actor2, actor2 behind actor1) is only e
 
 ### Encoder utils Z3 correctness
 
-Helper functions `encode_y_proximity_constraint` and `encode_same_lane_constraint` (used for TTC applicability) have no Z3-backed tests verifying their constraint semantics.
+Helper functions `encode_y_proximity_constraint` (used for TTC applicability in opposite-direction actor pairs) and `encode_same_lane_constraint` (discrete lane matching for same-direction pairs) have no Z3-backed tests verifying their constraint semantics.
 
 ### Edge cases
 

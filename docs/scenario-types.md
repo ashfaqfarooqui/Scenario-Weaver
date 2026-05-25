@@ -80,10 +80,17 @@ impl ScenarioModel for LaneChangeModel {
             lane: npc.lane,
         }));
 
-        // NPC eventually moves into ego's lane
+        // NPC eventually moves into target lane (computed from lane change deltas)
+        let target_lane = npc.lane_changes.iter().fold(npc.lane as i64, |acc, lc| {
+            acc + match lc.direction {
+                LaneChangeDirection::Left => -1,
+                LaneChangeDirection::Right => 1,
+            }
+        }).max(0) as usize;
+
         let behavior = LTLFormula::Atom(Proposition::InLane {
             actor: npc.id.clone(),
-            lane: ego.lane,
+            lane: target_lane,
         })
         .eventually();
 
