@@ -112,23 +112,9 @@ impl ScenarioModel for HeadOnModel {
         Ok(())
     }
 
-    fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
-        let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
-
-        // Minimal behavioral LTL: just a tautology.
-        // The lane changes and initial positions are fully handled by the
-        // kinematics encoder from the YAML config. No extra LTL needed.
-        let tautology = LTLFormula::Atom(Proposition::InLane {
-            actor: ego.id.clone(),
-            lane: ego.lane,
-        })
-        .or(LTLFormula::Atom(Proposition::InLane {
-            actor: ego.id.clone(),
-            lane: ego.lane,
-        })
-        .negate());
-
-        Ok(tautology)
+    fn generate_ltl(&self, _spec: &ScenarioSpec) -> Result<LTLFormula> {
+        // No behavioral LTL needed — kinematics encoder handles everything from YAML config.
+        Ok(LTLFormula::True)
     }
 
     /// Custom safety generation for head-on scenario.
@@ -168,21 +154,7 @@ impl ScenarioModel for HeadOnModel {
             dist_mode,
         );
 
-        if constraints.is_empty() {
-            // Tautology
-            Ok(LTLFormula::Atom(Proposition::InLane {
-                actor: ego_id.clone(),
-                lane: ego.lane,
-            })
-            .or(LTLFormula::Atom(Proposition::InLane {
-                actor: ego_id.clone(),
-                lane: ego.lane,
-            })
-            .negate()))
-        } else {
-            // constraints is non-empty here due to the is_empty() check above
-            Ok(LTLFormula::conjunction(constraints))
-        }
+        Ok(LTLFormula::conjunction(constraints))
     }
 
     fn add_z3_constraints(
@@ -442,6 +414,6 @@ mod tests {
 
         // LTL is a tautology (kinematics handle everything); just verify it generates
         let formula_str = format!("{}", formula.unwrap());
-        assert!(formula_str.contains("InLane")); // Tautology uses InLane
+        assert_eq!(formula_str, "⊤");
     }
 }
