@@ -1,0 +1,56 @@
+# ─── Scenario: Cut-in from Left (Optimizer: Min TTC) ───
+#
+# Uses the optimizer to find the scenario with the worst (lowest)
+# time-to-collision proxy during a cut-in manoeuvre.
+#
+# Actors:
+#   - ego: lane 1, 14-16 m/s forward, position 0-55m
+#   - npc: lane 0 (left), 16-20 m/s forward, position 20-80m
+#
+# Road: 3 lanes, 3.5m wide, directions [forward, forward, backward]
+# Duration: 10.0s at 0.5s time steps
+#
+# Optimizer Target: min-ttc
+#   Minimizes a linear proxy of time-to-collision (small gap + fast approach).
+#
+# Run:
+#   cargo run --release -- -i examples/cut_in_left_optimize_min_ttc.yaml -o output/ --optimize min-ttc
+#
+scenario_type: cut_in_left
+
+time_step: 0.5
+duration: 10.0
+
+road:
+  num_lanes: 3
+  lane_width: 3.5
+  lane_directions: [1, 1, -1]
+
+coordinate_system: cartesian
+
+actors:
+  - id: ego
+    role: ego
+    lane: 1
+    position: [0.0, 55.0]
+    speed: [14.0, 16.0]
+    direction: 1
+    acceleration: [-8.0, 3.0]
+
+  - id: npc
+    role: npc
+    lane: 0
+    position: [20.0, 80.0]
+    speed: [16.0, 20.0]
+    direction: 1
+    acceleration: [-8.0, 3.0]
+    lane_changes:
+      - direction: right
+        start_time: [1.4, 3.5]
+        duration: [3.0, 4.0]
+
+min_ttc: 3.0
+min_distance: 5.0
+
+optimization_target: minimize_ttc
+num_scenarios: 1

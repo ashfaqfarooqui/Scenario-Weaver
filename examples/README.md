@@ -1,6 +1,6 @@
 # Examples
 
-This directory contains 16 YAML scenario specifications covering the full range of ScenarioWeaver features.
+This directory contains 20 YAML scenario specifications covering the full range of ScenarioWeaver features.
 
 ## Running an Example
 
@@ -119,6 +119,36 @@ cargo run --release -- -i examples/head_on_near_miss.yaml -o output/
 NPC cuts into ego's lane on a 3-lane road with one oncoming lane. Tests mixed-direction lane configurations.
 ```bash
 cargo run --release -- -i examples/overtake_with_opposite.yaml -o output/
+```
+
+---
+
+## Optimizer Scenarios
+
+These use Z3 `Optimize` to find extremal scenarios rather than arbitrary satisfying assignments. Each targets a different metric. Note: multi-scenario diversity (`-n`) is not supported in optimizer mode.
+
+### cut_in_left_optimize_min_distance.yaml
+Finds the closest possible physical approach between ego and NPC during a cut-in while satisfying all constraints.
+```bash
+cargo run --release -- -i examples/cut_in_left_optimize_min_distance.yaml -o output/ --optimize min-distance
+```
+
+### cut_in_left_optimize_min_ttc.yaml
+Finds the scenario with the worst (lowest) time-to-collision proxy — small gap combined with fast approach.
+```bash
+cargo run --release -- -i examples/cut_in_left_optimize_min_ttc.yaml -o output/ --optimize min-ttc
+```
+
+### cut_in_left_optimize_min_severity.yaml
+Finds the most severe interaction — highest relative approach speed when actors share a lane.
+```bash
+cargo run --release -- -i examples/cut_in_left_optimize_min_severity.yaml -o output/ --optimize min-severity
+```
+
+### cut_in_left_optimize_max_ttc.yaml
+Finds the safest scenario — largest minimum gap between actors during the manoeuvre.
+```bash
+cargo run --release -- -i examples/cut_in_left_optimize_max_ttc.yaml -o output/ --optimize max-ttc
 ```
 
 ---
