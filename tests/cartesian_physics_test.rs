@@ -150,14 +150,8 @@ fn test_solving_performance_with_ratio_constraint() {
 
 #[test]
 fn test_multiple_scenarios_maintain_physics() {
-    use tempfile::TempDir;
-
     let yaml_content =
         std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
-
-    // Use temporary directory for output
-    let temp_dir = TempDir::new().expect("Should create temp dir");
-    let _output_dir = temp_dir.path();
 
     // Parse spec to create scenarios manually
     let max_ratio = 0.15;

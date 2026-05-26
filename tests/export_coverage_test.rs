@@ -187,54 +187,84 @@ fn test_pedestrian_crossing_export_json() {
 
 #[test]
 fn test_head_on_export_svg() {
-    if let Some(scenario) = generate_from_file("head_on_near_miss.yaml") {
-        let svg = export_scenario_to_svg(&scenario).unwrap();
-        assert!(svg.contains("<svg"));
+    match generate_from_file("head_on_near_miss.yaml") {
+        Some(scenario) => {
+            let svg = export_scenario_to_svg(&scenario).unwrap();
+            assert!(svg.contains("<svg"));
+        }
+        None => {
+            println!("SKIPPED: head_on_near_miss.yaml returned UNSAT");
+        }
     }
 }
 
 #[test]
 fn test_head_on_export_xodr() {
-    if let Some(scenario) = generate_from_file("head_on_near_miss.yaml") {
-        let xodr = export_scenario_to_xodr(&scenario).unwrap();
-        let lower = xodr.to_lowercase();
-        assert!(lower.contains("opendrive"));
-        assert!(lower.contains("road"));
-        assert!(lower.contains("lane"));
+    match generate_from_file("head_on_near_miss.yaml") {
+        Some(scenario) => {
+            let xodr = export_scenario_to_xodr(&scenario).unwrap();
+            let lower = xodr.to_lowercase();
+            assert!(lower.contains("opendrive"));
+            assert!(lower.contains("road"));
+            assert!(lower.contains("lane"));
+        }
+        None => {
+            println!("SKIPPED: head_on_near_miss.yaml returned UNSAT");
+        }
     }
 }
 
 #[test]
 fn test_head_on_export_xosc() {
-    if let Some(scenario) = generate_from_file("head_on_near_miss.yaml") {
-        let xosc = export_scenario_to_xosc(&scenario).unwrap();
-        assert!(xosc.contains("OpenSCENARIO") || xosc.contains("<?xml"));
+    match generate_from_file("head_on_near_miss.yaml") {
+        Some(scenario) => {
+            let xosc = export_scenario_to_xosc(&scenario).unwrap();
+            assert!(xosc.contains("OpenSCENARIO") || xosc.contains("<?xml"));
+        }
+        None => {
+            println!("SKIPPED: head_on_near_miss.yaml returned UNSAT");
+        }
     }
 }
 
 #[test]
 fn test_head_on_export_openlabel() {
-    if let Some(scenario) = generate_from_file("head_on_near_miss.yaml") {
-        let json_str = export_scenario_to_openlabel(&scenario).unwrap();
-        let json: serde_json::Value = serde_json::from_str(&json_str).expect("valid JSON");
-        assert!(json.get("openlabel").is_some());
-        assert!(json["openlabel"].get("metadata").is_some());
+    match generate_from_file("head_on_near_miss.yaml") {
+        Some(scenario) => {
+            let json_str = export_scenario_to_openlabel(&scenario).unwrap();
+            let json: serde_json::Value = serde_json::from_str(&json_str).expect("valid JSON");
+            assert!(json.get("openlabel").is_some());
+            assert!(json["openlabel"].get("metadata").is_some());
+        }
+        None => {
+            println!("SKIPPED: head_on_near_miss.yaml returned UNSAT");
+        }
     }
 }
 
 #[test]
 fn test_head_on_export_gif() {
-    if let Some(scenario) = generate_from_file("head_on_near_miss.yaml") {
-        let gif = export_scenario_to_gif(&scenario).unwrap();
-        assert!(gif.len() > 1024, "GIF should be > 1KB");
-        assert_eq!(&gif[..6], b"GIF89a");
+    match generate_from_file("head_on_near_miss.yaml") {
+        Some(scenario) => {
+            let gif = export_scenario_to_gif(&scenario).unwrap();
+            assert!(gif.len() > 1024, "GIF should be > 1KB");
+            assert_eq!(&gif[..6], b"GIF89a");
+        }
+        None => {
+            println!("SKIPPED: head_on_near_miss.yaml returned UNSAT");
+        }
     }
 }
 
 #[test]
 fn test_head_on_export_json() {
-    if let Some(scenario) = generate_from_file("head_on_near_miss.yaml") {
-        let json = serde_json::to_string(&scenario).unwrap();
-        assert!(json.contains("head_on"));
+    match generate_from_file("head_on_near_miss.yaml") {
+        Some(scenario) => {
+            let json = serde_json::to_string(&scenario).unwrap();
+            assert!(json.contains("head_on"));
+        }
+        None => {
+            println!("SKIPPED: head_on_near_miss.yaml returned UNSAT");
+        }
     }
 }

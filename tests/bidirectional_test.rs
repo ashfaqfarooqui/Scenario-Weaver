@@ -115,7 +115,7 @@ actors:
     lane: 2
     position: 150.0
     speed: 16.0
-    direction: 1
+    direction: -1
     acceleration: [-2.0, 0.0]
     lane_changes:
       - direction: right
@@ -186,7 +186,7 @@ actors:
     lane: 1
     position: 150.0
     speed: 18.0
-    direction: 1
+    direction: -1
     acceleration: [-2.0, 0.0]
     lane_changes:
       - direction: right
@@ -394,7 +394,7 @@ actors:
     lane: 1
     position: 120.0
     speed: 14.0
-    direction: 1
+    direction: -1
     acceleration: [-2.0, 0.0]
     lane_changes:
       - direction: right

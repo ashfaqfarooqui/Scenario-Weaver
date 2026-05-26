@@ -144,8 +144,10 @@ fn test_generate_single_scenario_integration() {
     }
 
     // Verify validation metrics
-    assert!(scenario.validation.min_ttc >= 3.0 || scenario.validation.min_ttc > 100.0);
-    assert!(scenario.validation.min_distance >= 5.0 || scenario.validation.min_distance > 100.0);
+    assert!(scenario.validation.min_ttc >= 3.0,
+        "min_ttc should be >= 3.0, got: {:.2}", scenario.validation.min_ttc);
+    assert!(scenario.validation.min_distance >= 5.0,
+        "min_distance should be >= 5.0, got: {:.2}", scenario.validation.min_distance);
 
     println!("Generated scenario:");
     println!("  Scenario ID: {}", scenario.scenario_id);

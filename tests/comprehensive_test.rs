@@ -191,6 +191,10 @@ fn test_bicycle_lane_change_scenario() {
             let y_min = y_values.iter().cloned().fold(f64::INFINITY, f64::min);
             let y_max = y_values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
             let y_range = (y_max - y_min).abs();
+            assert!(
+                y_range > 0.5,
+                "NPC should show lateral movement during lane change, y_range={y_range:.2}"
+            );
             println!("bicycle_lane_change: NPC y range = {y_range:.2}m");
         }
         Err(ScenarioGenError::Unsatisfiable) => {
@@ -697,10 +701,17 @@ num_scenarios: 1
             println!("Conflicting constraints returned error: {e}");
         }
         Ok(scenario) => {
-            // If somehow SAT, the constraints should be violated
+            // If solver finds a solution despite extreme constraints, 
+            // it should at least show constraint violations
             println!(
                 "Surprisingly SAT: min_ttc={:.2}, min_dist={:.2}",
                 scenario.validation.min_ttc, scenario.validation.min_distance
+            );
+            // With min_ttc=100 and min_distance=500, these should be violated
+            // or the solver found a degenerate solution
+            assert!(
+                scenario.validation.min_ttc < 100.0 || scenario.validation.min_distance < 500.0,
+                "If SAT, constraints should be effectively violated given extreme thresholds"
             );
         }
     }
@@ -747,10 +758,17 @@ num_scenarios: 1
     // Either error or a trivial scenario — both are acceptable
     match result {
         Ok(scenario) => {
+            // Zero duration should produce at most 1 timestep
+            let steps = scenario.actors.first().map_or(0, |a| a.states.len());
+            assert!(
+                steps <= 1,
+                "Zero duration scenario should have at most 1 timestep, got {}",
+                steps
+            );
             println!(
                 "Zero duration: {} actors, {} steps",
                 scenario.actors.len(),
-                scenario.actors.first().map_or(0, |a| a.states.len())
+                steps
             );
         }
         Err(e) => {
