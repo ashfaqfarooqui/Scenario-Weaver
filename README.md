@@ -10,7 +10,7 @@ Automatically generate diverse, safety-critical driving test scenarios from high
 - **Per-constraint control** — enforce, violate, or ignore each constraint independently
 - **Multiple coordinate systems** — Cartesian (x, y) and kinematic Bicycle (x, y, θ, v)
 - **Multi-scenario diversity** — blocking clauses force structurally different solutions
-- **Six output formats** — JSON, OpenSCENARIO, OpenDRIVE, SVG, GIF, OpenLabel
+- **Six output** — JSON, OpenSCENARIO, OpenDRIVE, SVG, GIF, OpenLabel
 
 ## Requirements
 
@@ -21,7 +21,7 @@ Automatically generate diverse, safety-critical driving test scenarios from high
 
 ```bash
 git clone <repo-url>
-cd ScenarioGenerationWorkspace/main
+cd <repo-name>
 cargo build --release
 ```
 
@@ -68,36 +68,37 @@ time_step: 0.1
 duration: 10.0
 
 actors:
-  - id: ego
-    role: ego
-    lane: 1
-    position: 50.0          # fixed value
-    speed: 15.0
-    direction: 1
-    acceleration: [-8.0, 3.0]
+    - id: ego
+      role: ego
+      lane: 1
+      position: 50.0 # fixed value
+      speed: 15.0
+      direction: 1
+      acceleration: [-8.0, 3.0]
 
-  - id: npc
-    role: npc
-    lane: 0
-    position: [60.0, 80.0]  # range — Z3 chooses
-    speed: [16.0, 20.0]
-    direction: 1
-    acceleration: [-8.0, 3.0]
-    lane_changes:
-      - direction: right
-        start_time: [2.5, 3.5]
-        duration: [3.0, 4.0]
+    - id: npc
+      role: npc
+      lane: 0
+      position: [60.0, 80.0] # range — Z3 chooses
+      speed: [16.0, 20.0]
+      direction: 1
+      acceleration: [-8.0, 3.0]
+      lane_changes:
+          - direction: right
+            start_time: [2.5, 3.5]
+            duration: [3.0, 4.0]
 
 road:
-  num_lanes: 2
-  lane_width: 3.5
-  lane_directions: [1, 1]   # 1 = forward, -1 = backward
+    num_lanes: 2
+    lane_width: 3.5
+    lane_directions: [1, 1] # 1 = forward, -1 = backward
 
 min_ttc: 3.0
 min_distance: 5.0
 ```
 
 **Value formats:**
+
 - `position: 50.0` — Z3 must use exactly 50.0
 - `position: [45.0, 55.0]` — Z3 chooses any value in range
 
@@ -130,15 +131,15 @@ cargo doc --open
 
 ## Documentation
 
-| Document | Contents |
-|----------|----------|
-| [docs/output-formats.md](docs/output-formats.md) | JSON schema, XOSC/XODR/SVG/GIF/OpenLabel details, Rust API |
-| [docs/adversarial-generation.md](docs/adversarial-generation.md) | Constraint modes, YAML config, use cases |
-| [docs/coordinate-systems.md](docs/coordinate-systems.md) | Cartesian vs Bicycle model, dynamics, configuration |
-| [docs/scenario-types.md](docs/scenario-types.md) | Adding new scenario types in Rust (step-by-step) |
-| [docs/architecture.md](docs/architecture.md) | Pipeline, encoder architecture, module map |
-| [docs/z3_constraints.md](docs/z3_constraints.md) | Z3 constraint reference for both encoders |
-| [CREATING_SCENARIOS.md](docs/CREATING_SCENARIOS.md) | YAML specification guide and scenario authoring |
+| Document                                                         | Contents                                                   |
+| ---------------------------------------------------------------- | ---------------------------------------------------------- |
+| [docs/output-formats.md](docs/output-formats.md)                 | JSON schema, XOSC/XODR/SVG/GIF/OpenLabel details, Rust API |
+| [docs/adversarial-generation.md](docs/adversarial-generation.md) | Constraint modes, YAML config, use cases                   |
+| [docs/coordinate-systems.md](docs/coordinate-systems.md)         | Cartesian vs Bicycle model, dynamics, configuration        |
+| [docs/scenario-types.md](docs/scenario-types.md)                 | Adding new scenario types in Rust (step-by-step)           |
+| [docs/architecture.md](docs/architecture.md)                     | Pipeline, encoder architecture, module map                 |
+| [docs/z3_constraints.md](docs/z3_constraints.md)                 | Z3 constraint reference for both encoders                  |
+| [CREATING_SCENARIOS.md](docs/CREATING_SCENARIOS.md)              | YAML specification guide and scenario authoring            |
 
 ## License
 
