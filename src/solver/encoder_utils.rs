@@ -92,7 +92,7 @@ pub fn collect_lane_change_data(
             let changes: Vec<LaneChangeSteps> = a
                 .lane_changes
                 .iter()
-                .map(|lc| {
+                .filter_map(|lc| {
                     let start_min = lc.start_time.min();
                     let start_max = lc.start_time.max();
                     let duration_min = lc.duration.min();
@@ -105,14 +105,20 @@ pub fn collect_lane_change_data(
 
                     // Use midpoint for now (TODO: make solver variables)
                     let start_step = usize::midpoint(start_step_min, start_step_max);
+
+                    // Skip lane changes that begin beyond the scenario horizon
+                    if start_step > horizon {
+                        return None;
+                    }
+
                     let duration_steps = usize::midpoint(duration_steps_min, duration_steps_max);
                     let end_step = (start_step + duration_steps).min(horizon);
 
-                    LaneChangeSteps {
+                    Some(LaneChangeSteps {
                         direction: lc.direction,
                         start_step,
                         end_step,
-                    }
+                    })
                 })
                 .collect();
             (a.id.clone(), changes)

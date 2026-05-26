@@ -138,7 +138,6 @@ fn test_optimizer_minimize_ttc_cut_in_right() {
 }
 
 #[test]
-#[ignore] // Known issue: overtake_left with MinimizeDistance may panic internally
 fn test_optimizer_minimize_distance_overtake() {
     let yaml = std::fs::read_to_string("examples/overtake_left.yaml")
         .expect("Should read example YAML");
