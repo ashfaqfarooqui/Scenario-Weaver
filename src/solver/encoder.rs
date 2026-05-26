@@ -986,16 +986,27 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
 impl GenericEncoder<OptimizerBackend> {
     /// Encode optimization objective based on the target.
     ///
-    /// Creates a Z3 Real variable representing the objective and calls
-    /// minimize/maximize on the backend. Uses minimum same-lane longitudinal
-    /// distance as an LRA proxy for all targets (avoids NRA from TTC division).
+    /// Each target uses a distinct single scalar LRA (linear real arithmetic) proxy
+    /// to avoid NRA from TTC division (`distance / speed`). The objectives are:
+    ///
+    /// - **MinimizeDistance**: minimize the smallest same-lane longitudinal gap (pure geometry)
+    /// - **MinimizeTtc**: minimize `distance - dt * closing_speed` (blends gap and approach rate)
+    /// - **MinimizeSeverity**: maximize the highest same-lane closing speed (pure dynamics)
+    /// - **MaximizeTtc**: maximize the smallest same-lane longitudinal gap (safest scenario)
+    ///
+    /// **Limitation**: Each target optimizes a single scalar value. A future enhancement
+    /// could use Z3's lexicographic (multi-priority) objectives for richer optimization.
     pub fn encode_objective(&mut self) {
         let target = self.coord_encoder.backend().target();
         match target {
-            OptimizationTarget::MinimizeTtc
-            | OptimizationTarget::MinimizeDistance
-            | OptimizationTarget::MinimizeSeverity => {
+            OptimizationTarget::MinimizeDistance => {
                 self.encode_minimize_distance_objective();
+            }
+            OptimizationTarget::MinimizeTtc => {
+                self.encode_minimize_ttc_objective();
+            }
+            OptimizationTarget::MinimizeSeverity => {
+                self.encode_maximize_severity_objective();
             }
             OptimizationTarget::MaximizeTtc => {
                 self.encode_maximize_distance_objective();
@@ -1003,7 +1014,7 @@ impl GenericEncoder<OptimizerBackend> {
         }
     }
 
-    /// Minimize: find the scenario where the minimum same-lane distance is smallest.
+    /// MinimizeDistance: find the scenario with the smallest same-lane gap.
     ///
     /// Combines lower-bound constraints (`obj <= effective_dist[t]` for all t) with
     /// a "choice" constraint (`obj = effective_dist[t]` for at least one t).
@@ -1042,7 +1053,83 @@ impl GenericEncoder<OptimizerBackend> {
         self.coord_encoder.backend_mut().set_objective_var(obj);
     }
 
-    /// Maximize: find the scenario where the minimum same-lane distance is largest.
+    /// MinimizeTtc: find the scenario with the worst time-to-collision proxy.
+    ///
+    /// TTC = distance / closing_speed, but division is NRA. Instead, we minimize
+    /// `distance - dt * closing_speed` as a linear proxy. Lower values mean the gap
+    /// is small AND/OR the approach speed is high — i.e., less time before collision.
+    ///
+    /// The weight `dt` (time step duration) keeps units consistent: both terms
+    /// contribute in meters, balancing spatial proximity with temporal urgency.
+    fn encode_minimize_ttc_objective(&mut self) {
+        let obj = Real::new_const("ttc_obj");
+        let big_val = Real::from_rational(9999, 1);
+        let neg_big = Real::from_rational(-9999, 1);
+        // Weight = dt (time_step), expressed as rational to avoid floating-point
+        let dt_millis = (self.spec.time_step * 1000.0) as i64;
+        let weight = Real::from_rational(dt_millis, 1000);
+
+        // obj can be negative (when closing speed term dominates)
+        self.coord_encoder.backend_mut().assert(&obj.ge(&neg_big));
+
+        let actor_ids: Vec<String> = self.spec.actors.iter().map(|a| a.id.clone()).collect();
+        let mut choices = Vec::new();
+
+        for i in 0..actor_ids.len() {
+            for j in (i + 1)..actor_ids.len() {
+                for t in 0..=self.horizon {
+                    let proxy =
+                        self.compute_ttc_proxy(&actor_ids[i], &actor_ids[j], t, &weight, &big_val);
+                    // Lower bound: obj <= proxy at every (pair, time)
+                    self.coord_encoder.backend_mut().assert(&obj.le(&proxy));
+                    // Choice: obj can equal this particular proxy
+                    choices.push(obj.eq(&proxy));
+                }
+            }
+        }
+
+        // At least one choice must hold
+        let refs: Vec<&Bool> = choices.iter().collect();
+        self.coord_encoder.backend_mut().assert(&Bool::or(&refs));
+
+        self.coord_encoder.backend_mut().minimize(&obj);
+        self.coord_encoder.backend_mut().set_objective_var(obj);
+    }
+
+    /// MinimizeSeverity: find the scenario with the highest same-lane closing speed.
+    ///
+    /// Severity correlates with relative impact speed. We maximize the closing speed
+    /// (absolute relative velocity) when actors are in the same lane. Uses a "choice"
+    /// pattern: obj can equal any effective_closing_speed value, and Z3 maximizes it
+    /// by choosing scenario parameters that produce the highest approach speed.
+    fn encode_maximize_severity_objective(&mut self) {
+        let obj = Real::new_const("severity_obj");
+        let zero = Real::from_rational(0, 1);
+        self.coord_encoder.backend_mut().assert(&obj.ge(&zero));
+
+        let actor_ids: Vec<String> = self.spec.actors.iter().map(|a| a.id.clone()).collect();
+        let mut choices = Vec::new();
+
+        for i in 0..actor_ids.len() {
+            for j in (i + 1)..actor_ids.len() {
+                for t in 0..=self.horizon {
+                    let effective_speed =
+                        self.compute_effective_closing_speed(&actor_ids[i], &actor_ids[j], t);
+                    // Choice: obj can equal this particular effective closing speed
+                    choices.push(obj.eq(&effective_speed));
+                }
+            }
+        }
+
+        // At least one choice must hold (obj = some effective closing speed)
+        let refs: Vec<&Bool> = choices.iter().collect();
+        self.coord_encoder.backend_mut().assert(&Bool::or(&refs));
+
+        self.coord_encoder.backend_mut().maximize(&obj);
+        self.coord_encoder.backend_mut().set_objective_var(obj);
+    }
+
+    /// MaximizeTtc: find the scenario where the minimum same-lane distance is largest.
     ///
     /// Uses the standard lower-bound formulation: obj <= effective_dist at every
     /// (pair, time), then maximize obj to push it up to the actual minimum.
@@ -1071,6 +1158,8 @@ impl GenericEncoder<OptimizerBackend> {
         self.coord_encoder.backend_mut().set_objective_var(obj);
     }
 
+    // === Helper methods for objective encoding ===
+
     /// Compute effective distance between two actors at time t.
     /// Returns abs(px_i - px_j) if same lane, big_val otherwise.
     fn compute_effective_dist(&self, aid_i: &str, aid_j: &str, t: usize, big_val: &Real) -> Real {
@@ -1082,6 +1171,53 @@ impl GenericEncoder<OptimizerBackend> {
         let same_lane = lane_i.eq(lane_j);
         let abs_dist = px_i.gt(px_j).ite(&(px_i - px_j), &(px_j - px_i));
         same_lane.ite(&abs_dist, big_val)
+    }
+
+    /// Compute closing speed (absolute relative velocity) between two actors at time t.
+    /// Returns |vx_i - vx_j| — purely linear (LRA), no division involved.
+    fn compute_closing_speed(&self, aid_i: &str, aid_j: &str, t: usize) -> Real {
+        let vx_i = self.get_longitudinal_vel(aid_i, t);
+        let vx_j = self.get_longitudinal_vel(aid_j, t);
+        let v_rel = vx_i - vx_j;
+        let zero = Real::from_rational(0, 1);
+        v_rel.gt(&zero).ite(&v_rel, &(-&v_rel))
+    }
+
+    /// Compute TTC proxy: `distance - weight * closing_speed` when same lane, big_val otherwise.
+    ///
+    /// Lower values indicate worse TTC (small gap + fast approach).
+    fn compute_ttc_proxy(
+        &self,
+        aid_i: &str,
+        aid_j: &str,
+        t: usize,
+        weight: &Real,
+        big_val: &Real,
+    ) -> Real {
+        let lane_i = self.get_lane_var(aid_i, t);
+        let lane_j = self.get_lane_var(aid_j, t);
+        let px_i = self.get_longitudinal_pos(aid_i, t);
+        let px_j = self.get_longitudinal_pos(aid_j, t);
+
+        let same_lane = lane_i.eq(lane_j);
+        let abs_dist = px_i.gt(px_j).ite(&(px_i - px_j), &(px_j - px_i));
+        let closing_speed = self.compute_closing_speed(aid_i, aid_j, t);
+
+        // proxy = distance - weight * closing_speed (can be negative)
+        let proxy = abs_dist - weight * closing_speed;
+        same_lane.ite(&proxy, big_val)
+    }
+
+    /// Compute effective closing speed: |vx_i - vx_j| when same lane, 0 otherwise.
+    ///
+    /// Used by the severity objective to maximize approach speed.
+    fn compute_effective_closing_speed(&self, aid_i: &str, aid_j: &str, t: usize) -> Real {
+        let lane_i = self.get_lane_var(aid_i, t);
+        let lane_j = self.get_lane_var(aid_j, t);
+        let closing_speed = self.compute_closing_speed(aid_i, aid_j, t);
+        let zero = Real::from_rational(0, 1);
+
+        lane_i.eq(lane_j).ite(&closing_speed, &zero)
     }
 
     /// Extract the optimal value from the Z3 model after solving.
