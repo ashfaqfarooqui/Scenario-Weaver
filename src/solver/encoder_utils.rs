@@ -491,4 +491,24 @@ mod tests {
             assert_eq!(solver.check(), SatResult::Unsat);
         });
     }
+
+    #[test]
+    fn test_collect_lane_change_data_filters_beyond_horizon() {
+        // Lane change starts at 6.0s with time_step=0.5 → start_step = 12
+        // With horizon=10, start_step > horizon so filter_map returns None
+        let lc = LaneChangeConfig {
+            direction: LaneChangeDirection::Right,
+            start_time: ValueOrRange::Value(6.0),
+            duration: ValueOrRange::Value(1.0),
+        };
+        let mut spec = make_spec(vec![make_actor("npc1", ActorRole::Npc, vec![lc])]);
+        spec.time_step = 0.5;
+        let result = collect_lane_change_data(&spec, 10);
+        // Actor appears in result (has lane_change config) but vec is empty
+        // because start_step = 6.0/0.5 = 12 > 10 (horizon)
+        assert!(
+            result["npc1"].is_empty(),
+            "Lane change starting at step 12 should be filtered when horizon=10"
+        );
+    }
 }

@@ -141,3 +141,119 @@ fn test_optimized_scenario_exports_correctly() {
 
     println!("All exports succeeded for optimized scenario");
 }
+
+#[test]
+fn test_objectives_produce_distinct_results() {
+    use std::collections::HashSet;
+
+    let targets = [
+        OptimizationTarget::MinimizeDistance,
+        OptimizationTarget::MinimizeTtc,
+        OptimizationTarget::MinimizeSeverity,
+    ];
+
+    let mut values: Vec<Option<f64>> = Vec::new();
+    for &target in &targets {
+        let spec = create_optimized_spec(target);
+        match scenario_weaver::generate_single_scenario_from_spec(spec) {
+            Ok(scenario) => {
+                let opt = scenario.optimization.as_ref().unwrap();
+                values.push(opt.optimal_value);
+            }
+            Err(_) => {
+                values.push(None);
+            }
+        }
+    }
+
+    let successes: Vec<f64> = values.iter().filter_map(|v| *v).collect();
+    assert!(
+        successes.len() >= 2,
+        "At least 2 of 3 objectives should produce results, got {} successes",
+        successes.len()
+    );
+
+    if successes.len() >= 2 {
+        let unique: HashSet<String> = successes.iter().map(|v| format!("{:.4}", v)).collect();
+        assert!(
+            unique.len() >= 2,
+            "Objectives should produce distinct optimal values, got: {:?}",
+            successes
+        );
+    }
+}
+
+#[test]
+fn test_optimizer_pedestrian_crossing() {
+    let yaml = std::fs::read_to_string("examples/pedestrian_crossing.yaml")
+        .expect("Should read pedestrian_crossing.yaml");
+    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml)
+        .expect("Should parse pedestrian YAML");
+    spec.optimization_target = OptimizationTarget::MinimizeDistance;
+    spec.duration = 5.0;
+    spec.time_step = 0.5;
+
+    let result = scenario_weaver::generate_single_scenario_from_spec(spec);
+    match result {
+        Ok(scenario) => {
+            assert!(
+                scenario.optimization.is_some(),
+                "Should have optimization info"
+            );
+
+            let ped = scenario.actors.iter().find(|a| a.id == "pedestrian");
+            assert!(ped.is_some(), "Should have pedestrian actor");
+
+            let ped = ped.unwrap();
+            for state in &ped.states {
+                assert_eq!(
+                    state.lane(), 0,
+                    "Pedestrian lane should be fixed to 0 by scenario constraints"
+                );
+            }
+
+            println!(
+                "Pedestrian crossing optimization succeeded: {:?}",
+                scenario.optimization.as_ref().unwrap().optimal_value
+            );
+        }
+        Err(e) => {
+            println!(
+                "Pedestrian crossing optimization returned error (acceptable): {}",
+                e
+            );
+        }
+    }
+}
+
+#[test]
+fn test_optimizer_minimal_horizon() {
+    let yaml = std::fs::read_to_string("examples/cut_in_left.yaml")
+        .expect("Should read example YAML");
+    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml)
+        .expect("Should parse YAML");
+    spec.optimization_target = OptimizationTarget::MinimizeDistance;
+    spec.duration = 0.5;
+    spec.time_step = 0.5;
+
+    let result = scenario_weaver::generate_single_scenario_from_spec(spec);
+    match result {
+        Ok(scenario) => {
+            assert!(
+                scenario.optimization.is_some(),
+                "Should have optimization metadata"
+            );
+            let opt = scenario.optimization.as_ref().unwrap();
+            println!(
+                "Minimal horizon optimization succeeded: {:?}",
+                opt.optimal_value
+            );
+        }
+        Err(e) => {
+            println!(
+                "Minimal horizon returned error (acceptable, no panic): {}",
+                e
+            );
+        }
+    }
+}

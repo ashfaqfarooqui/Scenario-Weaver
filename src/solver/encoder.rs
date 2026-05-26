@@ -2492,4 +2492,260 @@ mod tests {
             );
         });
     }
+
+    // ===== Group 6: Optimizer regression tests =====
+
+    #[test]
+    fn test_optimizer_single_actor_returns_unsat() {
+        use crate::solver::backend::OptimizationTarget;
+        use crate::solver::backend::OptimizerBackend;
+
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = ScenarioSpec {
+                scenario_type: ScenarioType::CutInLeft,
+                time_step: 0.5,
+                duration: 5.0,
+                actors: vec![ActorSpec {
+                    id: "ego".to_string(),
+                    role: ActorRole::Ego,
+                    lane: 1,
+                    position: ValueOrRange::Value(50.0),
+                    speed: ValueOrRange::Value(15.0),
+                    acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: 1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![],
+                    bicycle_params: None,
+                }],
+                min_ttc: 3.0,
+                min_distance: 5.0,
+                road: None,
+                lane_width: 3.5,
+                num_scenarios: 1,
+                constraint_modes: crate::dsl::types::ConstraintModes::default(),
+                optimization_target: crate::dsl::types::OptimizationTarget::None,
+                max_acceleration: None,
+                max_deceleration: None,
+                max_velocity: None,
+                min_velocity: None,
+                min_lateral_distance: None,
+                max_relative_velocity: None,
+                max_lateral_acceleration: 2.0,
+                coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
+                bicycle_config: None,
+            };
+
+            let backend = OptimizerBackend::new(OptimizationTarget::MinimizeDistance);
+            let mut encoder = GenericEncoder::with_backend(spec, backend);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_velocity_constraints();
+            encoder.encode_acceleration_constraints();
+            encoder.encode_objective();
+
+            let result = encoder.check();
+            assert_eq!(
+                result,
+                SatResult::Unsat,
+                "Single-actor optimization should return UNSAT (no actor pairs exist)"
+            );
+        });
+    }
+
+    #[test]
+    fn test_compute_closing_speed() {
+        use crate::solver::backend::OptimizationTarget;
+        use crate::solver::backend::OptimizerBackend;
+        use z3::ast::Ast;
+
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_two_actor_same_lane_spec();
+            let backend = OptimizerBackend::new(OptimizationTarget::MinimizeDistance);
+            let mut encoder = GenericEncoder::with_backend(spec, backend);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            // ego speed=20, npc speed=15 → closing speed = |20-15| = 5
+            let closing_speed = encoder.compute_closing_speed("ego", "npc", 0);
+
+            let expected = Real::from_rational(5, 1);
+            encoder.assert_constraint(&closing_speed._eq(&expected));
+
+            let result = encoder.check();
+            assert_eq!(
+                result,
+                SatResult::Sat,
+                "Closing speed at t=0 should be 5 (|20-15|)"
+            );
+        });
+    }
+
+    #[test]
+    fn test_compute_ttc_proxy_same_lane() {
+        use crate::solver::backend::OptimizationTarget;
+        use crate::solver::backend::OptimizerBackend;
+        use z3::ast::Ast;
+
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_two_actor_same_lane_spec();
+            let backend = OptimizerBackend::new(OptimizationTarget::MinimizeTtc);
+            let mut encoder = GenericEncoder::with_backend(spec, backend);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            let weight = Real::from_rational(1, 2);
+            let big_val = Real::from_rational(9999, 1);
+            let proxy = encoder.compute_ttc_proxy("ego", "npc", 0, &weight, &big_val);
+
+            // Same lane: proxy = |px_npc - px_ego| - weight * |vx_ego - vx_npc|
+            // = |100 - 50| - 0.5 * |20 - 15| = 50 - 2.5 = 47.5
+            let expected = Real::from_rational(475, 10);
+            encoder.assert_constraint(&proxy._eq(&expected));
+
+            let result = encoder.check();
+            assert_eq!(
+                result,
+                SatResult::Sat,
+                "TTC proxy should be 47.5 (50 - 0.5*5)"
+            );
+        });
+    }
+
+    #[test]
+    fn test_compute_effective_closing_speed_different_lanes() {
+        use crate::solver::backend::OptimizationTarget;
+        use crate::solver::backend::OptimizerBackend;
+        use z3::ast::Ast;
+
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_two_actor_diff_lane_spec();
+            let backend = OptimizerBackend::new(OptimizationTarget::MinimizeSeverity);
+            let mut encoder = GenericEncoder::with_backend(spec, backend);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            let eff_speed = encoder.compute_effective_closing_speed("ego", "npc", 0);
+
+            // Different lanes → effective closing speed = 0
+            let zero = Real::from_rational(0, 1);
+            encoder.assert_constraint(&eff_speed._eq(&zero));
+
+            let result = encoder.check();
+            assert_eq!(
+                result,
+                SatResult::Sat,
+                "Effective closing speed should be 0 for different lanes"
+            );
+        });
+    }
+
+    #[test]
+    fn test_encoder_accessor_with_optimizer_backend() {
+        use crate::solver::backend::OptimizationTarget;
+        use crate::solver::backend::OptimizerBackend;
+        use crate::solver::encoder::EncoderAccessor;
+
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = create_two_actor_same_lane_spec();
+            let backend = OptimizerBackend::new(OptimizationTarget::MinimizeDistance);
+            let mut encoder = GenericEncoder::with_backend(spec, backend);
+            encoder.create_variables();
+
+            let accessor: &dyn EncoderAccessor = &encoder;
+            let _lane = accessor.get_lane_var("ego", 0);
+            let _px = accessor.get_longitudinal_pos("ego", 0);
+            let _vx = accessor.get_longitudinal_vel("ego", 0);
+            let _py = accessor.get_lateral_pos("ego", 0);
+            let _vy = accessor.get_lateral_vel("ego", 0);
+
+            let _npc_lane = accessor.get_lane_var("npc", 0);
+            let _npc_px = accessor.get_longitudinal_pos("npc", 0);
+        });
+    }
+
+    #[test]
+    fn test_optimizer_different_lanes_sentinel_values() {
+        use crate::solver::backend::OptimizationTarget;
+        use crate::solver::backend::OptimizerBackend;
+
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let mut spec = create_two_actor_same_lane_spec();
+            spec.actors[1].lane = 3;
+            spec.road = Some(RoadSpec {
+                num_lanes: 5,
+                lane_width: 3.5,
+                lane_directions: vec![1, 1, 1, 1, 1],
+                road_length: None,
+            });
+
+            let backend = OptimizerBackend::new(OptimizationTarget::MinimizeDistance);
+            let mut encoder = GenericEncoder::with_backend(spec.clone(), backend);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_velocity_constraints();
+            encoder.encode_acceleration_constraints();
+            encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
+            encoder.encode_objective();
+
+            let result = encoder.check();
+            if result == SatResult::Sat {
+                let model = encoder.get_model().unwrap();
+                encoder.extract_optimal_value(&model);
+                let val = encoder.get_optimal_value();
+                if let Some(v) = val {
+                    assert!(
+                        (v - 9999.0).abs() < 1.0,
+                        "Different-lanes distance should be sentinel 9999, got {}",
+                        v
+                    );
+                }
+            }
+        });
+
+        let cfg2 = Config::new();
+        z3::with_z3_config(&cfg2, || {
+            let mut spec = create_two_actor_same_lane_spec();
+            spec.actors[1].lane = 3;
+            spec.road = Some(RoadSpec {
+                num_lanes: 5,
+                lane_width: 3.5,
+                lane_directions: vec![1, 1, 1, 1, 1],
+                road_length: None,
+            });
+
+            let backend = OptimizerBackend::new(OptimizationTarget::MinimizeSeverity);
+            let mut encoder = GenericEncoder::with_backend(spec, backend);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_velocity_constraints();
+            encoder.encode_acceleration_constraints();
+            encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
+            encoder.encode_objective();
+
+            let result = encoder.check();
+            if result == SatResult::Sat {
+                let model = encoder.get_model().unwrap();
+                encoder.extract_optimal_value(&model);
+                let val = encoder.get_optimal_value();
+                if let Some(v) = val {
+                    assert!(
+                        v.abs() < 1.0,
+                        "Different-lanes severity should be ~0, got {}",
+                        v
+                    );
+                }
+            }
+        });
+    }
 }
