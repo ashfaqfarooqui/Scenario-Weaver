@@ -167,7 +167,7 @@ impl ScenarioModel for PedestrianCrossingModel {
     fn add_z3_constraints(
         &self,
         spec: &ScenarioSpec,
-        encoder: &crate::solver::Z3Encoder,
+        encoder: &dyn crate::solver::EncoderAccessor,
         backend: &dyn crate::solver::Z3Backend,
         horizon: usize,
     ) -> Result<()> {
