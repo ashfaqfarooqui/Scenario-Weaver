@@ -44,7 +44,7 @@ imageproc = "0.26" # Text rendering
 ab_glyph = "0.2"   # Font loading (compatible with imageproc)
 
 # Linear algebra for Frenet coordinate transformations
-nalgebra = { version = "0.33", features = ["serde"] }
+nalgebra = { version = "0.35", features = ["serde"] }
 
 # OpenDRIVE (.xodr) road network export
 opendrive = "0.1"
