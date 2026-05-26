@@ -9,6 +9,41 @@ use crate::solver::coordinate_encoder::CoordinateEncoder;
 use crate::solver::encoders::bicycle::BicycleEncoder;
 use crate::solver::encoders::cartesian::CartesianEncoder;
 
+/// Trait providing read-only access to Z3 variables for scenario-specific constraints.
+///
+/// This abstraction allows scenario models to work with any backend (Solver or Optimizer)
+/// without being tied to a concrete encoder type.
+pub trait EncoderAccessor {
+    /// Get lane variable for an actor at a given time step
+    fn get_lane_var(&self, actor_id: &str, time: usize) -> &Int;
+    /// Get longitudinal position variable
+    fn get_longitudinal_pos(&self, actor_id: &str, time: usize) -> &Real;
+    /// Get lateral position variable
+    fn get_lateral_pos(&self, actor_id: &str, time: usize) -> &Real;
+    /// Get longitudinal velocity variable
+    fn get_longitudinal_vel(&self, actor_id: &str, time: usize) -> &Real;
+    /// Get lateral velocity variable
+    fn get_lateral_vel(&self, actor_id: &str, time: usize) -> &Real;
+}
+
+impl<B: Z3Backend + 'static> EncoderAccessor for GenericEncoder<B> {
+    fn get_lane_var(&self, actor_id: &str, time: usize) -> &Int {
+        self.coord_encoder.get_lane_var(actor_id, time)
+    }
+    fn get_longitudinal_pos(&self, actor_id: &str, time: usize) -> &Real {
+        self.coord_encoder.get_longitudinal_pos(actor_id, time)
+    }
+    fn get_lateral_pos(&self, actor_id: &str, time: usize) -> &Real {
+        self.coord_encoder.get_lateral_pos(actor_id, time)
+    }
+    fn get_longitudinal_vel(&self, actor_id: &str, time: usize) -> &Real {
+        self.coord_encoder.get_longitudinal_vel(actor_id, time)
+    }
+    fn get_lateral_vel(&self, actor_id: &str, time: usize) -> &Real {
+        self.coord_encoder.get_lateral_vel(actor_id, time)
+    }
+}
+
 /// Z3 SMT encoder for scenario constraints (generic over backend)
 ///
 /// A thin facade that dispatches to coordinate-specific encoders
@@ -77,25 +112,22 @@ impl Z3Encoder {
     pub fn new(spec: ScenarioSpec) -> Self {
         Self::with_backend(spec, SolverBackend::new())
     }
+}
 
+impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// Encode scenario-specific Z3 constraints
     ///
     /// This calls the trait method to allow scenarios to add custom Z3 assertions
     /// beyond the standard LTL and safety encodings.
-    ///
-    /// Note: This method is only available for Z3Encoder (SolverBackend) because
-    /// the ScenarioModel trait is tied to the concrete encoder type.
     pub fn encode_scenario_specific_constraints(
-        &mut self,
+        &self,
         model: &dyn crate::scenarios::ScenarioModel,
     ) -> anyhow::Result<()> {
         model
             .add_z3_constraints(&self.spec, self, self.coord_encoder.backend(), self.horizon)
             .map_err(|e| anyhow::anyhow!(e))
     }
-}
 
-impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// Create all Z3 variables for the scenario
     ///
     /// Delegates to the coordinate-specific encoder.

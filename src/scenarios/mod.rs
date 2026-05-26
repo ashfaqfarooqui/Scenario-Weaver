@@ -43,7 +43,7 @@ pub trait ScenarioModel: Send + Sync {
     fn add_z3_constraints(
         &self,
         _spec: &ScenarioSpec,
-        _encoder: &crate::solver::Z3Encoder,
+        _encoder: &dyn crate::solver::EncoderAccessor,
         _backend: &dyn crate::solver::Z3Backend,
         _horizon: usize,
     ) -> Result<()> {

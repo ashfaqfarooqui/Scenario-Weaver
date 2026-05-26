@@ -53,7 +53,7 @@ pub fn generate_single_scenario_from_spec(spec: dsl::types::ScenarioSpec) -> Res
         OptimizationTarget::None => generate_with_solver(spec, &ltl_formula, &*scenario_model),
         target => {
             tracing::info!("Optimization target: {:?}", target);
-            generate_with_optimizer(spec, &ltl_formula, target)
+            generate_with_optimizer(spec, &ltl_formula, target, &*scenario_model)
         }
     }
 }
@@ -101,6 +101,7 @@ fn generate_with_optimizer(
     spec: dsl::types::ScenarioSpec,
     ltl_formula: &ltl::formula::LTLFormula,
     target: dsl::types::OptimizationTarget,
+    scenario_model: &dyn scenarios::ScenarioModel,
 ) -> Result<Scenario> {
     use solver::backend::{OptimizationTarget as BackendTarget, OptimizerBackend};
 
@@ -131,10 +132,8 @@ fn generate_with_optimizer(
         encoder.encode_lateral_velocity_bounds();
         encoder.encode_ltl(ltl_formula);
 
-        // Scenario-specific Z3 constraints are skipped in optimizer mode:
-        // add_z3_constraints() requires a SolverBackend, and all built-in
-        // scenario types have no-op implementations anyway.
-        tracing::warn!("Scenario-specific Z3 constraints skipped in optimizer mode");
+        // Apply scenario-specific Z3 constraints (works with any backend via EncoderAccessor)
+        encoder.encode_scenario_specific_constraints(scenario_model)?;
 
         encoder.encode_objective();
 
