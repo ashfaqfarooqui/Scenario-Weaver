@@ -128,7 +128,8 @@ fn test_optimizer_minimize_ttc_cut_in_right() {
             assert!(opt.target.contains("MinimizeTtc"));
             assert!(opt.optimal_value.is_some());
             let val = opt.optimal_value.unwrap();
-            assert!(val >= 0.0 && val < 1000.0);
+            // TTC proxy (distance - dt*speed) can be negative when closing speed dominates
+            assert!(val > -1000.0 && val < 1000.0, "TTC proxy value out of range: {val}");
             println!("cut_in_right MinimizeTtc: optimal={:.2}", val);
         }
         Err(e) => {

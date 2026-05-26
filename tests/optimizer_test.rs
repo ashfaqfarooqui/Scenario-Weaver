@@ -30,12 +30,13 @@ fn test_optimize_minimize_ttc() {
     assert!(opt.target.contains("MinimizeTtc"), "Target should be MinimizeTtc, got: {}", opt.target);
     assert!(opt.optimal_value.is_some(), "Should have optimal value");
 
-    // The optimal value should be a reasonable TTC (positive, finite)
+    // The optimal value is a TTC proxy (distance - dt*closing_speed)
+    // It can be negative when closing speed dominates distance
     let val = opt.optimal_value.unwrap();
-    assert!(val >= 0.0, "Optimal TTC should be non-negative, got: {}", val);
-    assert!(val < 1000.0, "Optimal TTC should be finite, got: {}", val);
+    assert!(val > -1000.0, "TTC proxy should be finite, got: {}", val);
+    assert!(val < 1000.0, "TTC proxy should be finite, got: {}", val);
 
-    println!("MinimizeTtc: optimal_value = {:.2}s", val);
+    println!("MinimizeTtc: optimal_value = {:.2} (TTC proxy)", val);
     println!("  Scenario min_ttc: {:.2}s", scenario.validation.min_ttc);
 }
 

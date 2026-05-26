@@ -58,13 +58,14 @@ impl Z3Backend for SolverBackend {
 /// Optimization target for the optimizer backend
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OptimizationTarget {
-    /// Minimize time-to-collision (find worst-case TTC)
+    /// Minimize time-to-collision proxy: `distance - dt * closing_speed` (LRA)
+    /// Finds scenarios where the gap/approach-rate ratio is worst
     MinimizeTtc,
-    /// Minimize distance (find closest approach)
+    /// Minimize distance: find the closest same-lane approach (pure geometry)
     MinimizeDistance,
-    /// Minimize both (weighted combination)
+    /// Maximize severity: find the highest same-lane closing speed (pure dynamics)
     MinimizeSeverity,
-    /// Maximize TTC (find safest scenario)
+    /// Maximize TTC: find the safest scenario (largest minimum gap)
     MaximizeTtc,
 }
 
