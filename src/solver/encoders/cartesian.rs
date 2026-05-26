@@ -204,6 +204,11 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         end_step: usize,
         direction: &crate::dsl::types::LaneChangeDirection,
     ) {
+        // Defense-in-depth: skip encoding if lane change is beyond horizon
+        if start_step >= self.horizon || start_step >= end_step {
+            return;
+        }
+
         let lane_width = self.spec.get_lane_width();
         let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
 
