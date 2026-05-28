@@ -1,5 +1,5 @@
-<div style="background:#ffffff22; padding:16px; border-radius:12px;">
-<p align="center">
+<div style="background-color: white; padding: 12px; border-radius: 8px; display: inline-block;">
+  <p align="center">
   <img src="assets/scenarioweaver-lockup.svg" alt="ScenarioWeaver" width="460" />
 </p>
 </div>
