@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 70" fill="none" font-family="&#39;Space Grotesk&#39;, system-ui, -apple-system, sans-serif">
+  
+  <g transform="translate(0,0)">
+    <circle cx="50" cy="12" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="50" cy="24" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="50" cy="36" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="50" cy="48" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="50" cy="60" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="60" cy="12" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="60" cy="24" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="60" cy="36" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="60" cy="48" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="60" cy="60" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="70" cy="12" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="70" cy="24" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="70" cy="36" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="70" cy="48" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="70" cy="60" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="80" cy="12" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="80" cy="24" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="80" cy="36" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="80" cy="48" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="80" cy="60" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="90" cy="12" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="90" cy="24" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="90" cy="36" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="90" cy="48" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="90" cy="60" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="100" cy="12" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="100" cy="24" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="100" cy="36" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="100" cy="48" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="100" cy="60" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="110" cy="12" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="110" cy="24" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="110" cy="36" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="110" cy="48" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="110" cy="60" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="120" cy="12" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="120" cy="24" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="120" cy="36" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="120" cy="48" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="120" cy="60" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="130" cy="12" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="130" cy="24" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="130" cy="36" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="130" cy="48" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <circle cx="130" cy="60" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+    <g>
+      <path d="M 34 35 L 50 12 L 60 12 L 70 24 L 80 12" stroke="#1A1614" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="2 2" opacity="0.28" fill="none"></path>
+      <circle cx="80" cy="12" r="1.8" fill="#1A1614" opacity="0.3"></circle>
+    </g>
+    <g>
+      <path d="M 34 35 L 50 60 L 60 60 L 70 48 L 80 60 L 90 60" stroke="#1A1614" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="2 2" opacity="0.28" fill="none"></path>
+      <circle cx="90" cy="60" r="1.8" fill="#1A1614" opacity="0.3"></circle>
+    </g>
+    <g>
+      <path d="M 34 35 L 50 24 L 60 36 L 70 48 L 80 60" stroke="#1A1614" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="2 2" opacity="0.28" fill="none"></path>
+      <circle cx="80" cy="60" r="1.8" fill="#1A1614" opacity="0.3"></circle>
+    </g>
+    <path d="M 34 35 L 50 36 L 60 24 L 70 36 L 80 24 L 90 36 L 100 48 L 110 36 L 120 24 L 130 36" stroke="#CE422B" stroke-width="6" stroke-linejoin="round" stroke-linecap="round" fill="none"></path>
+    <path d="M 34 35 L 50 36 L 60 24 L 70 36 L 80 24 L 90 36 L 100 48 L 110 36 L 120 24 L 130 36" stroke="#FAF6EE" stroke-width="0.9" stroke-dasharray="2 3" fill="none"></path>
+    <circle cx="34" cy="35" r="2.6" fill="#CE422B"></circle>
+    <circle cx="130" cy="36" r="2.6" fill="#CE422B"></circle>
+    <rect x="4" y="14" width="30" height="42" rx="3" fill="#1A1614"></rect>
+    <rect x="15" y="18" width="8" height="8" stroke="#FAF6EE" stroke-width="1.6" fill="none"></rect>
+    <rect x="15" y="31" width="8" height="8" stroke="#CE422B" stroke-width="1.6" fill="none" transform="rotate(45 19 35)"></rect>
+    <circle cx="19" cy="48" r="4" stroke="#FAF6EE" stroke-width="1.6" fill="none"></circle>
+    <rect x="34" y="34" width="3" height="2" fill="#CE422B"></rect>
+  </g>
+  <text x="152" y="48" font-size="38" letter-spacing="-1.3" fill="#1A1614"><tspan class="wm-thin">scenario</tspan><tspan class="wm-bold">weaver</tspan></text>
+</svg>
