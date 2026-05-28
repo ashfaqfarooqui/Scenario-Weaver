@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/scenarioweaver-lockup.svg" alt="ScenarioWeaver" width="460" />
+</p>
+
 # ScenarioWeaver
 
 Automatically generate diverse, safety-critical driving test scenarios from high-level YAML specifications using Linear Temporal Logic (LTL) and the Z3 SMT solver.
