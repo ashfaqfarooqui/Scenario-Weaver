@@ -1,6 +1,8 @@
+<div style="background:#ffffff22; padding:16px; border-radius:12px;">
 <p align="center">
   <img src="assets/scenarioweaver-lockup.svg" alt="ScenarioWeaver" width="460" />
 </p>
+</div>
 
 # ScenarioWeaver
 
