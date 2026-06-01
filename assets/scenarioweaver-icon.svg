@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <circle cx="35" cy="25" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="35" cy="35" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="35" cy="45" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="35" cy="55" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="35" cy="65" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="35" cy="75" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="45" cy="25" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="45" cy="35" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="45" cy="45" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="45" cy="55" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="45" cy="65" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="45" cy="75" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="55" cy="25" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="55" cy="35" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="55" cy="45" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="55" cy="55" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="55" cy="65" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="55" cy="75" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="65" cy="25" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="65" cy="35" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="65" cy="45" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="65" cy="55" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="65" cy="65" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="65" cy="75" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="75" cy="25" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="75" cy="35" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="75" cy="45" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="75" cy="55" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="75" cy="65" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="75" cy="75" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="85" cy="25" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="85" cy="35" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="85" cy="45" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="85" cy="55" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="85" cy="65" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <circle cx="85" cy="75" r="1.4" fill="#1A1614" opacity="0.18"></circle>
+  <path d="M 28 50 L 35 50 L 45 35 L 55 50 L 65 35 L 75 50 L 85 65" stroke="#CE422B" stroke-width="6" stroke-linejoin="round" stroke-linecap="round" fill="none"></path>
+  <path d="M 28 50 L 35 50 L 45 35 L 55 50 L 65 35 L 75 50 L 85 65" stroke="#FAF6EE" stroke-width="0.9" stroke-dasharray="2 3" fill="none"></path>
+  <rect x="6" y="26" width="22" height="48" rx="3" fill="#1A1614"></rect>
+  <rect x="13" y="32" width="8" height="8" stroke="#FAF6EE" stroke-width="1.6" fill="none"></rect>
+  <rect x="13" y="46" width="8" height="8" stroke="#CE422B" stroke-width="1.6" fill="none" transform="rotate(45 17 50)"></rect>
+  <circle cx="17" cy="64" r="4" stroke="#FAF6EE" stroke-width="1.6" fill="none"></circle>
+</svg>
