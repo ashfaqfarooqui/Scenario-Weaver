@@ -20,8 +20,8 @@ Automatically generate diverse, safety-critical driving test scenarios from high
 
 ## Requirements
 
-- Rust 1.70+
-- Z3 SMT solver (pulled automatically via Cargo)
+- `C` toolchain and `libz3-dev` (install on Ubuntu 24.04 via `sudo apt install build-essential clang libclang-dev pkg-config`)
+- Rust 1.70+ and Cargo (install from https://doc.rust-lang.org/cargo/getting-started/installation.html)
 
 ## Install
 
