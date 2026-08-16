@@ -47,14 +47,12 @@ fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<S
     let mut builder = header_builder.with_entities();
 
     // Add entities for each actor
-    // TODO: openscenario-rs library limitation - no direct add_pedestrian() method
-    // The library only supports add_catalog_pedestrian() which requires external catalog files.
-    // To properly support pedestrians, the openscenario-rs library needs to add:
-    //   - pub fn add_pedestrian<F>(name: &str, config: F) -> Self
-    //   - PedestrianBuilder with methods like .adult(), .child(), etc.
-    // For now, we export all actors (including pedestrians) as vehicles.
     for actor in &scenario.actors {
-        builder = builder.add_vehicle(&actor.id, |vehicle| vehicle.car());
+        if actor.role == "pedestrian" {
+            builder = builder.add_pedestrian(&actor.id, |ped| ped.pedestrian());
+        } else {
+            builder = builder.add_vehicle(&actor.id, |vehicle| vehicle.car());
+        }
     }
 
     // Build storyboard with init actions and trajectories
