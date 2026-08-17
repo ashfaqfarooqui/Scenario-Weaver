@@ -129,6 +129,16 @@ fn test_example_pedestrian_crossing() {
 }
 
 #[test]
+fn test_example_pedestrian_running() {
+    assert_example_generates_or_clean_error("pedestrian_running.yaml");
+}
+
+#[test]
+fn test_example_pedestrian_wide_road() {
+    assert_example_generates_or_clean_error("pedestrian_wide_road.yaml");
+}
+
+#[test]
 fn test_example_simple_bidirectional() {
     assert_example_generates_or_clean_error("simple_bidirectional.yaml");
 }

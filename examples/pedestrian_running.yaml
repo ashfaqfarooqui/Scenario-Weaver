@@ -1,0 +1,53 @@
+# ─── Scenario: Running Pedestrian Crossing ───
+#
+# A pedestrian runs across a two-lane road while an ego vehicle approaches.
+# Tests the shared pedestrian encoder with "run" walking_mode.
+#
+# Actors:
+#   - ego: lane 0, 10-14 m/s forward
+#   - runner: running pedestrian (max ~3.54 m/s), position range 15-50m
+#
+# Road: 2 lanes, 3.5m wide, all forward
+# Coordinate System: cartesian
+# Duration: 8.0s at 0.4s time steps
+#
+# Run:
+#   cargo run --release -- -i examples/pedestrian_running.yaml -o output/
+#
+scenario_type: pedestrian_crossing
+
+time_step: 0.4
+duration: 8.0
+
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, 1]
+
+actors:
+  - id: ego
+    role: ego
+    lane: 0
+    position: [0.0, 30.0]
+    speed: [10.0, 14.0]
+    direction: 1
+    acceleration: [-5.0, 2.0]
+
+  - id: runner
+    role: pedestrian
+    lane: 0
+    position: [15.0, 50.0]
+    speed: [2.0, 3.0]
+    direction: 1
+    acceleration: [-1.0, 1.0]
+    behavior:
+      walking_mode: run
+      direction: left_to_right
+
+constraint_modes:
+  min_ttc: ignore
+  min_distance: ignore
+
+min_ttc: 2.0
+min_distance: 2.0
+num_scenarios: 1

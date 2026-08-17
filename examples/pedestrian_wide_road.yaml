@@ -1,0 +1,53 @@
+# ─── Scenario: Pedestrian Crossing Wide Road ───
+#
+# A pedestrian crosses a wider 3-lane road while the ego vehicle travels
+# in the middle lane. Tests pedestrian dynamics over a wider crossing distance.
+#
+# Actors:
+#   - ego: lane 1 (middle), 8-12 m/s forward
+#   - ped: walking pedestrian, crossing left-to-right across 3 lanes
+#
+# Road: 3 lanes, 3.5m wide (total 10.5m), all forward
+# Coordinate System: cartesian
+# Duration: 10.0s at 0.4s time steps
+#
+# Run:
+#   cargo run --release -- -i examples/pedestrian_wide_road.yaml -o output/
+#
+scenario_type: pedestrian_crossing
+
+time_step: 0.4
+duration: 10.0
+
+road:
+  num_lanes: 3
+  lane_width: 3.5
+  lane_directions: [1, 1, 1]
+
+actors:
+  - id: ego
+    role: ego
+    lane: 1
+    position: [0.0, 30.0]
+    speed: [8.0, 12.0]
+    direction: 1
+    acceleration: [-5.0, 2.0]
+
+  - id: ped
+    role: pedestrian
+    lane: 0
+    position: [15.0, 50.0]
+    speed: [0.8, 1.4]
+    direction: 1
+    acceleration: [-0.8, 0.8]
+    behavior:
+      walking_mode: walk
+      direction: left_to_right
+
+constraint_modes:
+  min_ttc: ignore
+  min_distance: ignore
+
+min_ttc: 1.5
+min_distance: 1.5
+num_scenarios: 1
