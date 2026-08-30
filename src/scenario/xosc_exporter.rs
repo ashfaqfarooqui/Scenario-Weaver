@@ -9,6 +9,8 @@ use openscenario_rs::builder::actions::trajectory::TrajectoryBuilder;
 use openscenario_rs::builder::init::InitActionBuilder;
 use openscenario_rs::builder::positions::WorldPositionBuilder;
 use openscenario_rs::builder::StoryboardBuilder;
+use openscenario_rs::types::catalogs::locations::CatalogLocations;
+use openscenario_rs::types::road::RoadNetwork;
 use openscenario_rs::ScenarioBuilder;
 
 /// Export a scenario to OpenSCENARIO XML format
@@ -41,8 +43,10 @@ fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<S
     let header_builder = if let Some(path) = road_file {
         header_builder.with_road_file(path)
     } else {
-        header_builder
+        header_builder.with_road_network(RoadNetwork::default())
     };
+
+    let header_builder = header_builder.with_catalog_locations(CatalogLocations::default());
 
     let mut builder = header_builder.with_entities();
 
