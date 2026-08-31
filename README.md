@@ -20,8 +20,9 @@ Automatically generate diverse, safety-critical driving test scenarios from high
 
 ## Requirements
 
-- `C` toolchain and `libz3-dev` (install on Ubuntu 24.04 via `sudo apt install build-essential clang libclang-dev pkg-config`)
-- Rust 1.70+ and Cargo (install from https://doc.rust-lang.org/cargo/getting-started/installation.html)
+- `C` toolchain, Z3 and libxml2 (install on Ubuntu 24.04 via `sudo apt install build-essential clang libclang-dev pkg-config libz3-dev libxml2-dev`)
+  - `libclang-dev` is needed by `z3-sys`'s bindgen; `libxml2-dev` is needed transitively via `openscenario-rs` → `libxml`
+- Rust 1.90+ and Cargo (install from https://doc.rust-lang.org/cargo/getting-started/installation.html)
 
 ## Install
 
