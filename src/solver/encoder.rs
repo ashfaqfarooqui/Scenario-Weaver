@@ -1825,18 +1825,39 @@ mod tests {
                 actor: "ego".to_string(),
                 velocity: 15.0,
             };
-            let _constraint_gt = encoder.encode_proposition(&prop_gt, 0);
-            // If we get here, encoding succeeded without panicking
+            let constraint_gt = encoder.encode_proposition(&prop_gt, 0);
 
             // Test VelocityLT (linear constraint)
             let prop_lt = Proposition::VelocityLT {
                 actor: "ego".to_string(),
                 velocity: 30.0,
             };
-            let _constraint_lt = encoder.encode_proposition(&prop_lt, 0);
-            // If we get here, encoding succeeded without panicking
+            let constraint_lt = encoder.encode_proposition(&prop_lt, 0);
 
-            println!("VelocityGT/LT use linear constraints (no quadratic operations)");
+            // Both must constrain the ego's longitudinal velocity variable at t=0,
+            // and they must be different constraints (not the same comparison).
+            let gt = constraint_gt.to_string();
+            let lt = constraint_lt.to_string();
+            assert!(
+                gt.contains("ego_vx_0"),
+                "VelocityGT should reference ego_vx_0, got: {gt}"
+            );
+            assert!(
+                lt.contains("ego_vx_0"),
+                "VelocityLT should reference ego_vx_0, got: {lt}"
+            );
+            assert_ne!(gt, lt, "VelocityGT and VelocityLT must encode differently");
+
+            // Linear means the velocity variable never multiplies another variable:
+            // the only product allowed is by a literal coefficient.
+            assert!(
+                !gt.contains("(* ego_vx_0"),
+                "VelocityGT must stay linear in ego_vx_0, got: {gt}"
+            );
+            assert!(
+                !lt.contains("(* ego_vx_0"),
+                "VelocityLT must stay linear in ego_vx_0, got: {lt}"
+            );
         });
     }
 
@@ -2686,14 +2707,32 @@ mod tests {
             encoder.create_variables();
 
             let accessor: &dyn EncoderAccessor = &encoder;
-            let _lane = accessor.get_lane_var("ego", 0);
-            let _px = accessor.get_longitudinal_pos("ego", 0);
-            let _vx = accessor.get_longitudinal_vel("ego", 0);
-            let _py = accessor.get_lateral_pos("ego", 0);
-            let _vy = accessor.get_lateral_vel("ego", 0);
 
-            let _npc_lane = accessor.get_lane_var("npc", 0);
-            let _npc_px = accessor.get_longitudinal_pos("npc", 0);
+            // The trait objects must hand back the encoder's own variables,
+            // named per actor and per time step.
+            assert_eq!(accessor.get_lane_var("ego", 0).to_string(), "ego_lane_0");
+            assert_eq!(
+                accessor.get_longitudinal_pos("ego", 0).to_string(),
+                "ego_px_0"
+            );
+            assert_eq!(
+                accessor.get_longitudinal_vel("ego", 0).to_string(),
+                "ego_vx_0"
+            );
+            assert_eq!(accessor.get_lateral_pos("ego", 0).to_string(), "ego_py_0");
+            assert_eq!(accessor.get_lateral_vel("ego", 0).to_string(), "ego_vy_0");
+
+            assert_eq!(accessor.get_lane_var("npc", 0).to_string(), "npc_lane_0");
+            assert_eq!(
+                accessor.get_longitudinal_pos("npc", 0).to_string(),
+                "npc_px_0"
+            );
+
+            // Distinct time steps must be distinct variables.
+            assert_ne!(
+                accessor.get_longitudinal_pos("ego", 0).to_string(),
+                accessor.get_longitudinal_pos("ego", 1).to_string()
+            );
         });
     }
 

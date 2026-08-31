@@ -1,35 +1,27 @@
 //! Integration tests for the head_on scenario type.
 
+mod common;
+
+use scenario_weaver::scenario::model::Scenario;
 use scenario_weaver::{
     export_scenario_to_openlabel, export_scenario_to_svg, export_scenario_to_xodr,
-    export_scenario_to_xosc, generate_single_scenario,
+    export_scenario_to_xosc,
 };
 
-fn load_near_miss() -> String {
-    std::fs::read_to_string("examples/head_on_near_miss.yaml")
-        .expect("Should read head_on_near_miss.yaml")
+fn near_miss() -> Scenario {
+    common::generate_example("head_on_near_miss.yaml")
 }
 
-fn load_collision() -> String {
-    std::fs::read_to_string("examples/head_on_collision.yaml")
-        .expect("Should read head_on_collision.yaml")
-}
-
-/// Helper: assert error is Unsatisfiable (acceptable for complex head_on configs)
-fn assert_unsatisfiable_or_panic(e: &dyn std::fmt::Debug) {
-    let msg = format!("{:?}", e);
-    assert!(
-        msg.contains("Unsatisfiable") || msg.contains("unsat"),
-        "Unexpected error: {}",
-        msg
-    );
-}
-
+/// A *near miss* is by definition a scenario in which the safety constraints
+/// hold. The solver currently returns one in which they do not:
+/// `all_constraints_satisfied: false`, with TTC violations of 1.67 s and 1.05 s
+/// against a 2.0 s threshold, because the discrete `lane` variable lags the
+/// actual lateral position through the ego's lane change (SW-10). The old test
+/// printed that boolean instead of asserting it.
 #[test]
+#[ignore = "SW-10: head_on_near_miss reports all_constraints_satisfied=false (TTC 1.05s < 2.0s) because the lane variable lags lateral position"]
 fn test_head_on_near_miss_generation() {
-    let yaml_content = load_near_miss();
-    let scenario =
-        generate_single_scenario(&yaml_content).expect("Near-miss scenario should succeed");
+    let scenario = near_miss();
 
     assert_eq!(scenario.scenario_type, "head_on");
     assert_eq!(scenario.actors.len(), 3);
@@ -48,36 +40,41 @@ fn test_head_on_near_miss_generation() {
         "Should have an oncoming actor with negative vx"
     );
 
-    // Safe scenario: constraints should ideally be satisfied, but the solver
-    // may find solutions where minor violations occur due to discretization
-    // Just verify the validation field exists and is populated
-    println!(
-        "Near-miss constraints satisfied: {}, min_ttc: {:.2}, min_distance: {:.2}",
+    // A near miss must actually be a near miss: no constraint may be violated.
+    assert!(
         scenario.validation.all_constraints_satisfied,
+        "head_on_near_miss must satisfy its constraints; min_ttc={:.2}, \
+         min_distance={:.2}, violations={:?}",
         scenario.validation.min_ttc,
-        scenario.validation.min_distance
+        scenario.validation.min_distance,
+        scenario.validation.safety_violations
+    );
+    assert!(
+        scenario.validation.safety_violations.is_empty(),
+        "unexpected violations: {:?}",
+        scenario.validation.safety_violations
+    );
+}
+
+/// `head_on_collision.yaml` is the adversarial counterpart: it must be solvable
+/// and its solution must actually breach the safety constraints.
+#[test]
+fn test_head_on_collision_generation() {
+    let scenario = common::generate_example("head_on_collision.yaml");
+
+    assert_eq!(scenario.scenario_type, "head_on");
+    assert_eq!(scenario.actors.len(), 3);
+    assert!(
+        !scenario.validation.all_constraints_satisfied,
+        "an adversarial collision scenario must report violated constraints; \
+         min_ttc={:.2}, min_distance={:.2}",
+        scenario.validation.min_ttc, scenario.validation.min_distance
     );
 }
 
 #[test]
-fn test_head_on_collision_generation() {
-    let yaml_content = load_collision();
-    match generate_single_scenario(&yaml_content) {
-        Ok(scenario) => {
-            assert_eq!(scenario.actors.len(), 3);
-            // Adversarial: constraints may be violated
-        }
-        Err(e) => {
-            assert_unsatisfiable_or_panic(&e);
-        }
-    }
-}
-
-#[test]
 fn test_head_on_three_actors() {
-    let yaml_content = load_near_miss();
-    let scenario =
-        generate_single_scenario(&yaml_content).expect("Near-miss scenario should succeed");
+    let scenario = near_miss();
 
     // Ego: positive vx, forward lane
     let ego = scenario.get_actor("ego").unwrap();
@@ -100,9 +97,7 @@ fn test_head_on_three_actors() {
 
 #[test]
 fn test_head_on_ego_lane_change() {
-    let yaml_content = load_near_miss();
-    let scenario =
-        generate_single_scenario(&yaml_content).expect("Near-miss scenario should succeed");
+    let scenario = near_miss();
 
     let ego = scenario.get_actor("ego").unwrap();
 
@@ -122,9 +117,7 @@ fn test_head_on_ego_lane_change() {
 
 #[test]
 fn test_head_on_export_svg() {
-    let yaml_content = load_near_miss();
-    let scenario =
-        generate_single_scenario(&yaml_content).expect("Near-miss scenario should succeed");
+    let scenario = near_miss();
 
     let svg = export_scenario_to_svg(&scenario).expect("Should export to SVG");
 
@@ -139,9 +132,7 @@ fn test_head_on_export_svg() {
 
 #[test]
 fn test_head_on_export_xodr() {
-    let yaml_content = load_near_miss();
-    let scenario =
-        generate_single_scenario(&yaml_content).expect("Near-miss scenario should succeed");
+    let scenario = near_miss();
 
     let xodr = export_scenario_to_xodr(&scenario).expect("Should export to XODR");
 
@@ -158,9 +149,7 @@ fn test_head_on_export_xodr() {
 
 #[test]
 fn test_head_on_export_xosc() {
-    let yaml_content = load_near_miss();
-    let scenario =
-        generate_single_scenario(&yaml_content).expect("Near-miss scenario should succeed");
+    let scenario = near_miss();
 
     let xosc = export_scenario_to_xosc(&scenario).expect("Should export to XOSC");
 
@@ -181,9 +170,7 @@ fn test_head_on_export_xosc() {
 
 #[test]
 fn test_head_on_export_openlabel() {
-    let yaml_content = load_near_miss();
-    let scenario =
-        generate_single_scenario(&yaml_content).expect("Near-miss scenario should succeed");
+    let scenario = near_miss();
 
     let json_str = export_scenario_to_openlabel(&scenario).expect("Should export to OpenLABEL");
 

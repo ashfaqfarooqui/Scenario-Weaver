@@ -3,25 +3,18 @@
 //! Verifies that bicycle-model scenarios (which use different physics encoding)
 //! can be generated AND exported through all format exporters correctly.
 
-use scenario_weaver::error::ScenarioGenError;
+mod common;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn load_bicycle_lane_change() -> String {
-    std::fs::read_to_string("examples/bicycle_lane_change.yaml")
-        .expect("bicycle_lane_change.yaml should exist")
-}
-
-fn load_cut_in_right_bicycle() -> String {
-    std::fs::read_to_string("examples/cut_in_right_bicycle.yaml")
-        .expect("cut_in_right_bicycle.yaml should exist")
-}
-
 fn generate_bicycle_cut_in_left() -> scenario_weaver::scenario::model::Scenario {
-    let yaml = load_bicycle_lane_change();
-    scenario_weaver::generate_single_scenario(&yaml).expect("bicycle cut_in_left should be SAT")
+    common::generate_example("bicycle_lane_change.yaml")
+}
+
+fn generate_bicycle_cut_in_right() -> scenario_weaver::scenario::model::Scenario {
+    common::generate_example("cut_in_right_bicycle.yaml")
 }
 
 // =========================================================================
@@ -138,23 +131,16 @@ fn test_bicycle_cut_in_left_export_gif() {
 
 #[test]
 fn test_bicycle_cut_in_right_generation() {
-    let yaml = load_cut_in_right_bicycle();
-    match scenario_weaver::generate_single_scenario(&yaml) {
-        Ok(scenario) => {
-            assert_eq!(scenario.scenario_type, "cut_in_right");
-            assert_eq!(scenario.actors.len(), 2, "Should have ego + npc");
+    let scenario = generate_bicycle_cut_in_right();
 
-            let npc = scenario.get_actor("npc").expect("npc actor");
-            // NPC starts in lane 2, should change to lane 1
-            assert_eq!(npc.states[0].lane(), 2, "NPC should start in lane 2");
-            let reached_lane_1 = npc.states.iter().any(|s| s.lane() == 1);
-            assert!(reached_lane_1, "NPC should perform lane change to lane 1");
-        }
-        Err(ScenarioGenError::Unsatisfiable) => {
-            println!("cut_in_right_bicycle UNSAT — acceptable for complex bicycle constraints");
-        }
-        Err(e) => panic!("Unexpected error: {e}"),
-    }
+    assert_eq!(scenario.scenario_type, "cut_in_right");
+    assert_eq!(scenario.actors.len(), 2, "Should have ego + npc");
+
+    let npc = scenario.get_actor("npc").expect("npc actor");
+    // NPC starts in lane 2, should change to lane 1
+    assert_eq!(npc.states[0].lane(), 2, "NPC should start in lane 2");
+    let reached_lane_1 = npc.states.iter().any(|s| s.lane() == 1);
+    assert!(reached_lane_1, "NPC should perform lane change to lane 1");
 }
 
 // =========================================================================
@@ -163,18 +149,10 @@ fn test_bicycle_cut_in_right_generation() {
 
 #[test]
 fn test_bicycle_cut_in_right_export_svg() {
-    let yaml = load_cut_in_right_bicycle();
-    match scenario_weaver::generate_single_scenario(&yaml) {
-        Ok(scenario) => {
-            let svg = scenario_weaver::export_scenario_to_svg(&scenario).expect("SVG export");
-            assert!(svg.contains("<svg"), "SVG should contain <svg element");
-            assert!(svg.len() > 100, "SVG should be non-trivial");
-        }
-        Err(ScenarioGenError::Unsatisfiable) => {
-            println!("cut_in_right_bicycle UNSAT — skipping SVG export test");
-        }
-        Err(e) => panic!("Unexpected error: {e}"),
-    }
+    let scenario = generate_bicycle_cut_in_right();
+    let svg = scenario_weaver::export_scenario_to_svg(&scenario).expect("SVG export");
+    assert!(svg.contains("<svg"), "SVG should contain <svg element");
+    assert!(svg.len() > 100, "SVG should be non-trivial");
 }
 
 // =========================================================================
@@ -229,9 +207,7 @@ fn test_bicycle_scenario_trajectory_physics() {
 
 #[test]
 fn test_bicycle_vs_cartesian_both_generate() {
-    let bicycle_yaml = load_bicycle_lane_change();
-    let bicycle_scenario = scenario_weaver::generate_single_scenario(&bicycle_yaml)
-        .expect("bicycle scenario should be SAT");
+    let bicycle_scenario = generate_bicycle_cut_in_left();
 
     // Equivalent cartesian scenario
     let cartesian_yaml = r"
@@ -270,8 +246,7 @@ min_distance: 5.0
 num_scenarios: 1
 ";
 
-    let cartesian_scenario = scenario_weaver::generate_single_scenario(cartesian_yaml)
-        .expect("cartesian scenario should be SAT");
+    let cartesian_scenario = common::generate_or_fail(cartesian_yaml);
 
     // Both succeed with same structure
     assert_eq!(

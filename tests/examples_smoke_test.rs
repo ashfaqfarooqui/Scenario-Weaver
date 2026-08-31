@@ -1,159 +1,116 @@
-use std::fs;
-use std::path::Path;
+//! Corpus sweep over `examples/*.yaml`.
+//!
+//! The example set is discovered by reading the directory, never from a
+//! hand-maintained list, and every example carries a committed expectation in
+//! `common::EXAMPLE_EXPECTATIONS`. Adding an example without an expectation
+//! fails `test_expectations_cover_every_example`.
 
-use scenario_weaver::{dsl, generate_single_scenario, generate_single_scenario_from_spec};
+mod common;
 
-fn assert_example_generates_or_clean_error(file: &str) {
-    let yaml = fs::read_to_string(format!("examples/{}", file))
-        .unwrap_or_else(|e| panic!("Failed to read {}: {}", file, e));
+use common::{Expect, KNOWN_BROKEN_EXAMPLES};
+use std::collections::BTreeSet;
 
-    match generate_single_scenario(&yaml) {
-        Ok(scenario) => {
-            assert!(!scenario.actors.is_empty(), "{}: no actors", file);
-            assert!(!scenario.scenario_id.is_empty(), "{}: empty id", file);
-            assert!(scenario.time_step > 0.0, "{}: invalid time_step", file);
+/// The expectation table plus the known-broken list must describe exactly the
+/// files on disk — no extras, no omissions.
+#[test]
+fn test_expectations_cover_every_example() {
+    let on_disk: BTreeSet<String> = common::example_names().into_iter().collect();
+
+    let declared: BTreeSet<String> = common::EXAMPLE_EXPECTATIONS
+        .iter()
+        .map(|(name, _)| (*name).to_string())
+        .chain(KNOWN_BROKEN_EXAMPLES.iter().map(|(n, _)| (*n).to_string()))
+        .collect();
+
+    let uncovered: Vec<&String> = on_disk.difference(&declared).collect();
+    let stale: Vec<&String> = declared.difference(&on_disk).collect();
+
+    assert!(
+        uncovered.is_empty(),
+        "examples with no committed expectation: {uncovered:?} \
+         — add them to common::EXAMPLE_EXPECTATIONS"
+    );
+    assert!(
+        stale.is_empty(),
+        "expectations for examples that no longer exist: {stale:?}"
+    );
+    assert_eq!(
+        on_disk.len(),
+        declared.len(),
+        "expectation table and examples/ disagree"
+    );
+}
+
+/// Every example must produce exactly the outcome it is committed to.
+///
+/// All examples are run before failing, so one regression does not hide the
+/// others.
+#[test]
+fn test_every_example_matches_its_expectation() {
+    let mut failures: Vec<String> = Vec::new();
+
+    for &(name, expect) in common::EXAMPLE_EXPECTATIONS {
+        let spec = common::parse_example(name);
+        match common::check_expectation(name, spec, expect) {
+            Ok(line) => println!("{line}"),
+            Err(msg) => failures.push(msg),
         }
-        Err(e) => {
-            let err_str = format!("{:?}", e);
-            assert!(
-                err_str.contains("Unsatisfiable")
-                    || err_str.contains("nsat")
-                    || err_str.contains("UNSAT"),
-                "{}: unexpected error (not UNSAT): {:?}",
-                file,
-                e
+    }
+
+    assert!(
+        failures.is_empty(),
+        "{} of {} examples did not match their committed expectation:\n  {}",
+        failures.len(),
+        common::EXAMPLE_EXPECTATIONS.len(),
+        failures.join("\n  ")
+    );
+}
+
+/// Solvable examples must yield trajectories that are actually populated —
+/// a scenario with actors but no states would otherwise pass every export test.
+#[test]
+fn test_solvable_examples_have_populated_trajectories() {
+    for &(name, expect) in common::EXAMPLE_EXPECTATIONS {
+        if expect != Expect::Solvable {
+            continue;
+        }
+        let scenario = common::generate_example(name);
+        // Mirrors ScenarioSpec::num_time_steps: ceil(duration / time_step) intervals,
+        // hence one more state than intervals.
+        let expected_steps = (scenario.duration / scenario.time_step).ceil() as usize + 1;
+        for actor in &scenario.actors {
+            assert_eq!(
+                actor.states.len(),
+                expected_steps,
+                "{name}: actor {} has {} states, expected {expected_steps} \
+                 for duration={} time_step={}",
+                actor.id,
+                actor.states.len(),
+                scenario.duration,
+                scenario.time_step
             );
         }
     }
 }
 
-/// `with_import.yaml` uses road file imports resolved relative to the file path.
-/// The import path in the YAML references `roads/` which lives at the repo root,
-/// not relative to `examples/`. We test that parsing from the repo root works.
-fn assert_import_example_generates_or_clean_error(file: &str) {
-    let path = Path::new("examples").join(file);
-
-    let spec = match dsl::parse_yaml_file(&path) {
-        Ok(s) => s,
-        Err(e) => {
-            // Import resolution failure is a clean error, not a panic
-            let err_str = format!("{:?}", e);
-            assert!(
-                err_str.contains("import") || err_str.contains("Import"),
-                "{}: unexpected parse error (not import-related): {:?}",
-                file,
-                e
-            );
-            return;
-        }
-    };
-
-    match generate_single_scenario_from_spec(spec) {
-        Ok(scenario) => {
-            assert!(!scenario.actors.is_empty(), "{}: no actors", file);
-            assert!(!scenario.scenario_id.is_empty(), "{}: empty id", file);
-            assert!(scenario.time_step > 0.0, "{}: invalid time_step", file);
-        }
-        Err(e) => {
-            let err_str = format!("{:?}", e);
-            assert!(
-                err_str.contains("Unsatisfiable")
-                    || err_str.contains("nsat")
-                    || err_str.contains("UNSAT"),
-                "{}: unexpected error (not UNSAT): {:?}",
-                file,
-                e
-            );
-        }
-    }
-}
-
+/// `examples/with_import.yaml` documents `cargo run -- -i examples/with_import.yaml`,
+/// but `imports: roads/4_lane_bidirectional.yaml` is resolved relative to the
+/// YAML's own directory while `roads/` lives at the repo root. The example is
+/// therefore unloadable from the path it advertises.
+///
+/// `tests/road_import_test.rs` works around this by copying the file to the repo
+/// root before parsing; this test asserts the behaviour that is actually wanted.
 #[test]
-fn test_example_cut_in_left() {
-    assert_example_generates_or_clean_error("cut_in_left.yaml");
-}
+#[ignore = "SW-21: examples/with_import.yaml import path resolves relative to examples/, but roads/ is at the repo root"]
+fn test_with_import_example_loads_from_its_own_directory() {
+    let path = common::example_path("with_import.yaml");
+    let spec = scenario_weaver::dsl::parse_yaml_file(&path)
+        .unwrap_or_else(|e| panic!("with_import.yaml should resolve its own imports: {e}"));
 
-#[test]
-fn test_example_cut_in_right() {
-    assert_example_generates_or_clean_error("cut_in_right.yaml");
-}
+    let road = spec.road.as_ref().expect("import should supply a road");
+    assert_eq!(road.num_lanes, 4);
+    assert_eq!(road.lane_directions, vec![1, 1, -1, -1]);
 
-#[test]
-fn test_example_cut_in_left_adversarial_all() {
-    assert_example_generates_or_clean_error("cut_in_left_adversarial_all.yaml");
-}
-
-#[test]
-fn test_example_cut_in_left_adversarial_ttc() {
-    assert_example_generates_or_clean_error("cut_in_left_adversarial_ttc.yaml");
-}
-
-#[test]
-fn test_example_cut_in_right_bicycle() {
-    assert_example_generates_or_clean_error("cut_in_right_bicycle.yaml");
-}
-
-#[test]
-fn test_example_bicycle_lane_change() {
-    assert_example_generates_or_clean_error("bicycle_lane_change.yaml");
-}
-
-#[test]
-fn test_example_head_on_collision() {
-    assert_example_generates_or_clean_error("head_on_collision.yaml");
-}
-
-#[test]
-fn test_example_head_on_near_miss() {
-    assert_example_generates_or_clean_error("head_on_near_miss.yaml");
-}
-
-#[test]
-fn test_example_multi_lane_safety() {
-    assert_example_generates_or_clean_error("multi_lane_safety.yaml");
-}
-
-#[test]
-fn test_example_overtake_left() {
-    assert_example_generates_or_clean_error("overtake_left.yaml");
-}
-
-#[test]
-fn test_example_overtake_with_opposite() {
-    assert_example_generates_or_clean_error("overtake_with_opposite.yaml");
-}
-
-#[test]
-fn test_example_pedestrian_crossing() {
-    assert_example_generates_or_clean_error("pedestrian_crossing.yaml");
-}
-
-#[test]
-fn test_example_pedestrian_running() {
-    assert_example_generates_or_clean_error("pedestrian_running.yaml");
-}
-
-#[test]
-fn test_example_pedestrian_wide_road() {
-    assert_example_generates_or_clean_error("pedestrian_wide_road.yaml");
-}
-
-#[test]
-fn test_example_simple_bidirectional() {
-    assert_example_generates_or_clean_error("simple_bidirectional.yaml");
-}
-
-#[test]
-fn test_example_speed_limit_violation() {
-    assert_example_generates_or_clean_error("speed_limit_violation.yaml");
-}
-
-#[test]
-fn test_example_unsafe_following() {
-    assert_example_generates_or_clean_error("unsafe_following.yaml");
-}
-
-#[test]
-fn test_example_with_import() {
-    assert_import_example_generates_or_clean_error("with_import.yaml");
+    let scenario = common::generate_spec_or_fail(spec);
+    assert!(!scenario.actors.is_empty());
 }

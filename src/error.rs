@@ -171,6 +171,8 @@ mod tests {
         assert!(err.is_err());
     }
 
+    /// Every variant must render a non-empty `Debug` form that names the variant,
+    /// so error logs and `{:?}` assertions in tests can tell them apart.
     #[test]
     fn debug_all_variants() {
         let variants: Vec<ScenarioGenError> = vec![
@@ -188,8 +190,36 @@ mod tests {
             ScenarioGenError::YamlStructure("x".into()),
             ScenarioGenError::ActorNotFound("x".into()),
         ];
-        for v in &variants {
-            let _ = format!("{:?}", v);
+        let names = [
+            "Unsatisfiable",
+            "InvalidSpec",
+            "LTLGeneration",
+            "Z3Encoding",
+            "ExtractionFailed",
+            "XoscExport",
+            "GifExport",
+            "OpenLabelExport",
+            "Io",
+            "Z3ModelParsing",
+            "FontLoading",
+            "YamlStructure",
+            "ActorNotFound",
+        ];
+        assert_eq!(
+            variants.len(),
+            names.len(),
+            "add the new variant to both lists"
+        );
+        for (v, name) in variants.iter().zip(names.iter()) {
+            let debug = format!("{v:?}");
+            assert!(
+                debug.starts_with(name),
+                "Debug for {name} should name the variant, got: {debug}"
+            );
+            assert!(
+                !v.to_string().is_empty(),
+                "Display for {name} should not be empty"
+            );
         }
     }
 

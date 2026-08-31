@@ -1,22 +1,25 @@
 //! Integration tests for road import/library functionality
 
-use std::path::{Path, PathBuf};
+mod common;
 
+use std::path::PathBuf;
+
+use common::project_root;
 use scenario_weaver::dsl::parse_yaml_file;
 use scenario_weaver::generate_single_scenario_from_spec;
 
-fn project_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
-
 /// Create a temp YAML file at the project root so relative imports resolve correctly.
-/// The `with_import.yaml` example uses `roads/...` relative to CWD/project root.
+///
+/// This copy is a **workaround**, not the intended usage: `with_import.yaml`
+/// declares `imports: roads/...`, which `parse_yaml_file` resolves relative to
+/// the YAML's own directory, while `roads/` lives at the repo root. See
+/// `examples_smoke_test::test_with_import_example_loads_from_its_own_directory`
+/// (ignored, SW-21) for the behaviour that is actually wanted.
+///
 /// Uses a unique suffix to avoid race conditions between parallel tests.
 fn write_import_yaml_at_root(suffix: &str) -> PathBuf {
     let path = project_root().join(format!("_test_import_tmp_{}.yaml", suffix));
-    let content = std::fs::read_to_string(project_root().join("examples/with_import.yaml"))
-        .expect("should read example");
-    std::fs::write(&path, &content).unwrap();
+    std::fs::write(&path, common::load_example("with_import.yaml")).unwrap();
     path
 }
 

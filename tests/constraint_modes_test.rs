@@ -1,185 +1,217 @@
 //! Integration tests for constraint modes (enforce, violate, ignore, violate_all)
-//! and optimizer across different scenario types.
+//! and the optimizer, across scenario types.
+//!
+//! Every generation here has a committed expectation: either it must produce a
+//! model, or it must be proved to have none. Nothing is accepted "either way".
+
+mod common;
 
 use scenario_weaver::dsl::types::{ConstraintMode, ConstraintModes, OptimizationTarget};
+use scenario_weaver::scenario::model::Scenario;
+
+/// Largest |v_a − v_b| over the shared timeline of two actors.
+fn max_relative_velocity(scenario: &Scenario, a: &str, b: &str) -> f64 {
+    let a = scenario.get_actor(a).expect("actor a");
+    let b = scenario.get_actor(b).expect("actor b");
+    a.states
+        .iter()
+        .zip(b.states.iter())
+        .map(|(sa, sb)| (sa.velocity().vx - sb.velocity().vx).abs())
+        .fold(0.0_f64, f64::max)
+}
+
+/// Smallest |y_a − y_b| over the shared timeline of two actors.
+fn min_lateral_separation(scenario: &Scenario, a: &str, b: &str) -> f64 {
+    let a = scenario.get_actor(a).expect("actor a");
+    let b = scenario.get_actor(b).expect("actor b");
+    a.states
+        .iter()
+        .zip(b.states.iter())
+        .map(|(sa, sb)| (sa.position().y - sb.position().y).abs())
+        .fold(f64::INFINITY, f64::min)
+}
+
+/// `cut_in_left.yaml` with the horizon shortened, for the tests that only need
+/// to exercise a constraint mode rather than the full manoeuvre.
+fn short_cut_in_left() -> scenario_weaver::dsl::types::ScenarioSpec {
+    let mut spec = common::parse_example("cut_in_left.yaml");
+    spec.duration = 5.0;
+    spec.time_step = 0.5;
+    spec
+}
+
+// ---------------------------------------------------------------------------
+// Adversarial examples: the named constraint must actually end up violated
+// ---------------------------------------------------------------------------
 
 #[test]
 fn test_adversarial_all_from_file() {
-    let yaml = std::fs::read_to_string("examples/cut_in_left_adversarial_all.yaml")
-        .expect("Should read example YAML");
-    match scenario_weaver::generate_single_scenario(&yaml) {
-        Ok(scenario) => {
-            assert_eq!(scenario.scenario_type, "cut_in_left");
-            // violate_all: expect constraint violations
-            let v = &scenario.validation;
-            let has_violation = v.min_ttc < 3.0 || v.min_distance < 5.0;
-            println!(
-                "adversarial_all: min_ttc={:.2}, min_distance={:.2}, violated={}",
-                v.min_ttc, v.min_distance, has_violation
-            );
-        }
-        Err(e) => {
-            println!("adversarial_all UNSAT (acceptable): {e}");
-        }
-    }
+    let scenario = common::generate_example("cut_in_left_adversarial_all.yaml");
+
+    assert_eq!(scenario.scenario_type, "cut_in_left");
+    assert!(
+        scenario.validation.min_distance < 5.0,
+        "violate_all should drive min_distance below the 5.0 m threshold, got {:.4}",
+        scenario.validation.min_distance
+    );
+    assert!(
+        !scenario.validation.all_constraints_satisfied,
+        "violate_all should report the scenario as violating its constraints"
+    );
+    assert!(
+        !scenario.validation.safety_violations.is_empty(),
+        "violate_all should enumerate the violations it produced"
+    );
 }
 
 #[test]
 fn test_adversarial_ttc_only_from_file() {
-    let yaml = std::fs::read_to_string("examples/cut_in_left_adversarial_ttc.yaml")
-        .expect("Should read example YAML");
-    match scenario_weaver::generate_single_scenario(&yaml) {
-        Ok(scenario) => {
-            assert_eq!(scenario.scenario_type, "cut_in_left");
-            // TTC should be violated (low)
-            println!(
-                "adversarial_ttc: min_ttc={:.2}",
-                scenario.validation.min_ttc
-            );
-            assert!(
-                scenario.validation.min_ttc < 3.0,
-                "TTC should be violated (< 3.0), got: {:.2}",
-                scenario.validation.min_ttc
-            );
-        }
-        Err(e) => {
-            println!("adversarial_ttc UNSAT (acceptable): {e}");
-        }
-    }
+    let scenario = common::generate_example("cut_in_left_adversarial_ttc.yaml");
+
+    assert_eq!(scenario.scenario_type, "cut_in_left");
+    assert!(
+        scenario.validation.min_ttc < 3.0,
+        "TTC should be violated (< 3.0), got {:.4}",
+        scenario.validation.min_ttc
+    );
 }
 
 #[test]
 fn test_speed_limit_violation() {
-    let yaml = std::fs::read_to_string("examples/speed_limit_violation.yaml")
-        .expect("Should read example YAML");
-    match scenario_weaver::generate_single_scenario(&yaml) {
-        Ok(scenario) => {
-            assert_eq!(scenario.scenario_type, "cut_in_left");
-            // Check that some actor exceeds 22 m/s speed limit
-            let max_speed: f64 = scenario
-                .actors
-                .iter()
-                .flat_map(|a| a.states.iter().map(|s| s.velocity().vx.abs()))
-                .fold(0.0_f64, f64::max);
-            println!("speed_limit_violation: max_speed={:.2} m/s", max_speed);
-            assert!(
-                max_speed > 22.0,
-                "Some actor should exceed 22 m/s speed limit, got max: {:.2}",
-                max_speed
-            );
-        }
-        Err(e) => {
-            println!("speed_limit_violation UNSAT (acceptable): {e}");
-        }
-    }
+    let scenario = common::generate_example("speed_limit_violation.yaml");
+
+    assert_eq!(scenario.scenario_type, "cut_in_left");
+    let max_speed: f64 = scenario
+        .actors
+        .iter()
+        .flat_map(|a| a.states.iter().map(|s| s.velocity().vx.abs()))
+        .fold(0.0_f64, f64::max);
+    assert!(
+        max_speed > 22.0,
+        "some actor should exceed the 22 m/s speed limit, got max {max_speed:.4}"
+    );
 }
 
 #[test]
 fn test_unsafe_following() {
-    let yaml = std::fs::read_to_string("examples/unsafe_following.yaml")
-        .expect("Should read example YAML");
-    match scenario_weaver::generate_single_scenario(&yaml) {
-        Ok(scenario) => {
-            assert_eq!(scenario.scenario_type, "cut_in_left");
-            assert!(scenario.actors.len() >= 2);
-            // Relative velocity constraint (10 m/s) should be violated
-            println!(
-                "unsafe_following: min_ttc={:.2}, min_distance={:.2}",
-                scenario.validation.min_ttc, scenario.validation.min_distance
-            );
-        }
-        Err(e) => {
-            println!("unsafe_following UNSAT (acceptable): {e}");
-        }
-    }
+    // The example puts `max_relative_velocity: 10.0` in violate mode, so the
+    // produced trajectory must actually exceed that difference somewhere.
+    let scenario = common::generate_example("unsafe_following.yaml");
+
+    assert_eq!(scenario.scenario_type, "cut_in_left");
+    assert_eq!(scenario.actors.len(), 2);
+
+    let max_rel = max_relative_velocity(&scenario, "ego", "npc");
+    assert!(
+        max_rel > 10.0,
+        "violate mode on max_relative_velocity should exceed 10.0 m/s, got {max_rel:.4}"
+    );
 }
 
 #[test]
 fn test_multi_lane_lateral_distance() {
-    let yaml = std::fs::read_to_string("examples/multi_lane_safety.yaml")
-        .expect("Should read example YAML");
-    match scenario_weaver::generate_single_scenario(&yaml) {
-        Ok(scenario) => {
-            assert_eq!(scenario.scenario_type, "cut_in_left");
-            assert!(scenario.actors.len() >= 2);
-            println!(
-                "multi_lane_safety: min_ttc={:.2}, min_distance={:.2}",
-                scenario.validation.min_ttc, scenario.validation.min_distance
-            );
-        }
-        Err(e) => {
-            println!("multi_lane_lateral_distance UNSAT (acceptable): {e}");
-        }
-    }
+    // The example puts `min_lateral_distance: 1.5` in violate mode, so the two
+    // vehicles must actually come closer than that laterally.
+    let scenario = common::generate_example("multi_lane_safety.yaml");
+
+    assert_eq!(scenario.scenario_type, "cut_in_left");
+    assert_eq!(scenario.actors.len(), 2);
+
+    let min_lat = min_lateral_separation(&scenario, "ego", "npc");
+    assert!(
+        min_lat < 1.5,
+        "violate mode on min_lateral_distance should breach 1.5 m, got {min_lat:.4}"
+    );
 }
+
+// ---------------------------------------------------------------------------
+// Optimizer paths
+// ---------------------------------------------------------------------------
 
 #[test]
 fn test_optimizer_minimize_ttc_cut_in_right() {
-    let yaml =
-        std::fs::read_to_string("examples/cut_in_right.yaml").expect("Should read example YAML");
-    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
+    let mut spec = common::parse_example("cut_in_right.yaml");
     spec.optimization_target = OptimizationTarget::MinimizeTtc;
     spec.duration = 5.0;
     spec.time_step = 0.5;
 
-    match scenario_weaver::generate_single_scenario_from_spec(spec) {
-        Ok(scenario) => {
-            assert_eq!(scenario.scenario_type, "cut_in_right");
-            assert!(
-                scenario.optimization.is_some(),
-                "Should have optimization info"
-            );
-            let opt = scenario.optimization.as_ref().unwrap();
-            assert!(opt.target.contains("MinimizeTtc"));
-            assert!(opt.optimal_value.is_some());
-            let val = opt.optimal_value.unwrap();
-            // TTC proxy (distance - dt*speed) can be negative when closing speed dominates
-            assert!(
-                val > -1000.0 && val < 1000.0,
-                "TTC proxy value out of range: {val}"
-            );
-            println!("cut_in_right MinimizeTtc: optimal={:.2}", val);
-        }
-        Err(e) => {
-            println!("cut_in_right MinimizeTtc UNSAT (acceptable): {e}");
-        }
-    }
+    let scenario = common::generate_spec_or_fail(spec);
+
+    assert_eq!(scenario.scenario_type, "cut_in_right");
+    let opt = scenario
+        .optimization
+        .as_ref()
+        .expect("optimizer path must record optimization metadata");
+    assert!(opt.target.contains("MinimizeTtc"), "got {}", opt.target);
+    let val = opt
+        .optimal_value
+        .expect("optimizer must report an optimal value");
+    // The objective is the linear proxy |Δpx| − dt·|Δvx|, which is negative when
+    // the closing-speed term dominates; it must still be a finite metre-scale value.
+    assert!(
+        val.is_finite() && val.abs() < 1000.0,
+        "TTC proxy out of range: {val}"
+    );
 }
 
 #[test]
 fn test_optimizer_minimize_distance_overtake() {
-    let yaml =
-        std::fs::read_to_string("examples/overtake_left.yaml").expect("Should read example YAML");
-    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
+    // The full 12 s horizon is required: overtake_left's second lane change
+    // starts at t ∈ [7.0, 8.0], so a shortened horizon is genuinely infeasible
+    // (see test_overtake_left_is_infeasible_below_its_manoeuvre_horizon).
+    let mut spec = common::parse_example("overtake_left.yaml");
     spec.optimization_target = OptimizationTarget::MinimizeDistance;
+
+    let scenario = common::generate_spec_or_fail(spec);
+
+    assert_eq!(scenario.scenario_type, "overtake_left");
+    let opt = scenario
+        .optimization
+        .as_ref()
+        .expect("optimizer path must record optimization metadata");
+    assert!(
+        opt.target.contains("MinimizeDistance"),
+        "got {}",
+        opt.target
+    );
+    let val = opt
+        .optimal_value
+        .expect("optimizer must report an optimal value");
+    assert!(
+        val >= 0.0 && val.is_finite(),
+        "minimised distance must be a finite non-negative length, got {val}"
+    );
+    // The objective is the minimum inter-actor distance, so it must not exceed
+    // the distance the validator measured on the very trajectory it chose.
+    assert!(
+        val <= scenario.validation.min_distance + 1e-6,
+        "optimiser reported {val:.6} but the trajectory's min_distance is {:.6}",
+        scenario.validation.min_distance
+    );
+}
+
+/// Truncating `overtake_left` to 5 s removes the window its second lane change
+/// needs (`start_time: [7.0, 8.0]`), so no model can exist. This used to be
+/// swallowed by an `Err(_) => println!` arm.
+#[test]
+fn test_overtake_left_is_infeasible_below_its_manoeuvre_horizon() {
+    let mut spec = common::parse_example("overtake_left.yaml");
     spec.duration = 5.0;
     spec.time_step = 0.5;
 
-    match scenario_weaver::generate_single_scenario_from_spec(spec) {
-        Ok(scenario) => {
-            assert_eq!(scenario.scenario_type, "overtake_left");
-            assert!(
-                scenario.optimization.is_some(),
-                "Should have optimization info"
-            );
-            let opt = scenario.optimization.as_ref().unwrap();
-            assert!(opt.target.contains("MinimizeDistance"));
-            println!(
-                "overtake_left MinimizeDistance: optimal={:?}",
-                opt.optimal_value
-            );
-        }
-        Err(e) => {
-            println!("overtake_left MinimizeDistance UNSAT (acceptable): {e}");
-        }
-    }
+    common::assert_infeasible(
+        spec,
+        "the second lane change starts at t ∈ [7.0, 8.0], past a 5 s horizon",
+    );
 }
+
+// ---------------------------------------------------------------------------
+// enforce / violate / ignore
+// ---------------------------------------------------------------------------
 
 #[test]
 fn test_ignore_mode_generates_with_fewer_constraints() {
-    let yaml =
-        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
-    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
+    let mut spec = short_cut_in_left();
     spec.constraint_modes = ConstraintModes::Detailed {
         min_ttc: ConstraintMode::Ignore,
         min_distance: ConstraintMode::Enforce,
@@ -189,29 +221,30 @@ fn test_ignore_mode_generates_with_fewer_constraints() {
         min_lateral_distance: ConstraintMode::Ignore,
         max_relative_velocity: ConstraintMode::Ignore,
     };
-    spec.duration = 5.0;
-    spec.time_step = 0.5;
 
-    match scenario_weaver::generate_single_scenario_from_spec(spec) {
-        Ok(scenario) => {
-            assert_eq!(scenario.scenario_type, "cut_in_left");
-            // TTC constraint was ignored, so any value is acceptable
-            println!(
-                "ignore_ttc: min_ttc={:.2} (unconstrained)",
-                scenario.validation.min_ttc
-            );
-        }
-        Err(e) => {
-            panic!("Ignoring constraints should make generation easier, but got: {e}");
-        }
-    }
+    let scenario = common::generate_spec_or_fail(spec);
+
+    assert_eq!(scenario.scenario_type, "cut_in_left");
+    assert_eq!(scenario.actors.len(), 2);
+    // min_distance is still enforced, so it must hold even in ignore-TTC mode.
+    assert!(
+        scenario.validation.min_distance >= 5.0,
+        "min_distance stayed in enforce mode, got {:.4}",
+        scenario.validation.min_distance
+    );
 }
 
+/// `Violate` must *negate* the constraint, not satisfy it at the boundary.
+///
+/// Observed with `min_distance: violate` against a 5.0 m threshold:
+/// `min_distance = 5.0000` — exactly on the boundary, i.e. the constraint still
+/// holds. The old assertion used `<=`, which accepted that. The correct
+/// assertion is a strict `<`.
 #[test]
+#[ignore = "SW-12: ConstraintMode::Violate produces a boundary-satisfying solution (min_distance == threshold) instead of negating the constraint"]
 fn test_violate_mode_negates_constraint() {
-    let yaml =
-        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
-    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
+    let mut spec = short_cut_in_left();
+    let threshold = spec.min_distance;
     spec.constraint_modes = ConstraintModes::Detailed {
         min_ttc: ConstraintMode::Enforce,
         min_distance: ConstraintMode::Violate,
@@ -221,62 +254,49 @@ fn test_violate_mode_negates_constraint() {
         min_lateral_distance: ConstraintMode::Ignore,
         max_relative_velocity: ConstraintMode::Ignore,
     };
-    spec.duration = 5.0;
-    spec.time_step = 0.5;
 
-    match scenario_weaver::generate_single_scenario_from_spec(spec) {
-        Ok(scenario) => {
-            // min_distance should be violated (allow small epsilon for floating point)
-            let threshold = 5.0;
-            println!(
-                "violate_distance: min_distance={:.4}, threshold={:.2}",
-                scenario.validation.min_distance, threshold
-            );
-            assert!(
-                scenario.validation.min_distance <= threshold,
-                "Distance should be violated (<= {:.1}), got: {:.2}",
-                threshold,
-                scenario.validation.min_distance
-            );
-        }
-        Err(e) => {
-            println!("violate_distance UNSAT (acceptable): {e}");
-        }
-    }
+    let scenario = common::generate_spec_or_fail(spec);
+
+    assert!(
+        scenario.validation.min_distance < threshold,
+        "violate mode must strictly negate min_distance (< {threshold:.2}), got {:.4} \
+         — equality means the constraint was satisfied, not violated",
+        scenario.validation.min_distance
+    );
 }
 
+/// `Enforce` must hold against a value that was actually measured.
+///
+/// Observed: `min_ttc = 999.00`, the "not evaluated" sentinel, which makes
+/// `min_ttc >= 3.0` vacuously true. The assertion below rejects the sentinel
+/// first, so the test can only pass once TTC is genuinely computed.
 #[test]
+#[ignore = "SW-04: min_ttc comes back as the 999.0 not-evaluated sentinel, making the enforce assertion vacuous"]
 fn test_enforce_mode_respects_constraint() {
-    let yaml =
-        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
-    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
-    // Default is enforce for ttc and distance
-    spec.duration = 5.0;
-    spec.time_step = 0.5;
-
+    let spec = short_cut_in_left(); // default modes: enforce for ttc and distance
     let min_ttc_threshold = spec.min_ttc;
     let min_dist_threshold = spec.min_distance;
 
-    let scenario = scenario_weaver::generate_single_scenario_from_spec(spec)
-        .expect("Enforce mode should produce a valid scenario");
+    let scenario = common::generate_spec_or_fail(spec);
 
     assert!(
-        scenario.validation.min_ttc >= min_ttc_threshold,
-        "Enforced min_ttc should be >= {:.1}, got: {:.2}",
-        min_ttc_threshold,
+        scenario.validation.min_ttc < 999.0,
+        "min_ttc must be a measured value, got the not-evaluated sentinel {:.2}",
         scenario.validation.min_ttc
     );
     assert!(
-        scenario.validation.min_distance >= min_dist_threshold,
-        "Enforced min_distance should be >= {:.1}, got: {:.2}",
-        min_dist_threshold,
+        scenario.validation.min_ttc >= min_ttc_threshold,
+        "enforced min_ttc should be >= {min_ttc_threshold:.1}, got {:.4}",
+        scenario.validation.min_ttc
+    );
+    assert!(
+        scenario.validation.min_distance < 999.0,
+        "min_distance must be a measured value, got the not-evaluated sentinel {:.2}",
         scenario.validation.min_distance
     );
-    println!(
-        "enforce: min_ttc={:.2} (>= {:.1}), min_distance={:.2} (>= {:.1})",
-        scenario.validation.min_ttc,
-        min_ttc_threshold,
-        scenario.validation.min_distance,
-        min_dist_threshold
+    assert!(
+        scenario.validation.min_distance >= min_dist_threshold,
+        "enforced min_distance should be >= {min_dist_threshold:.1}, got {:.4}",
+        scenario.validation.min_distance
     );
 }

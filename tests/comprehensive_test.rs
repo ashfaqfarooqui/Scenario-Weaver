@@ -5,18 +5,10 @@
 //! edge cases, negative/edge cases, and multi-scenario generation.
 //!
 //! Tests use coarse time steps (0.5s) and short durations (5s) for speed.
-//! UNSAT results are handled gracefully where the solver may not find solutions.
+//! Every generation carries a committed expectation: it must produce a model, or
+//! it must be proved to have none.
 
-use scenario_weaver::error::ScenarioGenError;
-
-// ---------------------------------------------------------------------------
-// Helper: generate or accept UNSAT
-// ---------------------------------------------------------------------------
-fn generate_or_unsat(
-    yaml: &str,
-) -> Result<scenario_weaver::scenario::model::Scenario, ScenarioGenError> {
-    scenario_weaver::generate_single_scenario(yaml)
-}
+mod common;
 
 // =========================================================================
 // Group 1: Scenario Type Coverage
@@ -60,7 +52,7 @@ min_distance: 5.0
 num_scenarios: 1
 ";
 
-    let scenario = generate_or_unsat(yaml).expect("cut_in_right should be SAT");
+    let scenario = common::generate_or_fail(yaml);
 
     assert_eq!(scenario.scenario_type, "cut_in_right");
     assert!(scenario.actors.len() >= 2, "Need at least ego + npc");
@@ -79,70 +71,45 @@ num_scenarios: 1
 
 #[test]
 fn test_overtake_left_scenario() {
-    // Use the example file which is known to work
-    let yaml = std::fs::read_to_string("examples/overtake_left.yaml")
-        .expect("overtake_left.yaml should exist");
+    let scenario = common::generate_example("overtake_left.yaml");
 
-    match generate_or_unsat(&yaml) {
-        Ok(scenario) => {
-            assert_eq!(scenario.scenario_type, "overtake_left");
-            assert!(scenario.actors.len() >= 2);
+    assert_eq!(scenario.scenario_type, "overtake_left");
+    assert!(scenario.actors.len() >= 2);
 
-            let npc = scenario.get_actor("npc").expect("npc actor");
-            // NPC should visit lane 0 (left of lane 1) at some point
-            let visited_lane_0 = npc.states.iter().any(|s| s.lane() == 0);
-            println!(
-                "overtake_left: visited_lane_0={}, final_lane={}",
-                visited_lane_0,
-                npc.states.last().unwrap().lane()
-            );
-            // NPC should return to lane 1 eventually
-            let returned_lane_1 = npc.states.iter().rev().take(3).any(|s| s.lane() == 1);
-            if visited_lane_0 {
-                assert!(
-                    returned_lane_1,
-                    "NPC should return to lane 1 after overtake"
-                );
-            }
-        }
-        Err(ScenarioGenError::Unsatisfiable) => {
-            println!("overtake_left returned UNSAT — acceptable for complex maneuver");
-        }
-        Err(e) => panic!("Unexpected error: {e}"),
-    }
+    let npc = scenario.get_actor("npc").expect("npc actor");
+    // The manoeuvre is two lane changes: out into lane 0, then back into lane 1.
+    let visited_lane_0 = npc.states.iter().any(|s| s.lane() == 0);
+    assert!(
+        visited_lane_0,
+        "NPC should enter the passing lane during an overtake"
+    );
+    let returned_lane_1 = npc.states.iter().rev().take(3).any(|s| s.lane() == 1);
+    assert!(
+        returned_lane_1,
+        "NPC should return to lane 1 after overtake"
+    );
 }
 
 #[test]
 fn test_pedestrian_crossing_scenario() {
-    let yaml = std::fs::read_to_string("examples/pedestrian_crossing.yaml")
-        .expect("pedestrian_crossing.yaml should exist");
+    let scenario = common::generate_example("pedestrian_crossing.yaml");
 
-    match generate_or_unsat(&yaml) {
-        Ok(scenario) => {
-            assert_eq!(scenario.scenario_type, "pedestrian_crossing");
-            assert!(scenario.actors.len() >= 2, "Need ego + pedestrian");
+    assert_eq!(scenario.scenario_type, "pedestrian_crossing");
+    assert!(scenario.actors.len() >= 2, "Need ego + pedestrian");
 
-            let ped = scenario
-                .actors
-                .iter()
-                .find(|a| a.role == "pedestrian")
-                .expect("Should have a pedestrian actor");
-            assert_eq!(ped.role, "pedestrian");
+    let ped = scenario
+        .actors
+        .iter()
+        .find(|a| a.role == "pedestrian")
+        .expect("Should have a pedestrian actor");
 
-            assert!((scenario.duration - 10.0).abs() < 0.01);
-            assert!((scenario.time_step - 0.3).abs() < 0.01);
-
-            println!(
-                "pedestrian_crossing: {} actors, {} steps",
-                scenario.actors.len(),
-                ped.states.len()
-            );
-        }
-        Err(ScenarioGenError::Unsatisfiable) => {
-            println!("pedestrian_crossing returned UNSAT — acceptable");
-        }
-        Err(e) => panic!("Unexpected error: {e}"),
-    }
+    assert!((scenario.duration - 10.0).abs() < 0.01);
+    assert!((scenario.time_step - 0.3).abs() < 0.01);
+    assert_eq!(
+        ped.states.len(),
+        (scenario.duration / scenario.time_step).ceil() as usize + 1,
+        "pedestrian trajectory must span the whole horizon"
+    );
 }
 
 // =========================================================================
@@ -151,57 +118,37 @@ fn test_pedestrian_crossing_scenario() {
 
 #[test]
 fn test_bicycle_forward_motion() {
-    let yaml =
-        std::fs::read_to_string("examples/bicycle_lane_change.yaml").expect("file should exist");
+    let scenario = common::generate_example("bicycle_lane_change.yaml");
 
-    match generate_or_unsat(&yaml) {
-        Ok(scenario) => {
-            assert!(scenario.actors.len() >= 2);
-            let ego = scenario.get_actor("ego").expect("ego");
-            let expected_steps = (10.0 / 0.1) as usize + 1; // 101
-            assert_eq!(ego.states.len(), expected_steps);
+    assert!(scenario.actors.len() >= 2);
+    let ego = scenario.get_actor("ego").expect("ego");
+    let expected_steps = (10.0 / 0.1) as usize + 1; // 101
+    assert_eq!(ego.states.len(), expected_steps);
 
-            // Forward-moving: x should increase
-            let x_first = ego.states.first().unwrap().position().x;
-            let x_last = ego.states.last().unwrap().position().x;
-            assert!(
-                x_last > x_first,
-                "Ego x should increase: {x_first} -> {x_last}"
-            );
-            println!("bicycle_lane_change: ego x {x_first:.1} -> {x_last:.1}");
-        }
-        Err(ScenarioGenError::Unsatisfiable) => {
-            println!("bicycle_lane_change UNSAT — acceptable");
-        }
-        Err(e) => panic!("Unexpected error: {e}"),
-    }
+    // Forward-moving: x should increase
+    let x_first = ego.states.first().unwrap().position().x;
+    let x_last = ego.states.last().unwrap().position().x;
+    assert!(
+        x_last > x_first,
+        "Ego x should increase: {x_first} -> {x_last}"
+    );
 }
 
 #[test]
 fn test_bicycle_lane_change_scenario() {
-    let yaml =
-        std::fs::read_to_string("examples/bicycle_lane_change.yaml").expect("file should exist");
+    let scenario = common::generate_example("bicycle_lane_change.yaml");
 
-    match generate_or_unsat(&yaml) {
-        Ok(scenario) => {
-            assert!(scenario.actors.len() >= 2);
-            let npc = scenario.get_actor("npc").expect("npc");
-            // Check for lateral movement (lane change)
-            let y_values: Vec<f64> = npc.states.iter().map(|s| s.position().y).collect();
-            let y_min = y_values.iter().cloned().fold(f64::INFINITY, f64::min);
-            let y_max = y_values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-            let y_range = (y_max - y_min).abs();
-            assert!(
-                y_range > 0.5,
-                "NPC should show lateral movement during lane change, y_range={y_range:.2}"
-            );
-            println!("bicycle_lane_change: NPC y range = {y_range:.2}m");
-        }
-        Err(ScenarioGenError::Unsatisfiable) => {
-            println!("bicycle_lane_change UNSAT — acceptable");
-        }
-        Err(e) => panic!("Unexpected error: {e}"),
-    }
+    assert!(scenario.actors.len() >= 2);
+    let npc = scenario.get_actor("npc").expect("npc");
+    // Check for lateral movement (lane change)
+    let y_values: Vec<f64> = npc.states.iter().map(|s| s.position().y).collect();
+    let y_min = y_values.iter().copied().fold(f64::INFINITY, f64::min);
+    let y_max = y_values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let y_range = (y_max - y_min).abs();
+    assert!(
+        y_range > 0.5,
+        "NPC should show lateral movement during lane change, y_range={y_range:.2}"
+    );
 }
 
 // =========================================================================
@@ -250,27 +197,16 @@ constraint_modes:
 num_scenarios: 1
 ";
 
-    match generate_or_unsat(yaml) {
-        Ok(scenario) => {
-            // With TTC violated, we expect either violations or low TTC
-            let has_violation =
-                !scenario.validation.all_constraints_satisfied || scenario.validation.min_ttc < 3.0;
-            println!(
-                "adversarial_ttc: min_ttc={:.2}, satisfied={}, violations={:?}",
-                scenario.validation.min_ttc,
-                scenario.validation.all_constraints_satisfied,
-                scenario.validation.safety_violations
-            );
-            assert!(
-                has_violation,
-                "Adversarial TTC mode should produce a violation or low TTC"
-            );
-        }
-        Err(ScenarioGenError::Unsatisfiable) => {
-            println!("adversarial_ttc UNSAT — constraints may conflict");
-        }
-        Err(e) => panic!("Unexpected error: {e}"),
-    }
+    let scenario = common::generate_or_fail(yaml);
+
+    assert!(
+        !scenario.validation.all_constraints_satisfied || scenario.validation.min_ttc < 3.0,
+        "Adversarial TTC mode should produce a violation or low TTC; \
+         min_ttc={:.2}, satisfied={}, violations={:?}",
+        scenario.validation.min_ttc,
+        scenario.validation.all_constraints_satisfied,
+        scenario.validation.safety_violations
+    );
 }
 
 #[test]
@@ -315,27 +251,17 @@ constraint_modes:
 num_scenarios: 1
 ";
 
-    match generate_or_unsat(yaml) {
-        Ok(scenario) => {
-            println!(
-                "adversarial_all: satisfied={}, violations={:?}",
-                scenario.validation.all_constraints_satisfied,
-                scenario.validation.safety_violations
-            );
-            // Both violated — should have violations
-            assert!(
-                !scenario.validation.all_constraints_satisfied
-                    || !scenario.validation.safety_violations.is_empty()
-                    || scenario.validation.min_ttc < 3.0
-                    || scenario.validation.min_distance < 5.0,
-                "Should have some violation"
-            );
-        }
-        Err(ScenarioGenError::Unsatisfiable) => {
-            println!("adversarial_all UNSAT — acceptable");
-        }
-        Err(e) => panic!("Unexpected error: {e}"),
-    }
+    let scenario = common::generate_or_fail(yaml);
+
+    assert!(
+        !scenario.validation.all_constraints_satisfied
+            || !scenario.validation.safety_violations.is_empty()
+            || scenario.validation.min_ttc < 3.0
+            || scenario.validation.min_distance < 5.0,
+        "Should have some violation; satisfied={}, violations={:?}",
+        scenario.validation.all_constraints_satisfied,
+        scenario.validation.safety_violations
+    );
 }
 
 #[test]
@@ -381,7 +307,7 @@ num_scenarios: 1
 ";
 
     // With ignore mode, solver has more freedom — should succeed
-    let scenario = generate_or_unsat(yaml).expect("ignore mode should be SAT (fewer constraints)");
+    let scenario = common::generate_or_fail(yaml);
     assert_eq!(scenario.actors.len(), 2);
     println!(
         "ignore_mode: min_ttc={:.2}, min_dist={:.2}",
@@ -578,7 +504,7 @@ min_distance: 5.0
 num_scenarios: 1
 ";
 
-    let scenario = generate_or_unsat(yaml).expect("Range values should be SAT");
+    let scenario = common::generate_or_fail(yaml);
     let ego = scenario.get_actor("ego").expect("ego");
     let init = &ego.states[0];
 
@@ -632,7 +558,7 @@ min_distance: 5.0
 num_scenarios: 1
 ";
 
-    let scenario = generate_or_unsat(yaml).expect("Fixed values should be SAT");
+    let scenario = common::generate_or_fail(yaml);
     let ego = scenario.get_actor("ego").expect("ego");
     let init = &ego.states[0];
 
@@ -654,7 +580,7 @@ num_scenarios: 1
 // =========================================================================
 
 #[test]
-fn test_unsat_conflicting_constraints() {
+fn test_conflicting_constraints_have_no_model() {
     // Ego and NPC very close, but require huge min_distance — should be UNSAT
     let yaml = r"
 scenario_type: cut_in_left
@@ -691,30 +617,14 @@ min_distance: 500.0
 num_scenarios: 1
 ";
 
-    let result = generate_or_unsat(yaml);
-    match result {
-        Err(ScenarioGenError::Unsatisfiable) => {
-            println!("Conflicting constraints correctly returned UNSAT");
-        }
-        Err(e) => {
-            // Other errors are also acceptable for impossible constraints
-            println!("Conflicting constraints returned error: {e}");
-        }
-        Ok(scenario) => {
-            // If solver finds a solution despite extreme constraints,
-            // it should at least show constraint violations
-            println!(
-                "Surprisingly SAT: min_ttc={:.2}, min_dist={:.2}",
-                scenario.validation.min_ttc, scenario.validation.min_distance
-            );
-            // With min_ttc=100 and min_distance=500, these should be violated
-            // or the solver found a degenerate solution
-            assert!(
-                scenario.validation.min_ttc < 100.0 || scenario.validation.min_distance < 500.0,
-                "If SAT, constraints should be effectively violated given extreme thresholds"
-            );
-        }
-    }
+    // Two actors 2 m apart on a 5 s horizon cannot reach 500 m of separation:
+    // the solver must *prove* there is no model, not merely fail to find one and
+    // not produce a degenerate one.
+    let spec = scenario_weaver::dsl::parser::parse_yaml(yaml).expect("spec should parse");
+    common::assert_infeasible(
+        spec,
+        "min_distance: 500.0 is unreachable from a 2 m initial gap within 5 s",
+    );
 }
 
 #[test]
@@ -754,27 +664,16 @@ min_distance: 5.0
 num_scenarios: 1
 ";
 
-    let result = generate_or_unsat(yaml);
-    // Either error or a trivial scenario — both are acceptable
-    match result {
-        Ok(scenario) => {
-            // Zero duration should produce at most 1 timestep
-            let steps = scenario.actors.first().map_or(0, |a| a.states.len());
-            assert!(
-                steps <= 1,
-                "Zero duration scenario should have at most 1 timestep, got {}",
-                steps
-            );
-            println!(
-                "Zero duration: {} actors, {} steps",
-                scenario.actors.len(),
-                steps
-            );
-        }
-        Err(e) => {
-            println!("Zero duration correctly returned error: {e}");
-        }
-    }
+    // `duration: 0.0` is rejected by ScenarioSpec::validate before the solver is
+    // ever reached, with a specific message. Assert that, rather than accepting
+    // "an error or a trivial scenario, both fine".
+    let err = scenario_weaver::generate_single_scenario(yaml)
+        .expect_err("zero duration must be rejected");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("duration must be positive"),
+        "expected a validation error naming the duration, got: {msg}"
+    );
 }
 
 // =========================================================================

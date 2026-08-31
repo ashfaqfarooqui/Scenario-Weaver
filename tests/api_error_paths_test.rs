@@ -141,8 +141,9 @@ fn test_export_scenario_to_xosc_with_road_file() {
 }
 
 #[test]
-fn test_generate_single_scenario_conflicting_constraints() {
-    // Actor must be in lane 5 on a 2-lane road
+fn test_generate_single_scenario_lane_out_of_range() {
+    // Actor must be in lane 5 on a 2-lane road: rejected by spec validation,
+    // before the solver is reached.
     let yaml = r#"
 scenario_type: cut_in_left
 time_step: 0.5
@@ -177,10 +178,11 @@ min_ttc: 3.0
 min_distance: 5.0
 num_scenarios: 1
 "#;
-    let result = generate_single_scenario(yaml);
+    let err = generate_single_scenario(yaml).expect_err("lane 5 on a 2-lane road must be rejected");
+    let msg = err.to_string();
     assert!(
-        result.is_err(),
-        "Conflicting constraints should return Err (Unsatisfiable or InvalidSpec)"
+        msg.contains("lane"),
+        "the error should name the offending lane index, got: {msg}"
     );
 }
 

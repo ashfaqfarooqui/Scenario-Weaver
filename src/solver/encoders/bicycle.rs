@@ -1027,8 +1027,22 @@ mod tests {
         let cfg = Config::new();
         z3::with_z3_config(&cfg, || {
             let spec = create_bicycle_spec();
+            let expected_horizon = spec.num_time_steps();
             let backend = SolverBackend::new();
-            let _encoder = BicycleEncoder::new(spec, backend);
+            let encoder = BicycleEncoder::new(spec, backend);
+
+            // The horizon is derived from the spec, and no variables exist until
+            // `create_variables` is called.
+            assert_eq!(encoder.horizon, expected_horizon);
+            assert_eq!(encoder.horizon, 20, "10.0 s at 0.5 s steps");
+            assert!(encoder.positions_x.is_empty());
+            assert!(encoder.positions_y.is_empty());
+            assert!(encoder.heading_theta.is_empty());
+            assert!(encoder.speed_v.is_empty());
+            assert!(encoder.steering_delta.is_empty());
+            assert!(encoder.accelerations.is_empty());
+            assert!(encoder.lanes.is_empty());
+            assert!(encoder.velocities_y.is_empty());
         });
     }
 

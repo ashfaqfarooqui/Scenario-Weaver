@@ -3,22 +3,20 @@
 //! These tests run full end-to-end scenario generation using example YAML files
 //! and verify that pedestrian physics are correct in the generated trajectories.
 
-use scenario_weaver;
+mod common;
+
 use scenario_weaver::dsl::types::{PEDESTRIAN_RUN_MAX_SPEED, PEDESTRIAN_WALK_MAX_SPEED};
 
-/// Helper: generate scenario from a YAML file, panic on failure
-fn generate_from_file(path: &str) -> scenario_weaver::scenario::model::Scenario {
-    let yaml_content =
-        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("Failed to read {}: {}", path, e));
-    scenario_weaver::generate_single_scenario(&yaml_content)
-        .unwrap_or_else(|e| panic!("Failed to generate scenario from {}: {:?}", path, e))
+/// Helper: generate a scenario from an example file, panicking on failure.
+fn generate_from_file(name: &str) -> scenario_weaver::scenario::model::Scenario {
+    common::generate_example(name)
 }
 
 // ─── Basic pedestrian crossing (walk mode) ───
 
 #[test]
 fn test_pedestrian_crossing_generates_successfully() {
-    let scenario = generate_from_file("examples/pedestrian_crossing.yaml");
+    let scenario = generate_from_file("pedestrian_crossing.yaml");
 
     assert_eq!(scenario.actors.len(), 2);
     let ped = scenario
@@ -30,7 +28,7 @@ fn test_pedestrian_crossing_generates_successfully() {
 
 #[test]
 fn test_pedestrian_crossing_kinematics_consistency() {
-    let scenario = generate_from_file("examples/pedestrian_crossing.yaml");
+    let scenario = generate_from_file("pedestrian_crossing.yaml");
     let ped = scenario.get_actor("pedestrian").unwrap();
     let dt = scenario.time_step;
 
@@ -63,7 +61,7 @@ fn test_pedestrian_crossing_kinematics_consistency() {
 
 #[test]
 fn test_pedestrian_crossing_velocity_consistency() {
-    let scenario = generate_from_file("examples/pedestrian_crossing.yaml");
+    let scenario = generate_from_file("pedestrian_crossing.yaml");
     let ped = scenario.get_actor("pedestrian").unwrap();
     let dt = scenario.time_step;
 
@@ -96,7 +94,7 @@ fn test_pedestrian_crossing_velocity_consistency() {
 
 #[test]
 fn test_pedestrian_crossing_speed_bounds() {
-    let scenario = generate_from_file("examples/pedestrian_crossing.yaml");
+    let scenario = generate_from_file("pedestrian_crossing.yaml");
     let ped = scenario.get_actor("pedestrian").unwrap();
 
     // Walking pedestrian: |vx| <= PEDESTRIAN_WALK_MAX_SPEED, |vy| <= PEDESTRIAN_WALK_MAX_SPEED
@@ -122,7 +120,7 @@ fn test_pedestrian_crossing_speed_bounds() {
 
 #[test]
 fn test_pedestrian_crossing_acceleration_bounds() {
-    let scenario = generate_from_file("examples/pedestrian_crossing.yaml");
+    let scenario = generate_from_file("pedestrian_crossing.yaml");
     let ped = scenario.get_actor("pedestrian").unwrap();
 
     // Pedestrian acceleration should be clamped to [-1.0, 1.0]
@@ -146,7 +144,7 @@ fn test_pedestrian_crossing_acceleration_bounds() {
 
 #[test]
 fn test_pedestrian_crosses_laterally() {
-    let scenario = generate_from_file("examples/pedestrian_crossing.yaml");
+    let scenario = generate_from_file("pedestrian_crossing.yaml");
     let ped = scenario.get_actor("pedestrian").unwrap();
 
     // Pedestrian should move laterally (py should change over time)
@@ -166,7 +164,7 @@ fn test_pedestrian_crosses_laterally() {
 
 #[test]
 fn test_pedestrian_running_generates_successfully() {
-    let scenario = generate_from_file("examples/pedestrian_running.yaml");
+    let scenario = generate_from_file("pedestrian_running.yaml");
 
     assert_eq!(scenario.actors.len(), 2);
     let ped = scenario
@@ -177,7 +175,7 @@ fn test_pedestrian_running_generates_successfully() {
 
 #[test]
 fn test_pedestrian_running_speed_bounds() {
-    let scenario = generate_from_file("examples/pedestrian_running.yaml");
+    let scenario = generate_from_file("pedestrian_running.yaml");
     let ped = scenario.get_actor("runner").unwrap();
 
     // Running pedestrian: |vx| <= PEDESTRIAN_RUN_MAX_SPEED, |vy| <= PEDESTRIAN_RUN_MAX_SPEED
@@ -203,7 +201,7 @@ fn test_pedestrian_running_speed_bounds() {
 
 #[test]
 fn test_pedestrian_running_kinematics_consistency() {
-    let scenario = generate_from_file("examples/pedestrian_running.yaml");
+    let scenario = generate_from_file("pedestrian_running.yaml");
     let ped = scenario.get_actor("runner").unwrap();
     let dt = scenario.time_step;
 
@@ -235,7 +233,7 @@ fn test_pedestrian_running_kinematics_consistency() {
 
 #[test]
 fn test_pedestrian_wide_road_generates_successfully() {
-    let scenario = generate_from_file("examples/pedestrian_wide_road.yaml");
+    let scenario = generate_from_file("pedestrian_wide_road.yaml");
 
     assert_eq!(scenario.actors.len(), 2);
     let ped = scenario
@@ -250,7 +248,7 @@ fn test_pedestrian_wide_road_generates_successfully() {
 
 #[test]
 fn test_pedestrian_wide_road_kinematics_consistency() {
-    let scenario = generate_from_file("examples/pedestrian_wide_road.yaml");
+    let scenario = generate_from_file("pedestrian_wide_road.yaml");
     let ped = scenario.get_actor("ped").unwrap();
     let dt = scenario.time_step;
 
@@ -280,7 +278,7 @@ fn test_pedestrian_wide_road_kinematics_consistency() {
 
 #[test]
 fn test_pedestrian_wide_road_crosses_multiple_lanes() {
-    let scenario = generate_from_file("examples/pedestrian_wide_road.yaml");
+    let scenario = generate_from_file("pedestrian_wide_road.yaml");
     let ped = scenario.get_actor("ped").unwrap();
 
     // On a 3-lane road (10.5m wide), the pedestrian should cross a significant distance
@@ -299,7 +297,7 @@ fn test_pedestrian_wide_road_crosses_multiple_lanes() {
 
 #[test]
 fn test_ego_moves_forward_during_pedestrian_crossing() {
-    let scenario = generate_from_file("examples/pedestrian_crossing.yaml");
+    let scenario = generate_from_file("pedestrian_crossing.yaml");
     let ego = scenario.get_actor("ego").unwrap();
 
     // Ego should move forward (px increasing over time)
@@ -316,7 +314,7 @@ fn test_ego_moves_forward_during_pedestrian_crossing() {
 
 #[test]
 fn test_ego_stays_in_lane_during_pedestrian_crossing() {
-    let scenario = generate_from_file("examples/pedestrian_crossing.yaml");
+    let scenario = generate_from_file("pedestrian_crossing.yaml");
     let ego = scenario.get_actor("ego").unwrap();
 
     // Ego should stay in its lane (vy should be ~0)

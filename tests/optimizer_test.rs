@@ -3,13 +3,13 @@
 //! Tests verify that optimization targets (min-ttc, min-distance, max-ttc, min-severity)
 //! produce valid scenarios with optimization metadata.
 
+mod common;
+
 use scenario_weaver::dsl::types::OptimizationTarget;
 
 /// Helper to create a spec from the cut_in_left example and set an optimization target.
 fn create_optimized_spec(target: OptimizationTarget) -> scenario_weaver::dsl::types::ScenarioSpec {
-    let yaml = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML file");
-    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
+    let mut spec = common::parse_example("cut_in_left.yaml");
     spec.optimization_target = target;
     // Use a shorter duration for faster tests
     spec.duration = 5.0;
@@ -86,60 +86,50 @@ fn test_optimize_minimize_distance() {
 #[test]
 fn test_optimize_maximize_ttc() {
     let spec = create_optimized_spec(OptimizationTarget::MaximizeTtc);
-    let result = scenario_weaver::generate_single_scenario_from_spec(spec);
+    let scenario = common::generate_spec_or_fail(spec);
 
-    // MaximizeTtc may return UNSAT with short durations; only assert structure if it succeeds
-    if let Ok(scenario) = result {
-        assert!(
-            scenario.optimization.is_some(),
-            "Should have optimization info"
-        );
-        let opt = scenario.optimization.as_ref().unwrap();
-        assert!(
-            opt.target.contains("MaximizeTtc"),
-            "Target should be MaximizeTtc, got: {}",
-            opt.target
-        );
+    let opt = scenario
+        .optimization
+        .as_ref()
+        .expect("Should have optimization info");
+    assert!(
+        opt.target.contains("MaximizeTtc"),
+        "Target should be MaximizeTtc, got: {}",
+        opt.target
+    );
+    let val = opt
+        .optimal_value
+        .expect("MaximizeTtc should report an optimal value");
+    assert!(val.is_finite(), "optimal value should be finite, got {val}");
 
-        assert!(!scenario.actors.is_empty(), "Should have actors");
-        assert_eq!(scenario.scenario_type, "cut_in_left");
-
-        println!("MaximizeTtc: optimal_value = {:?}", opt.optimal_value);
-    } else {
-        println!("MaximizeTtc returned UNSAT with short duration — acceptable");
-    }
+    assert!(!scenario.actors.is_empty(), "Should have actors");
+    assert_eq!(scenario.scenario_type, "cut_in_left");
 }
 
 #[test]
 fn test_optimize_minimize_severity() {
     let spec = create_optimized_spec(OptimizationTarget::MinimizeSeverity);
-    let result = scenario_weaver::generate_single_scenario_from_spec(spec);
+    let scenario = common::generate_spec_or_fail(spec);
 
-    // MinimizeSeverity may return UNSAT with short durations; only assert structure if it succeeds
-    if let Ok(scenario) = result {
-        assert!(
-            scenario.optimization.is_some(),
-            "Should have optimization info"
-        );
-        let opt = scenario.optimization.as_ref().unwrap();
-        assert!(
-            opt.target.contains("MinimizeSeverity"),
-            "Target should be MinimizeSeverity, got: {}",
-            opt.target
-        );
-
-        println!("MinimizeSeverity: optimal_value = {:?}", opt.optimal_value);
-    } else {
-        println!("MinimizeSeverity returned UNSAT with short duration — acceptable");
-    }
+    let opt = scenario
+        .optimization
+        .as_ref()
+        .expect("Should have optimization info");
+    assert!(
+        opt.target.contains("MinimizeSeverity"),
+        "Target should be MinimizeSeverity, got: {}",
+        opt.target
+    );
+    let val = opt
+        .optimal_value
+        .expect("MinimizeSeverity should report an optimal value");
+    assert!(val.is_finite(), "optimal value should be finite, got {val}");
 }
 
 #[test]
 fn test_optimize_none_via_normal_path() {
     // OptimizationTarget::None should use the normal solver path (not optimizer)
-    let yaml = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML file");
-    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
+    let mut spec = common::parse_example("cut_in_left.yaml");
     spec.optimization_target = OptimizationTarget::None;
     spec.duration = 5.0;
     spec.time_step = 0.5;
@@ -195,108 +185,80 @@ fn test_objectives_produce_distinct_results() {
         OptimizationTarget::MinimizeSeverity,
     ];
 
-    let mut values: Vec<Option<f64>> = Vec::new();
+    let mut values: Vec<f64> = Vec::new();
     for &target in &targets {
         let spec = create_optimized_spec(target);
-        match scenario_weaver::generate_single_scenario_from_spec(spec) {
-            Ok(scenario) => {
-                let opt = scenario.optimization.as_ref().unwrap();
-                values.push(opt.optimal_value);
-            }
-            Err(_) => {
-                values.push(None);
-            }
-        }
-    }
-
-    let successes: Vec<f64> = values.iter().filter_map(|v| *v).collect();
-    assert!(
-        successes.len() >= 2,
-        "At least 2 of 3 objectives should produce results, got {} successes",
-        successes.len()
-    );
-
-    if successes.len() >= 2 {
-        let unique: HashSet<String> = successes.iter().map(|v| format!("{:.4}", v)).collect();
-        assert!(
-            unique.len() >= 2,
-            "Objectives should produce distinct optimal values, got: {:?}",
-            successes
+        let scenario = common::generate_spec_or_fail(spec);
+        let opt = scenario
+            .optimization
+            .as_ref()
+            .unwrap_or_else(|| panic!("{target:?} should record optimization info"));
+        values.push(
+            opt.optimal_value
+                .unwrap_or_else(|| panic!("{target:?} should report an optimal value")),
         );
     }
+
+    assert_eq!(
+        values.len(),
+        targets.len(),
+        "every objective must produce a result"
+    );
+
+    let unique: HashSet<String> = values.iter().map(|v| format!("{v:.4}")).collect();
+    assert!(
+        unique.len() >= 2,
+        "Objectives should produce distinct optimal values, got: {values:?}"
+    );
 }
 
 #[test]
 fn test_optimizer_pedestrian_crossing() {
-    let yaml = std::fs::read_to_string("examples/pedestrian_crossing.yaml")
-        .expect("Should read pedestrian_crossing.yaml");
-    let mut spec =
-        scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse pedestrian YAML");
+    let mut spec = common::parse_example("pedestrian_crossing.yaml");
     spec.optimization_target = OptimizationTarget::MinimizeDistance;
     spec.duration = 5.0;
     spec.time_step = 0.5;
 
-    let result = scenario_weaver::generate_single_scenario_from_spec(spec);
-    match result {
-        Ok(scenario) => {
-            assert!(
-                scenario.optimization.is_some(),
-                "Should have optimization info"
-            );
+    let scenario = common::generate_spec_or_fail(spec);
 
-            let ped = scenario.actors.iter().find(|a| a.id == "pedestrian");
-            assert!(ped.is_some(), "Should have pedestrian actor");
+    let opt = scenario
+        .optimization
+        .as_ref()
+        .expect("Should have optimization info");
+    let val = opt
+        .optimal_value
+        .expect("MinimizeDistance should report an optimal value");
+    assert!(
+        val >= 0.0 && val.is_finite(),
+        "minimised distance must be a finite non-negative length, got {val}"
+    );
 
-            let ped = ped.unwrap();
-            for state in &ped.states {
-                assert_eq!(
-                    state.lane(),
-                    0,
-                    "Pedestrian lane should be fixed to 0 by scenario constraints"
-                );
-            }
-
-            println!(
-                "Pedestrian crossing optimization succeeded: {:?}",
-                scenario.optimization.as_ref().unwrap().optimal_value
-            );
-        }
-        Err(e) => {
-            println!(
-                "Pedestrian crossing optimization returned error (acceptable): {}",
-                e
-            );
-        }
+    let ped = scenario
+        .actors
+        .iter()
+        .find(|a| a.id == "pedestrian")
+        .expect("Should have pedestrian actor");
+    for state in &ped.states {
+        assert_eq!(
+            state.lane(),
+            0,
+            "Pedestrian lane should be fixed to 0 by scenario constraints"
+        );
     }
 }
 
+/// A single-step horizon leaves no room for `cut_in_left`'s lane change
+/// (`start_time: [2.5, 7.5]`), so no model can exist. Committed as an
+/// expectation rather than an "acceptable either way" branch.
 #[test]
-fn test_optimizer_minimal_horizon() {
-    let yaml =
-        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
-    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
+fn test_optimizer_minimal_horizon_is_infeasible() {
+    let mut spec = common::parse_example("cut_in_left.yaml");
     spec.optimization_target = OptimizationTarget::MinimizeDistance;
     spec.duration = 0.5;
     spec.time_step = 0.5;
 
-    let result = scenario_weaver::generate_single_scenario_from_spec(spec);
-    match result {
-        Ok(scenario) => {
-            assert!(
-                scenario.optimization.is_some(),
-                "Should have optimization metadata"
-            );
-            let opt = scenario.optimization.as_ref().unwrap();
-            println!(
-                "Minimal horizon optimization succeeded: {:?}",
-                opt.optimal_value
-            );
-        }
-        Err(e) => {
-            println!(
-                "Minimal horizon returned error (acceptable, no panic): {}",
-                e
-            );
-        }
-    }
+    common::assert_infeasible(
+        spec,
+        "a 0.5 s horizon cannot contain the lane change the scenario requires",
+    );
 }

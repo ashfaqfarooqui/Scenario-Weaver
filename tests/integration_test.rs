@@ -2,6 +2,8 @@
 //!
 //! These tests verify the end-to-end functionality of ScenarioWeaver.
 
+mod common;
+
 use scenario_weaver::dsl;
 use z3::*;
 
@@ -61,8 +63,7 @@ fn test_parse_example_yaml() {
 #[test]
 fn test_generate_single_scenario_integration() {
     // Read example YAML
-    let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML file");
+    let yaml_content = common::load_example("cut_in_left.yaml");
 
     // Generate scenario
     let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
@@ -168,8 +169,7 @@ fn test_generate_single_scenario_integration() {
 #[test]
 fn test_generate_multiple_scenarios_integration() {
     // Read example YAML
-    let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML file");
+    let yaml_content = common::load_example("cut_in_left.yaml");
 
     // Generate 3 scenarios
     let scenarios = scenario_weaver::generate_multiple_scenarios(
@@ -250,8 +250,7 @@ fn test_generate_multiple_scenarios_integration() {
 #[test]
 fn test_scenario_json_serialization() {
     // Generate a scenario
-    let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML file");
+    let yaml_content = common::load_example("cut_in_left.yaml");
 
     let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
         .expect("Should generate scenario successfully");
@@ -279,8 +278,7 @@ fn test_scenario_json_serialization() {
 #[test]
 fn test_xosc_export() {
     // Generate a scenario
-    let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML file");
+    let yaml_content = common::load_example("cut_in_left.yaml");
 
     let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
         .expect("Should generate scenario successfully");
@@ -329,8 +327,7 @@ fn test_xosc_export() {
 #[test]
 fn test_xosc_export_multiple() {
     // Generate multiple scenarios
-    let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML file");
+    let yaml_content = common::load_example("cut_in_left.yaml");
 
     let scenarios = scenario_weaver::generate_multiple_scenarios(
         &yaml_content,
@@ -391,8 +388,7 @@ fn test_gif_export_integration() {
     println!("\n=== Testing GIF Export ===");
 
     // Read example YAML
-    let yaml_content = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML file");
+    let yaml_content = common::load_example("cut_in_left.yaml");
 
     // Generate scenario
     let scenario = scenario_weaver::generate_single_scenario(&yaml_content)

@@ -1,13 +1,10 @@
-use scenario_weaver;
+mod common;
+
 use std::time::Instant;
 
 #[test]
 fn test_velocity_ratio_during_lane_change() {
-    let yaml_content =
-        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
-
-    let scenario =
-        scenario_weaver::generate_single_scenario(&yaml_content).expect("Should generate scenario");
+    let scenario = common::generate_example("cut_in_left.yaml");
 
     let npc = scenario
         .actors
@@ -49,11 +46,7 @@ fn test_velocity_ratio_during_lane_change() {
 
 #[test]
 fn test_no_sideways_only_motion() {
-    let yaml_content =
-        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
-
-    let scenario =
-        scenario_weaver::generate_single_scenario(&yaml_content).expect("Should generate scenario");
+    let scenario = common::generate_example("cut_in_left.yaml");
 
     let npc = scenario
         .actors
@@ -80,11 +73,7 @@ fn test_no_sideways_only_motion() {
 
 #[test]
 fn test_heading_angle_during_lane_change() {
-    let yaml_content =
-        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
-
-    let scenario =
-        scenario_weaver::generate_single_scenario(&yaml_content).expect("Should generate scenario");
+    let scenario = common::generate_example("cut_in_left.yaml");
 
     let npc = scenario
         .actors
@@ -118,8 +107,7 @@ fn test_heading_angle_during_lane_change() {
 
 #[test]
 fn test_solving_performance_with_ratio_constraint() {
-    let yaml_content =
-        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
+    let yaml_content = common::load_example("cut_in_left.yaml");
 
     let start = Instant::now();
     let scenario =
@@ -150,8 +138,7 @@ fn test_solving_performance_with_ratio_constraint() {
 
 #[test]
 fn test_multiple_scenarios_maintain_physics() {
-    let yaml_content =
-        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
+    let yaml_content = common::load_example("cut_in_left.yaml");
 
     // Parse spec to create scenarios manually
     let max_ratio = 0.15;
