@@ -356,7 +356,7 @@ min_ttc: 3.0
 min_distance: 5.0
 num_scenarios: 1
 ";
-    scenario_weaver::generate_single_scenario(yaml).expect("simple scenario should be SAT")
+    common::generate_or_fail(yaml)
 }
 
 #[test]
@@ -719,17 +719,7 @@ min_distance: 5.0
 num_scenarios: 2
 ";
 
-    let scenarios = scenario_weaver::generate_multiple_scenarios(
-        yaml,
-        2,
-        None::<
-            fn(
-                usize,
-                &scenario_weaver::scenario::model::Scenario,
-            ) -> scenario_weaver::error::Result<()>,
-        >,
-    )
-    .expect("multi-scenario generation should succeed");
+    let scenarios = common::generate_multiple_or_fail(yaml, 2);
 
     assert!(!scenarios.is_empty(), "Should generate at least 1 scenario");
     println!("Generated {} cut_in_right scenarios", scenarios.len());

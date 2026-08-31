@@ -66,8 +66,7 @@ fn test_generate_single_scenario_integration() {
     let yaml_content = common::load_example("cut_in_left.yaml");
 
     // Generate scenario
-    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
-        .expect("Should generate scenario successfully");
+    let scenario = common::generate_or_fail(&yaml_content);
 
     // Verify basic structure
     assert_eq!(scenario.scenario_type, "cut_in_left");
@@ -180,17 +179,7 @@ fn test_generate_multiple_scenarios_integration() {
     let yaml_content = common::load_example("cut_in_left.yaml");
 
     // Generate 3 scenarios
-    let scenarios = scenario_weaver::generate_multiple_scenarios(
-        &yaml_content,
-        3,
-        None::<
-            fn(
-                usize,
-                &scenario_weaver::scenario::model::Scenario,
-            ) -> scenario_weaver::error::Result<()>,
-        >,
-    )
-    .expect("Should generate multiple scenarios successfully");
+    let scenarios = common::generate_multiple_or_fail(&yaml_content, 3);
 
     // Should have at least 1 scenario (might be less than 3 if solution space is limited)
     assert!(!scenarios.is_empty());
@@ -260,8 +249,7 @@ fn test_scenario_json_serialization() {
     // Generate a scenario
     let yaml_content = common::load_example("cut_in_left.yaml");
 
-    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
-        .expect("Should generate scenario successfully");
+    let scenario = common::generate_or_fail(&yaml_content);
 
     // Serialize to JSON
     let json = serde_json::to_string_pretty(&scenario).expect("Should serialize to JSON");
@@ -288,8 +276,7 @@ fn test_xosc_export() {
     // Generate a scenario
     let yaml_content = common::load_example("cut_in_left.yaml");
 
-    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
-        .expect("Should generate scenario successfully");
+    let scenario = common::generate_or_fail(&yaml_content);
 
     // Export to XOSC
     let xosc_xml =
@@ -337,17 +324,7 @@ fn test_xosc_export_multiple() {
     // Generate multiple scenarios
     let yaml_content = common::load_example("cut_in_left.yaml");
 
-    let scenarios = scenario_weaver::generate_multiple_scenarios(
-        &yaml_content,
-        3,
-        None::<
-            fn(
-                usize,
-                &scenario_weaver::scenario::model::Scenario,
-            ) -> scenario_weaver::error::Result<()>,
-        >,
-    )
-    .expect("Should generate multiple scenarios successfully");
+    let scenarios = common::generate_multiple_or_fail(&yaml_content, 3);
 
     assert!(
         !scenarios.is_empty(),
@@ -399,8 +376,7 @@ fn test_gif_export_integration() {
     let yaml_content = common::load_example("cut_in_left.yaml");
 
     // Generate scenario
-    let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
-        .expect("Should generate scenario successfully");
+    let scenario = common::generate_or_fail(&yaml_content);
 
     println!("Generated scenario: {}", scenario.scenario_id);
     println!("  Type: {}", scenario.scenario_type);
@@ -476,8 +452,7 @@ num_scenarios: 1
 "#;
 
     // Generate adversarial scenario
-    let scenario = scenario_weaver::generate_single_scenario(yaml_content)
-        .expect("Should generate adversarial scenario");
+    let scenario = common::generate_or_fail(yaml_content);
 
     println!("Generated adversarial scenario: {}", scenario.scenario_id);
     println!(

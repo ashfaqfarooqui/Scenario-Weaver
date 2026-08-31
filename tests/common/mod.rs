@@ -11,10 +11,18 @@
 //! `println!`.
 
 #![allow(dead_code)] // each test crate uses a different subset
+#![allow(unused_imports)] // ditto for the invariants re-exports
 
 use std::path::{Path, PathBuf};
 
-use scenario_weaver::dsl::types::ScenarioSpec;
+pub mod invariants;
+
+pub use invariants::{
+    assert_all_scenario_invariants, assert_invariant, assert_scenario_invariants,
+    check_scenario_invariants, is_known_broken, Invariant, Violation, KNOWN_BROKEN_INVARIANTS, TOL,
+};
+
+use scenario_weaver::dsl::types::{ConstraintMode, ScenarioSpec};
 use scenario_weaver::error::ScenarioGenError;
 use scenario_weaver::scenario::model::Scenario;
 
@@ -132,24 +140,36 @@ pub fn is_infeasible(err: &ScenarioGenError) -> bool {
 ///
 /// Replaces the three divergent per-file `generate_from_file` helpers, one of
 /// which silently discarded the error by returning `Option`.
+///
+/// Every scenario that leaves this module has been through
+/// [`invariants::assert_scenario_invariants`]. Routing the check through the
+/// three shared generators, rather than pasting a call into forty tests, means
+/// there is one definition of "a scenario that is allowed to exist" and a new
+/// test cannot forget to apply it.
 #[must_use]
 pub fn generate_or_fail(yaml: &str) -> Scenario {
-    scenario_weaver::generate_single_scenario(yaml)
-        .unwrap_or_else(|e| panic!("expected a solvable scenario, solver returned: {e}"))
+    let spec = scenario_weaver::dsl::parser::parse_yaml(yaml)
+        .unwrap_or_else(|e| panic!("cannot parse scenario YAML: {e}"));
+    generate_spec_or_fail(spec)
 }
 
 /// Generate from a spec, panicking with the underlying error on failure.
 #[must_use]
 pub fn generate_spec_or_fail(spec: ScenarioSpec) -> Scenario {
-    scenario_weaver::generate_single_scenario_from_spec(spec)
-        .unwrap_or_else(|e| panic!("expected a solvable scenario, solver returned: {e}"))
+    let scenario = scenario_weaver::generate_single_scenario_from_spec(spec.clone())
+        .unwrap_or_else(|e| panic!("expected a solvable scenario, solver returned: {e}"));
+    invariants::assert_scenario_invariants(&scenario, &spec);
+    scenario
 }
 
 /// Generate `examples/<name>`, panicking on failure.
 #[must_use]
 pub fn generate_example(name: &str) -> Scenario {
-    scenario_weaver::generate_single_scenario_from_spec(parse_example(name))
-        .unwrap_or_else(|e| panic!("expected {name} to be solvable, solver returned: {e}"))
+    let spec = parse_example(name);
+    let scenario = scenario_weaver::generate_single_scenario_from_spec(spec.clone())
+        .unwrap_or_else(|e| panic!("expected {name} to be solvable, solver returned: {e}"));
+    invariants::assert_scenario_invariants(&scenario, &spec);
+    scenario
 }
 
 /// Assert that a spec is infeasible *because the solver proved it*, and say why
@@ -180,7 +200,7 @@ pub fn check_expectation(
     expect: Expect,
 ) -> Result<String, String> {
     match (
-        scenario_weaver::generate_single_scenario_from_spec(spec),
+        scenario_weaver::generate_single_scenario_from_spec(spec.clone()),
         expect,
     ) {
         (Ok(s), Expect::Solvable) => {
@@ -195,6 +215,14 @@ pub fn check_expectation(
             }
             if s.actors.iter().any(|a| a.states.is_empty()) {
                 return Err(format!("{label}: an actor has no trajectory states"));
+            }
+            let breaches: Vec<String> = invariants::check_scenario_invariants(&s, &spec)
+                .into_iter()
+                .filter(|v| !invariants::is_known_broken(v.invariant))
+                .map(|v| v.to_string())
+                .collect();
+            if !breaches.is_empty() {
+                return Err(format!("{label}: {}", breaches.join("; ")));
             }
             Ok(format!(
                 "{label}: solvable ({} actors, {} steps, min_ttc={:?}, min_distance={:?})",
@@ -259,3 +287,83 @@ pub const KNOWN_BROKEN_EXAMPLES: &[(&str, &str)] = &[(
      but roads/ lives at the repo root, so the shipped example cannot be loaded \
      from examples/ as its own header documents",
 )];
+
+// ---------------------------------------------------------------------------
+// Corpus slices, derived from the expectation table
+// ---------------------------------------------------------------------------
+
+/// Every solvable example, paired with its parsed spec.
+///
+/// Derived from [`EXAMPLE_EXPECTATIONS`], never from a hand-written list, so a
+/// new example is swept automatically the moment it has an expectation.
+#[must_use]
+pub fn solvable_examples() -> Vec<(&'static str, ScenarioSpec)> {
+    EXAMPLE_EXPECTATIONS
+        .iter()
+        .filter(|(_, expect)| *expect == Expect::Solvable)
+        .map(|(name, _)| (*name, parse_example(name)))
+        .collect()
+}
+
+/// Every solvable example whose spec declares `mode` for the constraint picked
+/// out by `select`, paired with its parsed spec.
+///
+/// The same derive-don't-hardcode rule as [`solvable_examples`]: an example that
+/// changes its constraint modes, or a new one that declares `enforce`, is picked
+/// up without editing a list.
+#[must_use]
+pub fn examples_declaring(
+    select: fn(&ScenarioSpec) -> ConstraintMode,
+    mode: ConstraintMode,
+) -> Vec<(&'static str, ScenarioSpec)> {
+    solvable_examples()
+        .into_iter()
+        .filter(|(_, spec)| select(spec) == mode)
+        .collect()
+}
+
+/// Generate `examples/<name>` and hand back the spec it came from, so the
+/// caller can assert invariants against the bounds the spec actually declares
+/// rather than against transcribed literals.
+#[must_use]
+pub fn generate_example_with_spec(name: &str) -> (Scenario, ScenarioSpec) {
+    let spec = parse_example(name);
+    (generate_spec_or_fail(spec.clone()), spec)
+}
+
+/// Generate from YAML text and hand back the spec it parsed to.
+#[must_use]
+pub fn generate_yaml_with_spec(yaml: &str) -> (Scenario, ScenarioSpec) {
+    let spec = scenario_weaver::dsl::parser::parse_yaml(yaml)
+        .unwrap_or_else(|e| panic!("cannot parse scenario YAML: {e}"));
+    (generate_spec_or_fail(spec.clone()), spec)
+}
+
+/// Generate from a spec and hand back both, so invariants can be asserted
+/// against the same spec that drove generation.
+#[must_use]
+pub fn generate_spec_with_spec(spec: ScenarioSpec) -> (Scenario, ScenarioSpec) {
+    (generate_spec_or_fail(spec.clone()), spec)
+}
+
+/// Generate `n` diverse scenarios from YAML text, panicking on failure, with
+/// every scenario checked against the invariants.
+///
+/// The multi-scenario API takes a callback type parameter that every no-callback
+/// call site had to spell out as a nine-line turbofish; this hides that and adds
+/// the invariant check the single-scenario helpers already apply.
+#[must_use]
+pub fn generate_multiple_or_fail(yaml: &str, n: usize) -> Vec<Scenario> {
+    let spec = scenario_weaver::dsl::parser::parse_yaml(yaml)
+        .unwrap_or_else(|e| panic!("cannot parse scenario YAML: {e}"));
+    let scenarios = scenario_weaver::generate_multiple_scenarios_from_spec(
+        spec.clone(),
+        n,
+        None::<fn(usize, &Scenario) -> scenario_weaver::error::Result<()>>,
+    )
+    .unwrap_or_else(|e| panic!("expected {n} solvable scenarios, solver returned: {e}"));
+    for scenario in &scenarios {
+        invariants::assert_scenario_invariants(scenario, &spec);
+    }
+    scenarios
+}

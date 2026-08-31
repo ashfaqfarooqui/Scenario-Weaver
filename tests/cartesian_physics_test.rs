@@ -110,8 +110,7 @@ fn test_solving_performance_with_ratio_constraint() {
     let yaml_content = common::load_example("cut_in_left.yaml");
 
     let start = Instant::now();
-    let scenario =
-        scenario_weaver::generate_single_scenario(&yaml_content).expect("Should generate scenario");
+    let scenario = common::generate_or_fail(&yaml_content);
     let duration = start.elapsed();
 
     println!(
@@ -145,8 +144,7 @@ fn test_multiple_scenarios_maintain_physics() {
     let tolerance = 0.01;
 
     for i in 0..3 {
-        let scenario = scenario_weaver::generate_single_scenario(&yaml_content)
-            .expect(&format!("Should generate scenario {}", i));
+        let scenario = common::generate_or_fail(&yaml_content);
 
         let npc = scenario
             .actors

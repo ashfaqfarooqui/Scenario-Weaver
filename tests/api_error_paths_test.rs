@@ -1,5 +1,7 @@
 //! Integration tests for ScenarioWeaver public API error paths
 
+mod common;
+
 use scenario_weaver::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -94,14 +96,14 @@ fn test_generate_multiple_scenarios_invalid_yaml() {
 
 #[test]
 fn test_export_scenario_to_svg_valid() {
-    let scenario = generate_single_scenario(VALID_YAML).expect("Should generate scenario");
+    let scenario = common::generate_or_fail(VALID_YAML);
     let svg = export_scenario_to_svg(&scenario).expect("Should export to SVG");
     assert!(svg.contains("<svg"), "SVG output should contain <svg tag");
 }
 
 #[test]
 fn test_export_scenario_to_xodr_valid() {
-    let scenario = generate_single_scenario(VALID_YAML).expect("Should generate scenario");
+    let scenario = common::generate_or_fail(VALID_YAML);
     let xodr = export_scenario_to_xodr(&scenario).expect("Should export to XODR");
     assert!(
         xodr.contains("OpenDRIVE"),
@@ -111,7 +113,7 @@ fn test_export_scenario_to_xodr_valid() {
 
 #[test]
 fn test_export_scenario_to_openlabel_valid() {
-    let scenario = generate_single_scenario(VALID_YAML).expect("Should generate scenario");
+    let scenario = common::generate_or_fail(VALID_YAML);
     let json_str = export_scenario_to_openlabel(&scenario).expect("Should export to OpenLABEL");
     let parsed: serde_json::Value = serde_json::from_str(&json_str).expect("Should be valid JSON");
     assert!(
@@ -122,7 +124,7 @@ fn test_export_scenario_to_openlabel_valid() {
 
 #[test]
 fn test_export_scenario_to_gif_with_resolution() {
-    let scenario = generate_single_scenario(VALID_YAML).expect("Should generate scenario");
+    let scenario = common::generate_or_fail(VALID_YAML);
     let gif_bytes = export_scenario_to_gif_with_resolution(&scenario, Resolution::High)
         .expect("Should export GIF with custom resolution");
     assert_eq!(&gif_bytes[0..6], b"GIF89a", "Should have GIF89a header");
@@ -130,7 +132,7 @@ fn test_export_scenario_to_gif_with_resolution() {
 
 #[test]
 fn test_export_scenario_to_xosc_with_road_file() {
-    let scenario = generate_single_scenario(VALID_YAML).expect("Should generate scenario");
+    let scenario = common::generate_or_fail(VALID_YAML);
     let road_path = "my_road_network.xodr";
     let xosc = export_scenario_to_xosc_with_road_file(&scenario, road_path)
         .expect("Should export XOSC with road file");
@@ -198,6 +200,13 @@ fn test_generate_callback_invoked() {
 
     let scenarios = generate_multiple_scenarios(VALID_YAML, 2, Some(callback))
         .expect("Should generate scenarios");
+
+    // The callback path builds its scenarios the same way, so it is held to the
+    // same invariants as everything routed through `common`.
+    let spec = dsl::parser::parse_yaml(VALID_YAML).expect("VALID_YAML should parse");
+    for scenario in &scenarios {
+        common::assert_scenario_invariants(scenario, &spec);
+    }
 
     let invocations = count.load(Ordering::SeqCst);
     assert_eq!(

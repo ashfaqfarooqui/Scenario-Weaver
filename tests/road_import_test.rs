@@ -6,7 +6,6 @@ use std::path::PathBuf;
 
 use common::project_root;
 use scenario_weaver::dsl::parse_yaml_file;
-use scenario_weaver::generate_single_scenario_from_spec;
 
 /// Create a temp YAML file at the project root so relative imports resolve correctly.
 ///
@@ -47,7 +46,7 @@ fn test_with_import_generates_scenario() {
     cleanup_tmp("generates");
     let spec = result.expect("should parse");
 
-    let scenario = generate_single_scenario_from_spec(spec).expect("should generate scenario");
+    let scenario = common::generate_spec_or_fail(spec);
     assert!(scenario.duration > 0.0);
 }
 

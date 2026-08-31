@@ -7,26 +7,62 @@
 
 mod common;
 
-use common::{Expect, KNOWN_BROKEN_EXAMPLES};
-use scenario_weaver::dsl::types::{ConstraintMode, ScenarioSpec};
-use std::collections::BTreeSet;
+use common::{
+    check_scenario_invariants, examples_declaring, is_known_broken, Expect, Invariant,
+    KNOWN_BROKEN_EXAMPLES, KNOWN_BROKEN_INVARIANTS,
+};
+use scenario_weaver::dsl::types::ConstraintMode;
+use std::collections::{BTreeMap, BTreeSet};
 
-/// Every solvable example whose spec declares `mode` for the constraint selected
-/// by `select`, paired with its parsed spec.
+/// Generate every solvable example once and collect every invariant breach,
+/// keyed by example name.
 ///
-/// Derived from `EXAMPLE_EXPECTATIONS` and the spec itself rather than from a
-/// hand-written list, so an example that changes its constraint modes — or a new
-/// example that declares `enforce` — is picked up automatically.
-fn examples_declaring(
-    select: fn(&ScenarioSpec) -> ConstraintMode,
-    mode: ConstraintMode,
-) -> Vec<(&'static str, ScenarioSpec)> {
-    common::EXAMPLE_EXPECTATIONS
-        .iter()
-        .filter(|(_, expect)| *expect == Expect::Solvable)
-        .map(|(name, _)| (*name, common::parse_example(name)))
-        .filter(|(_, spec)| select(spec) == mode)
+/// One sweep, reused by each per-invariant test below, because generation — not
+/// checking — is what costs.
+fn corpus_violations() -> Vec<(&'static str, Vec<common::Violation>)> {
+    common::solvable_examples()
+        .into_iter()
+        .map(|(name, spec)| {
+            let scenario = common::generate_example(name);
+            let found = check_scenario_invariants(&scenario, &spec);
+            (name, found)
+        })
         .collect()
+}
+
+/// Assert that `invariant` holds across the whole corpus, reporting every
+/// breach at once rather than stopping at the first.
+fn assert_corpus_invariant(invariant: Invariant) {
+    let sweep = corpus_violations();
+    let mut failing = 0usize;
+    let mut lines: Vec<String> = Vec::new();
+
+    for (name, found) in &sweep {
+        let mine: Vec<&common::Violation> =
+            found.iter().filter(|v| v.invariant == invariant).collect();
+        if mine.is_empty() {
+            continue;
+        }
+        failing += 1;
+        // One example can breach an invariant at every step of every actor;
+        // the first few carry the diagnosis, the rest are the same story.
+        lines.push(format!(
+            "{name}: {} breach(es), first 3:\n      {}",
+            mine.len(),
+            mine.iter()
+                .take(3)
+                .map(|v| v.detail.clone())
+                .collect::<Vec<_>>()
+                .join("\n      ")
+        ));
+    }
+
+    assert!(
+        lines.is_empty(),
+        "{invariant} fails on {failing} of {} examples:\n  {}",
+        sweep.len(),
+        lines.join("\n  ")
+    );
 }
 
 /// The expectation table plus the known-broken list must describe exactly the
@@ -239,4 +275,171 @@ fn test_enforce_min_distance_examples_meet_their_threshold() {
         candidates.len(),
         failures.join("\n  ")
     );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario invariants across the corpus (SW-06)
+// ---------------------------------------------------------------------------
+
+/// The two things this repository asserts about every scenario it generates
+/// today, swept over the whole corpus, plus the proof that the known-broken
+/// baseline is not stale.
+///
+/// `common::generate_example` already applies the non-baseline invariants to
+/// every scenario the suite produces, so the first half of this test is a
+/// belt-and-braces statement of that at corpus scope. The second half is the
+/// ratchet: every entry in `KNOWN_BROKEN_INVARIANTS` must still be violated by
+/// at least one example. When SW-08, SW-10 or SW-12 lands, its entry stops
+/// being violated, this test fails, and the entry has to be deleted — which
+/// promotes that invariant to enforced everywhere in one edit.
+#[test]
+fn test_known_broken_invariants_are_still_broken() {
+    let sweep = corpus_violations();
+
+    let leaked: Vec<String> = sweep
+        .iter()
+        .flat_map(|(name, found)| {
+            found
+                .iter()
+                .filter(|v| !is_known_broken(v.invariant))
+                .map(move |v| format!("{name}: {v}"))
+        })
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "invariants outside the known-broken baseline were violated:\n  {}",
+        leaked.join("\n  ")
+    );
+
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for (_, found) in &sweep {
+        for v in found {
+            *counts.entry(v.invariant.to_string()).or_default() += 1;
+        }
+    }
+    println!("corpus invariant breaches by invariant: {counts:?}");
+
+    let stale: Vec<&str> = KNOWN_BROKEN_INVARIANTS
+        .iter()
+        .filter(|(inv, _)| {
+            !sweep
+                .iter()
+                .any(|(_, found)| found.iter().any(|v| v.invariant == *inv))
+        })
+        .map(|(_, why)| *why)
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "{} entry/entries in KNOWN_BROKEN_INVARIANTS are no longer violated by any \
+         example — the owning issue has landed, so delete them from the baseline and \
+         let the invariant be enforced everywhere:\n  {}",
+        stale.len(),
+        stale.join("\n  ")
+    );
+}
+
+/// Envelope compliance and model-vs-extraction agreement, at corpus scope.
+///
+/// Both hold today. They are the half of the invariant set that is live, and
+/// this is where a regression in either surfaces as one named failure rather
+/// than as forty scattered ones.
+#[test]
+fn test_envelope_compliance_across_the_corpus() {
+    assert_corpus_invariant(Invariant::Envelope);
+}
+
+#[test]
+fn test_extraction_agreement_across_the_corpus() {
+    assert_corpus_invariant(Invariant::ExtractionAgreement);
+}
+
+/// `p[i+1] = p[i] + v[i]·dt + ½·a[i]·dt²` and `v[i+1] = v[i] + a[i]·dt`, on both
+/// axes, at 1e-6.
+///
+/// Fails on all 21 solvable examples, for two distinct reasons:
+///
+/// - **H1 / SW-08.** The position update is forward Euler. The residual against
+///   the constant-acceleration form is exactly `½·a·dt²` and the forward-Euler
+///   residual is 0.0 to the last bit, on every example — this is not a numerical
+///   artefact, the term is simply absent. `cut_in_left_adversarial_all`:
+///   `px[t=0.50] = 57.5` where `p + v·dt + ½·a·dt² = 57.875`, a 0.375 m error
+///   per step against a `min_distance` threshold of 5 m.
+/// - **C2 / SW-09.** For vehicles, `ay` is never connected to `vy`: the
+///   `vy[t+1] = vy[t] + ay[t]·dt` assertion sits inside a
+///   `if role == Pedestrian` branch. `cut_in_left`'s npc steps
+///   `vy = 0 → -2.0 → +2.0` with `ay = 0.0` throughout, and later
+///   `+1.64 → -1.685`. The `ay` in the JSON and the `.xosc` is fiction, and
+///   `max_lateral_acceleration` bounds a variable that constrains nothing.
+#[test]
+#[ignore = "SW-08 (position update drops the a*dt^2/2 term) and SW-09 (lateral acceleration is a free variable for vehicles)"]
+fn test_kinematic_consistency_across_the_corpus() {
+    assert_corpus_invariant(Invariant::Kinematics);
+}
+
+/// `Enforce ⟹ metric ≥ threshold`, `Violate ⟹ metric < threshold` strictly.
+///
+/// Two failure shapes:
+///
+/// - **SW-12.** `violate` is satisfied by equality.
+///   `cut_in_left_adversarial_all` declares `min_ttc: violate` against a
+///   threshold of 3 and reports a measured `min_ttc` of exactly 3.000000000.
+///   Meeting a bound is not violating it.
+/// - **SW-10.** `enforce` passes on examples where the metric was never
+///   evaluated, because the lane variable lags lateral position and no
+///   same-lane step ever exists — see
+///   `test_enforce_min_ttc_examples_produce_a_measured_ttc`. Plus one genuine
+///   breach: `head_on_near_miss` declares `min_ttc: enforce` at 2 s and
+///   measures 1.05 s, with `all_constraints_satisfied` reported as true.
+#[test]
+#[ignore = "SW-12 (violate is satisfied by equality) and SW-10 (enforce passes on a metric that was never evaluated)"]
+fn test_constraint_mode_semantics_across_the_corpus() {
+    assert_corpus_invariant(Invariant::ConstraintModes);
+}
+
+/// Lateral position on the road surface, and `lane` consistent with `y`.
+///
+/// H2 / SW-10: `lane` is pinned on a schedule while `py` is pinned only at the
+/// two endpoints of a lane change, so mid-manoeuvre the two disagree —
+/// `cut_in_left_optimize_min_ttc`'s npc is recorded in lane 0 (centre 1.75)
+/// with `py = 4.5`, a 2.75 m error against a 1.75 m half-width, i.e. it is
+/// physically in the next lane but a full lane-width outside the one it is
+/// recorded in. Every consumer keyed on `lane` — the same-lane TTC test,
+/// `compute_effective_dist`, `compute_validation_metrics` — treats the actors
+/// as separated during exactly the window a cut-in scenario is about.
+#[test]
+#[ignore = "SW-10: the lane variable lags lateral position through a lane change (H2); SW-08 also shifts lane centres by 5 cm (C1)"]
+fn test_lane_road_containment_across_the_corpus() {
+    assert_corpus_invariant(Invariant::Containment);
+}
+
+/// No scenario in which every vehicle is parked for a majority of the horizon.
+///
+/// Fails on all three pedestrian examples: the ego brakes at the encoder's
+/// floor and then sits still — `pedestrian_crossing` has it at `vx = 0` for 29
+/// of 35 steps (8.7 s of a 10 s horizon) — and `pedestrian_wide_road` reports
+/// `all_constraints_satisfied: true` while doing it, because a stationary
+/// vehicle trivially satisfies every distance and TTC threshold. A scenario
+/// whose ego never reaches the pedestrian is not the scenario the YAML asks
+/// for.
+#[test]
+#[ignore = "SW-12: the ego brakes to a standstill for a majority of the horizon on all three pedestrian examples and the result is still reported as satisfying every constraint"]
+fn test_forward_progress_across_the_corpus() {
+    assert_corpus_invariant(Invariant::ForwardProgress);
+}
+
+/// The whole point, stated once without the baseline: every scenario this
+/// repository generates satisfies every invariant.
+///
+/// This is what green looks like when SW-08, SW-09, SW-10 and SW-12 have all
+/// landed. Until then it is the standing record of what is left — run it with
+/// `cargo test --no-fail-fast -- --ignored` to see the current state, and
+/// prefer the four per-invariant tests above when you want the failure
+/// attributed to one issue.
+#[test]
+#[ignore = "SW-08/SW-09 (kinematics), SW-10 (containment), SW-12 (constraint modes, forward progress) — the union of the four per-invariant tests above"]
+fn test_every_scenario_satisfies_every_invariant() {
+    for (name, spec) in common::solvable_examples() {
+        let scenario = common::generate_example(name);
+        common::assert_all_scenario_invariants(&scenario, &spec);
+    }
 }

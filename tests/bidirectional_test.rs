@@ -1,6 +1,6 @@
 //! Integration tests for bidirectional traffic scenarios
 
-use scenario_weaver::{generate_multiple_scenarios, generate_single_scenario};
+mod common;
 
 #[test]
 fn test_simple_bidirectional_scenario() {
@@ -41,14 +41,7 @@ min_distance: 5.0
 num_scenarios: 1
 "#;
 
-    let result = generate_single_scenario(yaml);
-    assert!(
-        result.is_ok(),
-        "Failed to generate scenario: {:?}",
-        result.err()
-    );
-
-    let scenario = result.unwrap();
+    let scenario = common::generate_or_fail(yaml);
 
     // Verify basic properties
     assert_eq!(scenario.actors.len(), 2);
@@ -127,14 +120,7 @@ min_distance: 5.0
 num_scenarios: 1
 "#;
 
-    let result = generate_single_scenario(yaml);
-    assert!(
-        result.is_ok(),
-        "Failed to generate scenario: {:?}",
-        result.err()
-    );
-
-    let scenario = result.unwrap();
+    let scenario = common::generate_or_fail(yaml);
 
     // Verify ego (forward lane)
     let ego = scenario.actors.iter().find(|a| a.id == "ego").unwrap();
@@ -198,14 +184,7 @@ min_distance: 5.0
 num_scenarios: 1
 "#;
 
-    let result = generate_single_scenario(yaml);
-    assert!(
-        result.is_ok(),
-        "Failed to generate scenario: {:?}",
-        result.err()
-    );
-
-    let scenario = result.unwrap();
+    let scenario = common::generate_or_fail(yaml);
 
     // Verify velocity signs throughout entire trajectory
     let ego = scenario.actors.iter().find(|a| a.id == "ego").unwrap();
@@ -263,23 +242,7 @@ min_distance: 5.0
 num_scenarios: 3
 "#;
 
-    let result = generate_multiple_scenarios(
-        yaml,
-        3,
-        None::<
-            fn(
-                usize,
-                &scenario_weaver::scenario::model::Scenario,
-            ) -> scenario_weaver::error::Result<()>,
-        >,
-    );
-    assert!(
-        result.is_ok(),
-        "Failed to generate scenarios: {:?}",
-        result.err()
-    );
-
-    let scenarios = result.unwrap();
+    let scenarios = common::generate_multiple_or_fail(yaml, 3);
     assert_eq!(scenarios.len(), 3, "Should generate 3 scenarios");
 
     // Verify all scenarios have valid velocity directions
@@ -352,10 +315,7 @@ min_distance: 5.0
 num_scenarios: 1
 "#;
 
-    let result = generate_single_scenario(yaml);
-    assert!(result.is_ok(), "3-lane highway scenario should work");
-
-    let scenario = result.unwrap();
+    let scenario = common::generate_or_fail(yaml);
 
     // Both actors in forward lanes
     for actor in &scenario.actors {
@@ -406,10 +366,7 @@ min_distance: 5.0
 num_scenarios: 1
 "#;
 
-    let result = generate_single_scenario(yaml);
-    assert!(result.is_ok(), "Rural road scenario should work");
-
-    let scenario = result.unwrap();
+    let scenario = common::generate_or_fail(yaml);
 
     let ego = scenario.actors.iter().find(|a| a.id == "ego").unwrap();
     let npc = scenario.actors.iter().find(|a| a.id == "npc").unwrap();
