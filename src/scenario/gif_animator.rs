@@ -559,15 +559,17 @@ impl<'a> GifAnimator<'a> {
         draw_text_mut(image, COLOR_TEXT, 20, 20, scale, &self.font, &time_text);
 
         // Current TTC
-        let ttc_text = if current_ttc < 999.0 {
-            format!("TTC: {:.2}s", current_ttc)
-        } else {
-            "TTC: N/A".to_string()
-        };
+        let ttc_text = format!(
+            "TTC: {}",
+            crate::scenario::model::format_optional_metric(current_ttc, "s")
+        );
         draw_text_mut(image, COLOR_TEXT, 20, 50, scale, &self.font, &ttc_text);
 
         // Current distance
-        let dist_text = format!("Distance: {:.2}m", current_distance);
+        let dist_text = format!(
+            "Distance: {}",
+            crate::scenario::model::format_optional_metric(current_distance, "m")
+        );
         draw_text_mut(image, COLOR_TEXT, 20, 80, scale, &self.font, &dist_text);
 
         // Overall status (right side)
@@ -593,10 +595,12 @@ impl<'a> GifAnimator<'a> {
         );
     }
 
-    /// Compute TTC and distance for vehicles at specific frame
-    fn compute_frame_metrics(&self, frame_idx: usize) -> (f64, f64) {
-        let mut min_ttc = f64::INFINITY;
-        let mut min_distance = f64::INFINITY;
+    /// Compute TTC and distance for vehicles at specific frame.
+    ///
+    /// Either component is `None` when it was never evaluated for this frame.
+    fn compute_frame_metrics(&self, frame_idx: usize) -> (Option<f64>, Option<f64>) {
+        let mut min_ttc: Option<f64> = None;
+        let mut min_distance: Option<f64> = None;
 
         // Pairwise comparison
         for i in 0..self.scenario.actors.len() {
@@ -614,13 +618,13 @@ impl<'a> GifAnimator<'a> {
                 if state1.lane() == state2.lane() {
                     // Compute distance
                     let distance = (state1.position().x - state2.position().x).abs();
-                    min_distance = min_distance.min(distance);
+                    min_distance = Some(min_distance.map_or(distance, |m: f64| m.min(distance)));
 
                     // Compute TTC
                     let rel_vel = (state1.velocity().vx - state2.velocity().vx).abs();
                     if rel_vel > 0.01 {
                         let ttc = distance / rel_vel;
-                        min_ttc = min_ttc.min(ttc);
+                        min_ttc = Some(min_ttc.map_or(ttc, |m: f64| m.min(ttc)));
                     }
                 }
             }
@@ -696,8 +700,8 @@ mod tests {
                 },
             ],
             validation: ValidationInfo {
-                min_ttc: 3.5,
-                min_distance: 10.0,
+                min_ttc: Some(3.5),
+                min_distance: Some(10.0),
                 all_constraints_satisfied: true,
                 safety_violations: vec![],
                 max_acceleration: 2.0,
@@ -745,9 +749,9 @@ mod tests {
         let animator = GifAnimator::new(&scenario, Resolution::Medium).unwrap();
 
         let (ttc, distance) = animator.compute_frame_metrics(0);
-        // Different lanes at frame 0, so metrics should be infinity
-        assert!(ttc == f64::INFINITY);
-        assert!(distance == f64::INFINITY);
+        // Different lanes at frame 0, so neither metric is evaluated.
+        assert!(ttc.is_none());
+        assert!(distance.is_none());
     }
 
     #[test]

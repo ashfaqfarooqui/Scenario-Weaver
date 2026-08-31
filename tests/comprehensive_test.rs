@@ -64,7 +64,7 @@ num_scenarios: 1
     assert!(reached_lane_0, "NPC should eventually change to lane 0");
 
     println!(
-        "cut_in_right: min_ttc={:.2}, min_dist={:.2}",
+        "cut_in_right: min_ttc={:?}, min_dist={:?}",
         scenario.validation.min_ttc, scenario.validation.min_distance
     );
 }
@@ -200,9 +200,10 @@ num_scenarios: 1
     let scenario = common::generate_or_fail(yaml);
 
     assert!(
-        !scenario.validation.all_constraints_satisfied || scenario.validation.min_ttc < 3.0,
+        !scenario.validation.all_constraints_satisfied
+            || scenario.validation.min_ttc.is_some_and(|ttc| ttc < 3.0),
         "Adversarial TTC mode should produce a violation or low TTC; \
-         min_ttc={:.2}, satisfied={}, violations={:?}",
+         min_ttc={:?}, satisfied={}, violations={:?}",
         scenario.validation.min_ttc,
         scenario.validation.all_constraints_satisfied,
         scenario.validation.safety_violations
@@ -256,8 +257,8 @@ num_scenarios: 1
     assert!(
         !scenario.validation.all_constraints_satisfied
             || !scenario.validation.safety_violations.is_empty()
-            || scenario.validation.min_ttc < 3.0
-            || scenario.validation.min_distance < 5.0,
+            || scenario.validation.min_ttc.is_some_and(|ttc| ttc < 3.0)
+            || scenario.validation.min_distance.is_some_and(|d| d < 5.0),
         "Should have some violation; satisfied={}, violations={:?}",
         scenario.validation.all_constraints_satisfied,
         scenario.validation.safety_violations
@@ -310,7 +311,7 @@ num_scenarios: 1
     let scenario = common::generate_or_fail(yaml);
     assert_eq!(scenario.actors.len(), 2);
     println!(
-        "ignore_mode: min_ttc={:.2}, min_dist={:.2}",
+        "ignore_mode: min_ttc={:?}, min_dist={:?}",
         scenario.validation.min_ttc, scenario.validation.min_distance
     );
 }

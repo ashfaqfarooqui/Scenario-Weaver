@@ -828,8 +828,8 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         &self,
         scenario: &mut crate::scenario::model::Scenario,
     ) -> crate::error::Result<()> {
-        let mut min_ttc = f64::INFINITY;
-        let mut min_distance = f64::INFINITY;
+        let mut min_ttc: Option<f64> = None;
+        let mut min_distance: Option<f64> = None;
         let mut violations = Vec::new();
 
         // Compute pairwise metrics for all actor combinations
@@ -851,9 +851,8 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
 
                     // Only consider distance when in same lane
                     if state1.lane() == state2.lane() {
-                        if distance < min_distance {
-                            min_distance = distance;
-                        }
+                        min_distance =
+                            Some(min_distance.map_or(distance, |m: f64| m.min(distance)));
 
                         // Check minimum distance violation
                         if distance < self.spec.min_distance {
@@ -879,9 +878,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                             if rel_vel > epsilon {
                                 let ttc = distance / rel_vel;
 
-                                if ttc < min_ttc {
-                                    min_ttc = ttc;
-                                }
+                                min_ttc = Some(min_ttc.map_or(ttc, |m: f64| m.min(ttc)));
 
                                 if ttc < self.spec.min_ttc {
                                     violations.push(format!(
@@ -901,9 +898,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                             if rel_vel > epsilon {
                                 let ttc = distance / rel_vel;
 
-                                if ttc < min_ttc {
-                                    min_ttc = ttc;
-                                }
+                                min_ttc = Some(min_ttc.map_or(ttc, |m: f64| m.min(ttc)));
 
                                 if ttc < self.spec.min_ttc {
                                     violations.push(format!(
@@ -965,17 +960,10 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         let has_accel_violations = !accel_violations.is_empty();
         scenario.validation.acceleration_violations = accel_violations;
 
-        // Update validation info
-        scenario.validation.min_ttc = if min_ttc.is_infinite() {
-            999.0
-        } else {
-            min_ttc
-        };
-        scenario.validation.min_distance = if min_distance.is_infinite() {
-            999.0
-        } else {
-            min_distance
-        };
+        // Update validation info. `None` means the metric was never evaluated —
+        // it must not be conflated with a large (i.e. safe) measurement.
+        scenario.validation.min_ttc = min_ttc;
+        scenario.validation.min_distance = min_distance;
         scenario.validation.all_constraints_satisfied =
             violations.is_empty() && !has_accel_violations;
         scenario.validation.safety_violations = violations;
@@ -1756,8 +1744,8 @@ mod tests {
                 assert!(npc.states[0].position().x > ego.states[0].position().x);
 
                 // Verify validation metrics exist
-                println!("Min TTC: {}", scenario.validation.min_ttc);
-                println!("Min distance: {}", scenario.validation.min_distance);
+                println!("Min TTC: {:?}", scenario.validation.min_ttc);
+                println!("Min distance: {:?}", scenario.validation.min_distance);
                 println!(
                     "All constraints satisfied: {}",
                     scenario.validation.all_constraints_satisfied
@@ -2284,17 +2272,23 @@ mod tests {
                 scenario.validation.all_constraints_satisfied,
                 "Safe scenario should satisfy all constraints"
             );
+            // `None` = never evaluated, which is the same escape hatch the old
+            // `== f64::INFINITY` disjunct provided.
             assert!(
-                scenario.validation.min_ttc >= spec.min_ttc
-                    || scenario.validation.min_ttc == f64::INFINITY,
-                "Min TTC {} should be >= {}",
+                scenario
+                    .validation
+                    .min_ttc
+                    .is_none_or(|ttc| ttc >= spec.min_ttc),
+                "Min TTC {:?} should be >= {}",
                 scenario.validation.min_ttc,
                 spec.min_ttc
             );
             assert!(
-                scenario.validation.min_distance >= spec.min_distance
-                    || scenario.validation.min_distance == f64::INFINITY,
-                "Min distance {} should be >= {}",
+                scenario
+                    .validation
+                    .min_distance
+                    .is_none_or(|d| d >= spec.min_distance),
+                "Min distance {:?} should be >= {}",
                 scenario.validation.min_distance,
                 spec.min_distance
             );

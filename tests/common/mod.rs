@@ -158,7 +158,7 @@ pub fn assert_infeasible(spec: ScenarioSpec, why: &str) {
     match scenario_weaver::generate_single_scenario_from_spec(spec) {
         Ok(scenario) => panic!(
             "expected no model to exist ({why}), but the solver produced one: \
-             {} actors, min_ttc={:.2}, min_distance={:.2}",
+             {} actors, min_ttc={:?}, min_distance={:?}",
             scenario.actors.len(),
             scenario.validation.min_ttc,
             scenario.validation.min_distance
@@ -197,7 +197,7 @@ pub fn check_expectation(
                 return Err(format!("{label}: an actor has no trajectory states"));
             }
             Ok(format!(
-                "{label}: solvable ({} actors, {} steps, min_ttc={:.2}, min_distance={:.2})",
+                "{label}: solvable ({} actors, {} steps, min_ttc={:?}, min_distance={:?})",
                 s.actors.len(),
                 s.actors[0].states.len(),
                 s.validation.min_ttc,
@@ -206,7 +206,7 @@ pub fn check_expectation(
         }
         (Ok(s), Expect::Infeasible) => Err(format!(
             "{label}: expected no model to exist, but got one \
-             (min_ttc={:.2}, min_distance={:.2})",
+             (min_ttc={:?}, min_distance={:?})",
             s.validation.min_ttc, s.validation.min_distance
         )),
         (Err(e), Expect::Infeasible) if is_infeasible(&e) => Ok(format!("{label}: infeasible")),

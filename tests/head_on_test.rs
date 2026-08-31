@@ -43,8 +43,8 @@ fn test_head_on_near_miss_generation() {
     // A near miss must actually be a near miss: no constraint may be violated.
     assert!(
         scenario.validation.all_constraints_satisfied,
-        "head_on_near_miss must satisfy its constraints; min_ttc={:.2}, \
-         min_distance={:.2}, violations={:?}",
+        "head_on_near_miss must satisfy its constraints; min_ttc={:?}, \
+         min_distance={:?}, violations={:?}",
         scenario.validation.min_ttc,
         scenario.validation.min_distance,
         scenario.validation.safety_violations
@@ -67,7 +67,7 @@ fn test_head_on_collision_generation() {
     assert!(
         !scenario.validation.all_constraints_satisfied,
         "an adversarial collision scenario must report violated constraints; \
-         min_ttc={:.2}, min_distance={:.2}",
+         min_ttc={:?}, min_distance={:?}",
         scenario.validation.min_ttc, scenario.validation.min_distance
     );
 }

@@ -50,8 +50,8 @@ fn test_adversarial_all_from_file() {
 
     assert_eq!(scenario.scenario_type, "cut_in_left");
     assert!(
-        scenario.validation.min_distance < 5.0,
-        "violate_all should drive min_distance below the 5.0 m threshold, got {:.4}",
+        scenario.validation.min_distance.is_some_and(|d| d < 5.0),
+        "violate_all should drive min_distance below the 5.0 m threshold, got {:?}",
         scenario.validation.min_distance
     );
     assert!(
@@ -70,8 +70,8 @@ fn test_adversarial_ttc_only_from_file() {
 
     assert_eq!(scenario.scenario_type, "cut_in_left");
     assert!(
-        scenario.validation.min_ttc < 3.0,
-        "TTC should be violated (< 3.0), got {:.4}",
+        scenario.validation.min_ttc.is_some_and(|ttc| ttc < 3.0),
+        "TTC should be violated (< 3.0), got {:?}",
         scenario.validation.min_ttc
     );
 }
@@ -183,10 +183,13 @@ fn test_optimizer_minimize_distance_overtake() {
     );
     // The objective is the minimum inter-actor distance, so it must not exceed
     // the distance the validator measured on the very trajectory it chose.
+    let measured_min_distance = scenario
+        .validation
+        .min_distance
+        .expect("min_distance must be measured to compare it against the objective");
     assert!(
-        val <= scenario.validation.min_distance + 1e-6,
-        "optimiser reported {val:.6} but the trajectory's min_distance is {:.6}",
-        scenario.validation.min_distance
+        val <= measured_min_distance + 1e-6,
+        "optimiser reported {val:.6} but the trajectory's min_distance is {measured_min_distance:.6}"
     );
 }
 
@@ -228,8 +231,8 @@ fn test_ignore_mode_generates_with_fewer_constraints() {
     assert_eq!(scenario.actors.len(), 2);
     // min_distance is still enforced, so it must hold even in ignore-TTC mode.
     assert!(
-        scenario.validation.min_distance >= 5.0,
-        "min_distance stayed in enforce mode, got {:.4}",
+        scenario.validation.min_distance.is_some_and(|d| d >= 5.0),
+        "min_distance stayed in enforce mode, got {:?}",
         scenario.validation.min_distance
     );
 }
@@ -258,8 +261,11 @@ fn test_violate_mode_negates_constraint() {
     let scenario = common::generate_spec_or_fail(spec);
 
     assert!(
-        scenario.validation.min_distance < threshold,
-        "violate mode must strictly negate min_distance (< {threshold:.2}), got {:.4} \
+        scenario
+            .validation
+            .min_distance
+            .is_some_and(|d| d < threshold),
+        "violate mode must strictly negate min_distance (< {threshold:.2}), got {:?} \
          — equality means the constraint was satisfied, not violated",
         scenario.validation.min_distance
     );
@@ -267,36 +273,44 @@ fn test_violate_mode_negates_constraint() {
 
 /// `Enforce` must hold against a value that was actually measured.
 ///
-/// Observed: `min_ttc = 999.00`, the "not evaluated" sentinel, which makes
-/// `min_ttc >= 3.0` vacuously true. The assertion below rejects the sentinel
-/// first, so the test can only pass once TTC is genuinely computed.
+/// The metrics are `Option<f64>`: `None` means "never evaluated". The `expect`s
+/// below are the guard that used to be `< 999.0` — if a metric is not computed,
+/// this test fails, rather than passing vacuously on a sentinel that satisfies
+/// any `>=` threshold.
+///
+/// The fixture is `overtake_with_opposite.yaml` rather than `short_cut_in_left`
+/// because the latter never produces a same-lane approaching pair, so its TTC is
+/// genuinely never evaluated (the lane variable lags the lateral position —
+/// SW-10) and the guard would reject it.
 #[test]
-#[ignore = "SW-04: min_ttc comes back as the 999.0 not-evaluated sentinel, making the enforce assertion vacuous"]
 fn test_enforce_mode_respects_constraint() {
-    let spec = short_cut_in_left(); // default modes: enforce for ttc and distance
+    // Declares `min_ttc: enforce` and `min_distance: enforce`.
+    let spec = common::parse_example("overtake_with_opposite.yaml");
+    assert_eq!(spec.constraint_modes.min_ttc(), ConstraintMode::Enforce);
+    assert_eq!(
+        spec.constraint_modes.min_distance(),
+        ConstraintMode::Enforce
+    );
     let min_ttc_threshold = spec.min_ttc;
     let min_dist_threshold = spec.min_distance;
 
     let scenario = common::generate_spec_or_fail(spec);
 
+    let min_ttc = scenario
+        .validation
+        .min_ttc
+        .expect("min_ttc must be a measured value, not left unevaluated");
     assert!(
-        scenario.validation.min_ttc < 999.0,
-        "min_ttc must be a measured value, got the not-evaluated sentinel {:.2}",
-        scenario.validation.min_ttc
+        min_ttc >= min_ttc_threshold,
+        "enforced min_ttc should be >= {min_ttc_threshold:.1}, got {min_ttc:.4}"
     );
+
+    let min_distance = scenario
+        .validation
+        .min_distance
+        .expect("min_distance must be a measured value, not left unevaluated");
     assert!(
-        scenario.validation.min_ttc >= min_ttc_threshold,
-        "enforced min_ttc should be >= {min_ttc_threshold:.1}, got {:.4}",
-        scenario.validation.min_ttc
-    );
-    assert!(
-        scenario.validation.min_distance < 999.0,
-        "min_distance must be a measured value, got the not-evaluated sentinel {:.2}",
-        scenario.validation.min_distance
-    );
-    assert!(
-        scenario.validation.min_distance >= min_dist_threshold,
-        "enforced min_distance should be >= {min_dist_threshold:.1}, got {:.4}",
-        scenario.validation.min_distance
+        min_distance >= min_dist_threshold,
+        "enforced min_distance should be >= {min_dist_threshold:.1}, got {min_distance:.4}"
     );
 }

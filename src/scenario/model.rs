@@ -118,14 +118,30 @@ pub struct OptimizationInfo {
     pub optimal_value: Option<f64>,
 }
 
+/// Render an optional validation metric for human-facing output.
+///
+/// A metric that was never evaluated renders as `not evaluated` rather than as
+/// a number, so it can never be mistaken for a measurement.
+#[must_use]
+pub fn format_optional_metric(value: Option<f64>, unit: &str) -> String {
+    value.map_or_else(|| "not evaluated".to_string(), |v| format!("{v:.2}{unit}"))
+}
+
 /// Validation information for the scenario
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationInfo {
-    /// Minimum time-to-collision observed (seconds)
-    pub min_ttc: f64,
+    /// Minimum time-to-collision observed (seconds).
+    ///
+    /// `None` means the metric was never evaluated (no pair of actors was ever
+    /// in a comparable configuration), which is distinct from "very safe".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_ttc: Option<f64>,
 
-    /// Minimum longitudinal distance observed (meters)
-    pub min_distance: f64,
+    /// Minimum longitudinal distance observed (meters).
+    ///
+    /// `None` means the metric was never evaluated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_distance: Option<f64>,
 
     /// Whether all constraints were satisfied
     pub all_constraints_satisfied: bool,
@@ -159,8 +175,8 @@ impl Scenario {
             actors: Vec::new(),
             optimization: None,
             validation: ValidationInfo {
-                min_ttc: 999.0, // Using large value instead of INFINITY for JSON compatibility
-                min_distance: 999.0,
+                min_ttc: None,
+                min_distance: None,
                 all_constraints_satisfied: false,
                 safety_violations: Vec::new(),
                 max_acceleration: 0.0,

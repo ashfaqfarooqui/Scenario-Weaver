@@ -320,8 +320,8 @@ mod tests {
         };
         let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0,
-            min_distance: 10.0,
+            min_ttc: Some(3.0),
+            min_distance: Some(10.0),
             all_constraints_satisfied: all_satisfied,
             safety_violations: vec![],
             max_acceleration: 2.0,
@@ -361,8 +361,8 @@ mod tests {
         };
         let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0,
-            min_distance: 10.0,
+            min_ttc: Some(3.0),
+            min_distance: Some(10.0),
             all_constraints_satisfied: true,
             safety_violations: vec![],
             max_acceleration: 2.0,
@@ -457,8 +457,8 @@ mod tests {
         };
         let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0,
-            min_distance: 10.0,
+            min_ttc: Some(3.0),
+            min_distance: Some(10.0),
             all_constraints_satisfied: true,
             safety_violations: vec![],
             max_acceleration: 2.0,
@@ -498,8 +498,8 @@ mod tests {
         };
         let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0,
-            min_distance: 10.0,
+            min_ttc: Some(3.0),
+            min_distance: Some(10.0),
             all_constraints_satisfied: true,
             safety_violations: vec![],
             max_acceleration: 2.0,
@@ -538,8 +538,8 @@ mod tests {
         };
         let mut scenario = Scenario::new("pedestrian_crossing".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0,
-            min_distance: 10.0,
+            min_ttc: Some(3.0),
+            min_distance: Some(10.0),
             all_constraints_satisfied: true,
             safety_violations: vec![],
             max_acceleration: 2.0,
@@ -587,8 +587,8 @@ mod tests {
         };
         let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0,
-            min_distance: 10.0,
+            min_ttc: Some(3.0),
+            min_distance: Some(10.0),
             all_constraints_satisfied: true,
             safety_violations: vec![],
             max_acceleration: 2.0,
@@ -623,8 +623,8 @@ mod tests {
         };
         let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0,
-            min_distance: 10.0,
+            min_ttc: Some(3.0),
+            min_distance: Some(10.0),
             all_constraints_satisfied: true,
             safety_violations: vec![],
             max_acceleration: 2.0,
@@ -678,8 +678,8 @@ mod tests {
         };
         let mut scenario = Scenario::new("pedestrian_crossing".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0,
-            min_distance: 10.0,
+            min_ttc: Some(3.0),
+            min_distance: Some(10.0),
             all_constraints_satisfied: true,
             safety_violations: vec![],
             max_acceleration: 2.0,
@@ -771,8 +771,8 @@ mod tests {
         };
         let mut scenario = Scenario::new("cut_in_left".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0,
-            min_distance: 10.0,
+            min_ttc: Some(3.0),
+            min_distance: Some(10.0),
             all_constraints_satisfied: true,
             safety_violations: vec![],
             max_acceleration: 2.0,
@@ -821,8 +821,8 @@ mod tests {
         };
         let mut scenario = Scenario::new("pedestrian_crossing".to_string(), 0.1, 5.0, road);
         scenario.validation = ValidationInfo {
-            min_ttc: 3.0,
-            min_distance: 10.0,
+            min_ttc: Some(3.0),
+            min_distance: Some(10.0),
             all_constraints_satisfied: true,
             safety_violations: vec![],
             max_acceleration: 2.0,

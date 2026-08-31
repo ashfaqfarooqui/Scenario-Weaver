@@ -144,22 +144,30 @@ fn test_generate_single_scenario_integration() {
         );
     }
 
-    // Verify validation metrics
+    // Verify validation metrics.
+    //
+    // `is_none_or` is the faithful translation of the old `min_ttc >= 3.0`
+    // against the `999.0` sentinel: when the metric was never evaluated the
+    // assertion did not bite. It still does not, and for this scenario it never
+    // does — `cut_in_left` produces no same-lane approaching pair because the
+    // lane variable lags the lateral position (SW-10). Tightening this to
+    // `is_some_and` is SW-10's job, not SW-04's; the difference is at least now
+    // visible in the type.
     assert!(
-        scenario.validation.min_ttc >= 3.0,
-        "min_ttc should be >= 3.0, got: {:.2}",
+        scenario.validation.min_ttc.is_none_or(|ttc| ttc >= 3.0),
+        "min_ttc should be >= 3.0 when measured, got: {:?}",
         scenario.validation.min_ttc
     );
     assert!(
-        scenario.validation.min_distance >= 5.0,
-        "min_distance should be >= 5.0, got: {:.2}",
+        scenario.validation.min_distance.is_some_and(|d| d >= 5.0),
+        "min_distance should be a measured value >= 5.0, got: {:?}",
         scenario.validation.min_distance
     );
 
     println!("Generated scenario:");
     println!("  Scenario ID: {}", scenario.scenario_id);
-    println!("  Min TTC: {:.2}s", scenario.validation.min_ttc);
-    println!("  Min Distance: {:.2}m", scenario.validation.min_distance);
+    println!("  Min TTC: {:?}", scenario.validation.min_ttc);
+    println!("  Min Distance: {:?}", scenario.validation.min_distance);
     println!(
         "  All constraints satisfied: {}",
         scenario.validation.all_constraints_satisfied

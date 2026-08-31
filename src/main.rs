@@ -237,8 +237,17 @@ fn print_scenario_summary(scenario: &scenario_weaver::scenario::model::Scenario)
 
     // Print validation metrics
     println!("\nValidation Metrics:");
-    println!("  Min TTC: {:.2}s", scenario.validation.min_ttc);
-    println!("  Min Distance: {:.2}m", scenario.validation.min_distance);
+    println!(
+        "  Min TTC: {}",
+        scenario_weaver::scenario::model::format_optional_metric(scenario.validation.min_ttc, "s")
+    );
+    println!(
+        "  Min Distance: {}",
+        scenario_weaver::scenario::model::format_optional_metric(
+            scenario.validation.min_distance,
+            "m"
+        )
+    );
     println!(
         "  All Constraints Satisfied: {}",
         scenario.validation.all_constraints_satisfied

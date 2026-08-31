@@ -43,7 +43,7 @@ fn test_optimize_minimize_ttc() {
     assert!(val < 1000.0, "TTC proxy should be finite, got: {}", val);
 
     println!("MinimizeTtc: optimal_value = {:.2} (TTC proxy)", val);
-    println!("  Scenario min_ttc: {:.2}s", scenario.validation.min_ttc);
+    println!("  Scenario min_ttc: {:?}", scenario.validation.min_ttc);
 }
 
 #[test]
@@ -78,7 +78,7 @@ fn test_optimize_minimize_distance() {
 
     println!("MinimizeDistance: optimal_value = {:.2}m", val);
     println!(
-        "  Scenario min_distance: {:.2}m",
+        "  Scenario min_distance: {:?}",
         scenario.validation.min_distance
     );
 }

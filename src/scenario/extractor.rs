@@ -151,19 +151,19 @@ mod tests {
         let spec = create_test_spec();
         let scenario = run_extraction(&spec);
 
-        assert!(scenario.validation.min_ttc.is_finite());
-        assert!(scenario.validation.min_ttc > 0.0);
-        assert!(
-            scenario.validation.min_ttc < 999.0,
-            "min_ttc should be computed, not default"
-        );
+        let min_ttc = scenario
+            .validation
+            .min_ttc
+            .expect("min_ttc should be computed, not left unevaluated");
+        assert!(min_ttc.is_finite());
+        assert!(min_ttc > 0.0);
 
-        assert!(scenario.validation.min_distance.is_finite());
-        assert!(scenario.validation.min_distance > 0.0);
-        assert!(
-            scenario.validation.min_distance < 999.0,
-            "min_distance should be computed, not default"
-        );
+        let min_distance = scenario
+            .validation
+            .min_distance
+            .expect("min_distance should be computed, not left unevaluated");
+        assert!(min_distance.is_finite());
+        assert!(min_distance > 0.0);
 
         // all_constraints_satisfied is a bool — for a valid SAT scenario it should be true
         assert!(scenario.validation.all_constraints_satisfied);

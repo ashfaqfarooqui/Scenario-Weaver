@@ -227,9 +227,9 @@ impl<'a> SvgVisualizer<'a> {
 
         // Metrics text
         let text = Text::new(format!(
-            "Min TTC: {:.2}s | Min Distance: {:.2}m | Max Accel: {:.2} m/s² | Max Decel: {:.2} m/s² | Constraints: ",
-            val.min_ttc,
-            val.min_distance,
+            "Min TTC: {} | Min Distance: {} | Max Accel: {:.2} m/s² | Max Decel: {:.2} m/s² | Constraints: ",
+            crate::scenario::model::format_optional_metric(val.min_ttc, "s"),
+            crate::scenario::model::format_optional_metric(val.min_distance, "m"),
             val.max_acceleration,
             val.max_deceleration
         ))
@@ -687,8 +687,8 @@ mod tests {
                 },
             ],
             validation: ValidationInfo {
-                min_ttc: 3.5,
-                min_distance: 10.0,
+                min_ttc: Some(3.5),
+                min_distance: Some(10.0),
                 all_constraints_satisfied: true,
                 safety_violations: vec![],
                 max_acceleration: 2.0,
