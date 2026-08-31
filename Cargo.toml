@@ -67,6 +67,14 @@ openscenario-rs = { path = "../../Workspace_OpenScenario-rs/main", features = [
 
 [dev-dependencies]
 tempfile = "3.8"          # Temporary files for testing
+# SW-05: XSD-validate emitted .xosc against the bundled OpenSCENARIO schema.
+# Already resolved transitively (openscenario-rs depends on it unconditionally),
+# so this adds no new native build.
+libxml = "0.3"
+# SW-05: parse emitted .svg (and, in export_coverage_test.rs, sanity-check
+# .xosc/.xodr structure) without inventing another XML crate — quick-xml is
+# already resolved transitively via openscenario-rs.
+quick-xml = "0.38"
 
 [lints.rust]
 unsafe_code = "forbid"

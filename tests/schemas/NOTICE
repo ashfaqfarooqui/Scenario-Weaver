@@ -1,0 +1,17 @@
+NOTICE: OpenSCENARIO Schema
+
+The file OpenSCENARIO.xsd included in this directory is part of the
+OpenSCENARIO standard published by ASAM e.V.
+
+© by ASAM e.V.
+Association for Standardisation of Automation and Measuring Systems
+Altlaufstrasse 40
+85635 Haar, Germany
+https://www.asam.net/
+
+This file is provided under the ASAM license terms available at:
+https://www.asam.net/license/
+
+This file has NOT been modified from its original form as distributed
+by ASAM. It is included here solely to support validation of
+OpenSCENARIO files against the official schema.

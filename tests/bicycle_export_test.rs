@@ -5,6 +5,11 @@
 
 mod common;
 
+use std::sync::Mutex;
+
+use libxml::parser::Parser as XmlParser;
+use libxml::schemas::{SchemaParserContext, SchemaValidationContext};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -15,6 +20,58 @@ fn generate_bicycle_cut_in_left() -> scenario_weaver::scenario::model::Scenario 
 
 fn generate_bicycle_cut_in_right() -> scenario_weaver::scenario::model::Scenario {
     common::generate_example("cut_in_right_bicycle.yaml")
+}
+
+// See `tests/artifact_validation_test.rs` module docs (SW-05) for why the
+// XSD is vendored under `tests/schemas/` and why validation is serialized.
+// Duplicated here rather than shared via `tests/common` (SW-06 owns it) —
+// see the SW-05 report.
+static XSD_LOCK: Mutex<()> = Mutex::new(());
+
+/// Assert `xosc` passes XSD validation and round-trips through
+/// `parse_from_str` with entity count matching `scenario.actors` — replaces
+/// a set of substring checks that did not actually verify the XML was valid
+/// OpenSCENARIO (SW-05 / FINDINGS.md T3).
+fn assert_valid_xosc(
+    xosc: &str,
+    scenario: &scenario_weaver::scenario::model::Scenario,
+    label: &str,
+) {
+    {
+        let _guard = XSD_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let doc = XmlParser::default()
+            .parse_string(xosc)
+            .unwrap_or_else(|e| panic!("{label}: xosc not well-formed XML: {e:?}"));
+        let xsd_path = common::project_root().join("tests/schemas/OpenSCENARIO.xsd");
+        let mut xsd_parser = SchemaParserContext::from_file(xsd_path.to_str().expect("utf8 path"));
+        let mut xsd = SchemaValidationContext::from_parser(&mut xsd_parser)
+            .unwrap_or_else(|e| panic!("{label}: failed to load XSD: {e:?}"));
+        xsd.validate_document(&doc)
+            .unwrap_or_else(|errors| panic!("{label}: xosc failed XSD validation: {errors:?}"));
+    }
+
+    let parsed = openscenario_rs::parse_from_str(xosc)
+        .unwrap_or_else(|e| panic!("{label}: xosc did not round-trip through parse_from_str: {e}"));
+    let entities = parsed
+        .entities
+        .unwrap_or_else(|| panic!("{label}: round-tripped xosc has no <Entities>"));
+    assert_eq!(
+        entities.scenario_objects.len(),
+        scenario.actors.len(),
+        "{label}: entity count not preserved across the xosc round-trip"
+    );
+}
+
+/// Assert `xodr` structurally parses back through the `opendrive` crate.
+fn assert_valid_xodr(xodr: &str, label: &str) {
+    let doc = opendrive::core::OpenDrive::from_xml_str(xodr)
+        .unwrap_or_else(|e| panic!("{label}: xodr did not parse: {e}"));
+    assert!(
+        !doc.road.is_empty(),
+        "{label}: xodr parsed but has no <road> elements"
+    );
 }
 
 // =========================================================================
@@ -50,19 +107,7 @@ fn test_bicycle_cut_in_left_export_xosc() {
     let xosc =
         scenario_weaver::export_scenario_to_xosc(&scenario).expect("XOSC export should succeed");
 
-    let lower = xosc.to_lowercase();
-    assert!(
-        lower.contains("openscenario"),
-        "XOSC should contain OpenSCENARIO header"
-    );
-    assert!(
-        lower.contains("entit"),
-        "XOSC should contain entity definitions"
-    );
-    assert!(
-        lower.contains("trajectory") || lower.contains("maneuver") || lower.contains("action"),
-        "XOSC should contain trajectory/maneuver data"
-    );
+    assert_valid_xosc(&xosc, &scenario, "bicycle_lane_change.yaml");
 }
 
 // =========================================================================
@@ -75,13 +120,7 @@ fn test_bicycle_cut_in_left_export_xodr() {
     let xodr =
         scenario_weaver::export_scenario_to_xodr(&scenario).expect("XODR export should succeed");
 
-    let lower = xodr.to_lowercase();
-    assert!(
-        lower.contains("opendrive"),
-        "XODR should contain OpenDRIVE header"
-    );
-    assert!(lower.contains("road"), "XODR should contain road structure");
-    assert!(lower.contains("lane"), "XODR should contain lane structure");
+    assert_valid_xodr(&xodr, "bicycle_lane_change.yaml");
 }
 
 // =========================================================================
