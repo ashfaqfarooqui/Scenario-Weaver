@@ -65,9 +65,21 @@ fn test_road_files_are_valid_yaml() {
         let road: scenario_weaver::dsl::types::RoadSpec =
             serde_yml::from_str(&content).unwrap_or_else(|_| panic!("should parse {}", filename));
 
-        assert_eq!(road.num_lanes, *expected_lanes, "lanes mismatch in {}", filename);
-        assert_eq!(road.lane_width, *expected_width, "width mismatch in {}", filename);
-        assert_eq!(road.lane_directions, *expected_dirs, "directions mismatch in {}", filename);
+        assert_eq!(
+            road.num_lanes, *expected_lanes,
+            "lanes mismatch in {}",
+            filename
+        );
+        assert_eq!(
+            road.lane_width, *expected_width,
+            "width mismatch in {}",
+            filename
+        );
+        assert_eq!(
+            road.lane_directions, *expected_dirs,
+            "directions mismatch in {}",
+            filename
+        );
     }
 }
 

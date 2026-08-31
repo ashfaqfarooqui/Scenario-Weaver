@@ -21,8 +21,7 @@ impl ViewportBounds {
     ///
     /// Includes road extent and 10% padding on all sides.
     pub fn from_scenario(scenario: &Scenario) -> Self {
-        let (mut x_min, mut x_max, mut y_min, mut y_max) =
-            (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+        let (mut x_min, mut x_max, mut y_min, mut y_max) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
 
         for actor in &scenario.actors {
             for state in &actor.states {
@@ -45,7 +44,12 @@ impl ViewportBounds {
         y_min -= y_range * 0.1;
         y_max += y_range * 0.1;
 
-        Self { x_min, x_max, y_min, y_max }
+        Self {
+            x_min,
+            x_max,
+            y_min,
+            y_max,
+        }
     }
 
     /// Width of the viewport

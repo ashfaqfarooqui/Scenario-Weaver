@@ -701,7 +701,7 @@ num_scenarios: 1
             println!("Conflicting constraints returned error: {e}");
         }
         Ok(scenario) => {
-            // If solver finds a solution despite extreme constraints, 
+            // If solver finds a solution despite extreme constraints,
             // it should at least show constraint violations
             println!(
                 "Surprisingly SAT: min_ttc={:.2}, min_dist={:.2}",

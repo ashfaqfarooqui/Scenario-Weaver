@@ -595,17 +595,13 @@ impl ScenarioSpec {
 
     /// Get lane width (backward compatible)
     pub fn get_lane_width(&self) -> f64 {
-        self.road
-            .as_ref()
-            .map_or(self.lane_width, |r| r.lane_width)
+        self.road.as_ref().map_or(self.lane_width, |r| r.lane_width)
     }
 
     /// Get lane direction (backward compatible)
     /// Returns +1 for forward lanes, -1 for backward lanes
     pub fn get_lane_direction(&self, lane: usize) -> i32 {
-        self.road
-            .as_ref()
-            .map_or(1, |r| r.get_lane_direction(lane)) // Default: all forward
+        self.road.as_ref().map_or(1, |r| r.get_lane_direction(lane)) // Default: all forward
     }
 
     /// Get number of lanes (backward compatible)
@@ -1034,9 +1030,9 @@ num_scenarios: 1
     #[test]
     fn test_constraint_modes_unknown_shorthand() {
         let modes = ConstraintModes::Shorthand("enforce_al".to_string()); // typo
-        // Shorthand itself doesn't validate — validation happens in ScenarioSpec::validate()
-        // Check that the shorthand accessor still falls back to Enforce (existing behaviour
-        // is unchanged for the accessor; the *error* is raised in validate()).
+                                                                          // Shorthand itself doesn't validate — validation happens in ScenarioSpec::validate()
+                                                                          // Check that the shorthand accessor still falls back to Enforce (existing behaviour
+                                                                          // is unchanged for the accessor; the *error* is raised in validate()).
         assert_eq!(modes.min_ttc(), ConstraintMode::Enforce);
     }
 }

@@ -8,8 +8,8 @@ use scenario_weaver::dsl::types::{PEDESTRIAN_RUN_MAX_SPEED, PEDESTRIAN_WALK_MAX_
 
 /// Helper: generate scenario from a YAML file, panic on failure
 fn generate_from_file(path: &str) -> scenario_weaver::scenario::model::Scenario {
-    let yaml_content = std::fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("Failed to read {}: {}", path, e));
+    let yaml_content =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("Failed to read {}: {}", path, e));
     scenario_weaver::generate_single_scenario(&yaml_content)
         .unwrap_or_else(|e| panic!("Failed to generate scenario from {}: {:?}", path, e))
 }
@@ -21,7 +21,9 @@ fn test_pedestrian_crossing_generates_successfully() {
     let scenario = generate_from_file("examples/pedestrian_crossing.yaml");
 
     assert_eq!(scenario.actors.len(), 2);
-    let ped = scenario.get_actor("pedestrian").expect("Should have pedestrian actor");
+    let ped = scenario
+        .get_actor("pedestrian")
+        .expect("Should have pedestrian actor");
     assert_eq!(ped.role, "pedestrian");
     assert!(!ped.states.is_empty());
 }
@@ -43,12 +45,18 @@ fn test_pedestrian_crossing_kinematics_consistency() {
         assert!(
             (s_next.cartesian.position.x - expected_px).abs() < 0.1,
             "px mismatch at t={:.1}s: got {:.4}, expected {:.4} (vx={:.4})",
-            s.time, s_next.cartesian.position.x, expected_px, s.cartesian.velocity.vx
+            s.time,
+            s_next.cartesian.position.x,
+            expected_px,
+            s.cartesian.velocity.vx
         );
         assert!(
             (s_next.cartesian.position.y - expected_py).abs() < 0.1,
             "py mismatch at t={:.1}s: got {:.4}, expected {:.4} (vy={:.4})",
-            s.time, s_next.cartesian.position.y, expected_py, s.cartesian.velocity.vy
+            s.time,
+            s_next.cartesian.position.y,
+            expected_py,
+            s.cartesian.velocity.vy
         );
     }
 }
@@ -70,12 +78,18 @@ fn test_pedestrian_crossing_velocity_consistency() {
         assert!(
             (s_next.cartesian.velocity.vx - expected_vx).abs() < 0.1,
             "vx mismatch at t={:.1}s: got {:.4}, expected {:.4} (ax={:.4})",
-            s.time, s_next.cartesian.velocity.vx, expected_vx, s.cartesian.acceleration.ax
+            s.time,
+            s_next.cartesian.velocity.vx,
+            expected_vx,
+            s.cartesian.acceleration.ax
         );
         assert!(
             (s_next.cartesian.velocity.vy - expected_vy).abs() < 0.1,
             "vy mismatch at t={:.1}s: got {:.4}, expected {:.4} (ay={:.4})",
-            s.time, s_next.cartesian.velocity.vy, expected_vy, s.cartesian.acceleration.ay
+            s.time,
+            s_next.cartesian.velocity.vy,
+            expected_vy,
+            s.cartesian.acceleration.ay
         );
     }
 }
@@ -92,12 +106,16 @@ fn test_pedestrian_crossing_speed_bounds() {
         assert!(
             state.cartesian.velocity.vx.abs() <= PEDESTRIAN_WALK_MAX_SPEED + tolerance,
             "vx out of bounds at t={:.1}s: {:.4} > {:.4}",
-            state.time, state.cartesian.velocity.vx.abs(), PEDESTRIAN_WALK_MAX_SPEED
+            state.time,
+            state.cartesian.velocity.vx.abs(),
+            PEDESTRIAN_WALK_MAX_SPEED
         );
         assert!(
             state.cartesian.velocity.vy.abs() <= PEDESTRIAN_WALK_MAX_SPEED + tolerance,
             "vy out of bounds at t={:.1}s: {:.4} > {:.4}",
-            state.time, state.cartesian.velocity.vy.abs(), PEDESTRIAN_WALK_MAX_SPEED
+            state.time,
+            state.cartesian.velocity.vy.abs(),
+            PEDESTRIAN_WALK_MAX_SPEED
         );
     }
 }
@@ -114,12 +132,14 @@ fn test_pedestrian_crossing_acceleration_bounds() {
         assert!(
             state.cartesian.acceleration.ax.abs() <= 1.0 + tolerance,
             "ax out of bounds at t={:.1}s: {:.4}",
-            state.time, state.cartesian.acceleration.ax
+            state.time,
+            state.cartesian.acceleration.ax
         );
         assert!(
             state.cartesian.acceleration.ay.abs() <= 1.0 + tolerance,
             "ay out of bounds at t={:.1}s: {:.4}",
-            state.time, state.cartesian.acceleration.ay
+            state.time,
+            state.cartesian.acceleration.ay
         );
     }
 }
@@ -136,7 +156,9 @@ fn test_pedestrian_crosses_laterally() {
     assert!(
         (py_end - py_start).abs() > 1.0,
         "Pedestrian should cross laterally: py_start={:.2}, py_end={:.2}, delta={:.2}",
-        py_start, py_end, (py_end - py_start).abs()
+        py_start,
+        py_end,
+        (py_end - py_start).abs()
     );
 }
 
@@ -147,7 +169,9 @@ fn test_pedestrian_running_generates_successfully() {
     let scenario = generate_from_file("examples/pedestrian_running.yaml");
 
     assert_eq!(scenario.actors.len(), 2);
-    let ped = scenario.get_actor("runner").expect("Should have runner actor");
+    let ped = scenario
+        .get_actor("runner")
+        .expect("Should have runner actor");
     assert_eq!(ped.role, "pedestrian");
 }
 
@@ -163,12 +187,16 @@ fn test_pedestrian_running_speed_bounds() {
         assert!(
             state.cartesian.velocity.vx.abs() <= PEDESTRIAN_RUN_MAX_SPEED + tolerance,
             "vx out of bounds at t={:.1}s: {:.4} > {:.4}",
-            state.time, state.cartesian.velocity.vx.abs(), PEDESTRIAN_RUN_MAX_SPEED
+            state.time,
+            state.cartesian.velocity.vx.abs(),
+            PEDESTRIAN_RUN_MAX_SPEED
         );
         assert!(
             state.cartesian.velocity.vy.abs() <= PEDESTRIAN_RUN_MAX_SPEED + tolerance,
             "vy out of bounds at t={:.1}s: {:.4} > {:.4}",
-            state.time, state.cartesian.velocity.vy.abs(), PEDESTRIAN_RUN_MAX_SPEED
+            state.time,
+            state.cartesian.velocity.vy.abs(),
+            PEDESTRIAN_RUN_MAX_SPEED
         );
     }
 }
@@ -189,12 +217,16 @@ fn test_pedestrian_running_kinematics_consistency() {
         assert!(
             (s_next.cartesian.position.x - expected_px).abs() < 0.1,
             "px mismatch at t={:.1}s: got {:.4}, expected {:.4}",
-            s.time, s_next.cartesian.position.x, expected_px
+            s.time,
+            s_next.cartesian.position.x,
+            expected_px
         );
         assert!(
             (s_next.cartesian.position.y - expected_py).abs() < 0.1,
             "py mismatch at t={:.1}s: got {:.4}, expected {:.4}",
-            s.time, s_next.cartesian.position.y, expected_py
+            s.time,
+            s_next.cartesian.position.y,
+            expected_py
         );
     }
 }
@@ -206,7 +238,9 @@ fn test_pedestrian_wide_road_generates_successfully() {
     let scenario = generate_from_file("examples/pedestrian_wide_road.yaml");
 
     assert_eq!(scenario.actors.len(), 2);
-    let ped = scenario.get_actor("ped").expect("Should have pedestrian actor");
+    let ped = scenario
+        .get_actor("ped")
+        .expect("Should have pedestrian actor");
     assert_eq!(ped.role, "pedestrian");
 
     // Ego should be in middle lane
@@ -230,12 +264,16 @@ fn test_pedestrian_wide_road_kinematics_consistency() {
         assert!(
             (s_next.cartesian.position.x - expected_px).abs() < 0.1,
             "px mismatch at t={:.1}s: got {:.4}, expected {:.4}",
-            s.time, s_next.cartesian.position.x, expected_px
+            s.time,
+            s_next.cartesian.position.x,
+            expected_px
         );
         assert!(
             (s_next.cartesian.position.y - expected_py).abs() < 0.1,
             "py mismatch at t={:.1}s: got {:.4}, expected {:.4}",
-            s.time, s_next.cartesian.position.y, expected_py
+            s.time,
+            s_next.cartesian.position.y,
+            expected_py
         );
     }
 }
@@ -271,7 +309,8 @@ fn test_ego_moves_forward_during_pedestrian_crossing() {
     assert!(
         px_end > px_start,
         "Ego should move forward: px_start={:.2}, px_end={:.2}",
-        px_start, px_end
+        px_start,
+        px_end
     );
 }
 
@@ -285,7 +324,8 @@ fn test_ego_stays_in_lane_during_pedestrian_crossing() {
         assert!(
             state.cartesian.velocity.vy.abs() < 0.01,
             "Ego vy should be ~0 at t={:.1}s: got {:.4}",
-            state.time, state.cartesian.velocity.vy
+            state.time,
+            state.cartesian.velocity.vy
         );
     }
 }

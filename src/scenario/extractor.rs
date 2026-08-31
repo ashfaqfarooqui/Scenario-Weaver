@@ -153,11 +153,17 @@ mod tests {
 
         assert!(scenario.validation.min_ttc.is_finite());
         assert!(scenario.validation.min_ttc > 0.0);
-        assert!(scenario.validation.min_ttc < 999.0, "min_ttc should be computed, not default");
+        assert!(
+            scenario.validation.min_ttc < 999.0,
+            "min_ttc should be computed, not default"
+        );
 
         assert!(scenario.validation.min_distance.is_finite());
         assert!(scenario.validation.min_distance > 0.0);
-        assert!(scenario.validation.min_distance < 999.0, "min_distance should be computed, not default");
+        assert!(
+            scenario.validation.min_distance < 999.0,
+            "min_distance should be computed, not default"
+        );
 
         // all_constraints_satisfied is a bool — for a valid SAT scenario it should be true
         assert!(scenario.validation.all_constraints_satisfied);
@@ -187,7 +193,9 @@ mod tests {
 
             // Velocity within reasonable bounds (acceleration range [-8, 3] over 10s)
             for state in &actor.states {
-                assert!(state.cartesian.velocity.vx >= -100.0 && state.cartesian.velocity.vx <= 100.0);
+                assert!(
+                    state.cartesian.velocity.vx >= -100.0 && state.cartesian.velocity.vx <= 100.0
+                );
             }
         }
 
@@ -236,7 +244,10 @@ mod tests {
         assert_eq!(scenario.duration, spec.duration);
         // scenario_id should be a non-empty UUID-like string
         assert!(!scenario.scenario_id.is_empty());
-        assert!(scenario.scenario_id.len() >= 32, "scenario_id should be UUID-like");
+        assert!(
+            scenario.scenario_id.len() >= 32,
+            "scenario_id should be UUID-like"
+        );
     }
 
     #[test]

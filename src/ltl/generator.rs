@@ -36,8 +36,8 @@ impl LTLGenerator {
 mod tests {
     use super::*;
     use crate::dsl::types::{
-        ActorRole, ActorSpec, CoordinateSystem, ConstraintMode, ConstraintModes,
-        LaneChangeConfig, LaneChangeDirection, OptimizationTarget, RoadSpec, ValueOrRange,
+        ActorRole, ActorSpec, ConstraintMode, ConstraintModes, CoordinateSystem, LaneChangeConfig,
+        LaneChangeDirection, OptimizationTarget, RoadSpec, ValueOrRange,
     };
     use crate::ltl::formula::LTLFormula;
     use std::collections::HashMap;
@@ -344,8 +344,7 @@ mod tests {
 
     fn create_pedestrian_crossing_spec() -> ScenarioSpec {
         let mut pedestrian_behavior = HashMap::new();
-        pedestrian_behavior
-            .insert("direction".to_string(), serde_json::json!("left_to_right"));
+        pedestrian_behavior.insert("direction".to_string(), serde_json::json!("left_to_right"));
 
         ScenarioSpec {
             scenario_type: crate::dsl::types::ScenarioType::PedestrianCrossing,

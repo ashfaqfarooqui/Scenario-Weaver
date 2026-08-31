@@ -31,7 +31,8 @@ fn generate_bicycle_cut_in_left() -> scenario_weaver::scenario::model::Scenario 
 #[test]
 fn test_bicycle_cut_in_left_export_svg() {
     let scenario = generate_bicycle_cut_in_left();
-    let svg = scenario_weaver::export_scenario_to_svg(&scenario).expect("SVG export should succeed");
+    let svg =
+        scenario_weaver::export_scenario_to_svg(&scenario).expect("SVG export should succeed");
 
     assert!(svg.contains("<svg"), "SVG should contain <svg element");
     let lower = svg.to_lowercase();
@@ -39,7 +40,11 @@ fn test_bicycle_cut_in_left_export_svg() {
         lower.contains("ego") || lower.contains("npc"),
         "SVG should contain actor names"
     );
-    assert!(svg.len() > 100, "SVG should be reasonably sized, got {} bytes", svg.len());
+    assert!(
+        svg.len() > 100,
+        "SVG should be reasonably sized, got {} bytes",
+        svg.len()
+    );
 }
 
 // =========================================================================
@@ -49,11 +54,18 @@ fn test_bicycle_cut_in_left_export_svg() {
 #[test]
 fn test_bicycle_cut_in_left_export_xosc() {
     let scenario = generate_bicycle_cut_in_left();
-    let xosc = scenario_weaver::export_scenario_to_xosc(&scenario).expect("XOSC export should succeed");
+    let xosc =
+        scenario_weaver::export_scenario_to_xosc(&scenario).expect("XOSC export should succeed");
 
     let lower = xosc.to_lowercase();
-    assert!(lower.contains("openscenario"), "XOSC should contain OpenSCENARIO header");
-    assert!(lower.contains("entit"), "XOSC should contain entity definitions");
+    assert!(
+        lower.contains("openscenario"),
+        "XOSC should contain OpenSCENARIO header"
+    );
+    assert!(
+        lower.contains("entit"),
+        "XOSC should contain entity definitions"
+    );
     assert!(
         lower.contains("trajectory") || lower.contains("maneuver") || lower.contains("action"),
         "XOSC should contain trajectory/maneuver data"
@@ -67,10 +79,14 @@ fn test_bicycle_cut_in_left_export_xosc() {
 #[test]
 fn test_bicycle_cut_in_left_export_xodr() {
     let scenario = generate_bicycle_cut_in_left();
-    let xodr = scenario_weaver::export_scenario_to_xodr(&scenario).expect("XODR export should succeed");
+    let xodr =
+        scenario_weaver::export_scenario_to_xodr(&scenario).expect("XODR export should succeed");
 
     let lower = xodr.to_lowercase();
-    assert!(lower.contains("opendrive"), "XODR should contain OpenDRIVE header");
+    assert!(
+        lower.contains("opendrive"),
+        "XODR should contain OpenDRIVE header"
+    );
     assert!(lower.contains("road"), "XODR should contain road structure");
     assert!(lower.contains("lane"), "XODR should contain lane structure");
 }
@@ -82,10 +98,14 @@ fn test_bicycle_cut_in_left_export_xodr() {
 #[test]
 fn test_bicycle_cut_in_left_export_openlabel() {
     let scenario = generate_bicycle_cut_in_left();
-    let ol = scenario_weaver::export_scenario_to_openlabel(&scenario).expect("OpenLABEL export should succeed");
+    let ol = scenario_weaver::export_scenario_to_openlabel(&scenario)
+        .expect("OpenLABEL export should succeed");
 
     let parsed: serde_json::Value = serde_json::from_str(&ol).expect("Should be valid JSON");
-    assert!(parsed.get("openlabel").is_some(), "Should have 'openlabel' key");
+    assert!(
+        parsed.get("openlabel").is_some(),
+        "Should have 'openlabel' key"
+    );
     let openlabel = &parsed["openlabel"];
     assert!(
         openlabel.get("tags").is_some() || openlabel.get("metadata").is_some(),
@@ -100,9 +120,14 @@ fn test_bicycle_cut_in_left_export_openlabel() {
 #[test]
 fn test_bicycle_cut_in_left_export_gif() {
     let scenario = generate_bicycle_cut_in_left();
-    let gif = scenario_weaver::export_scenario_to_gif(&scenario).expect("GIF export should succeed");
+    let gif =
+        scenario_weaver::export_scenario_to_gif(&scenario).expect("GIF export should succeed");
 
-    assert!(gif.len() > 1024, "GIF should be > 1KB, got {} bytes", gif.len());
+    assert!(
+        gif.len() > 1024,
+        "GIF should be > 1KB, got {} bytes",
+        gif.len()
+    );
     // GIF89a magic bytes
     assert_eq!(&gif[..6], b"GIF89a", "Should have GIF89a magic bytes");
 }
@@ -166,16 +191,25 @@ fn test_bicycle_scenario_trajectory_physics() {
     // Positions should increase over time (forward motion)
     let ego_x_first = ego.states.first().unwrap().position().x;
     let ego_x_last = ego.states.last().unwrap().position().x;
-    assert!(ego_x_last > ego_x_first, "Ego should move forward: {ego_x_first} -> {ego_x_last}");
+    assert!(
+        ego_x_last > ego_x_first,
+        "Ego should move forward: {ego_x_first} -> {ego_x_last}"
+    );
 
     let npc_x_first = npc.states.first().unwrap().position().x;
     let npc_x_last = npc.states.last().unwrap().position().x;
-    assert!(npc_x_last > npc_x_first, "NPC should move forward: {npc_x_first} -> {npc_x_last}");
+    assert!(
+        npc_x_last > npc_x_first,
+        "NPC should move forward: {npc_x_first} -> {npc_x_last}"
+    );
 
     // NPC lateral position should change during lane change
     let npc_y_values: Vec<f64> = npc.states.iter().map(|s| s.position().y).collect();
     let y_min = npc_y_values.iter().cloned().fold(f64::INFINITY, f64::min);
-    let y_max = npc_y_values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let y_max = npc_y_values
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, f64::max);
     assert!(
         (y_max - y_min).abs() > 0.5,
         "NPC lateral position should change during lane change, range={:.2}",
@@ -240,7 +274,10 @@ num_scenarios: 1
         .expect("cartesian scenario should be SAT");
 
     // Both succeed with same structure
-    assert_eq!(bicycle_scenario.actors.len(), cartesian_scenario.actors.len());
+    assert_eq!(
+        bicycle_scenario.actors.len(),
+        cartesian_scenario.actors.len()
+    );
     assert_eq!(
         bicycle_scenario.get_actor("ego").unwrap().states.len(),
         cartesian_scenario.get_actor("ego").unwrap().states.len(),

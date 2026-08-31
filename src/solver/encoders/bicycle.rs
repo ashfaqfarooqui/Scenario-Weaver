@@ -668,14 +668,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
 
         // For bicycle model, speed_v is always >= 0. Multiply by actor direction
         // to get signed longitudinal velocity for correct relative velocity calculation.
-        let actor1_dir = self
-            .spec
-            .get_actor(actor1)
-            .map_or(1, |a| a.direction);
-        let actor2_dir = self
-            .spec
-            .get_actor(actor2)
-            .map_or(1, |a| a.direction);
+        let actor1_dir = self.spec.get_actor(actor1).map_or(1, |a| a.direction);
+        let actor2_dir = self.spec.get_actor(actor2).map_or(1, |a| a.direction);
         let raw_v1 = &self.speed_v[actor1][time];
         let raw_v2 = &self.speed_v[actor2][time];
         let v1 = if actor1_dir == 1 {
@@ -1181,12 +1175,7 @@ mod tests {
             // Lane should be bounded [0, num_lanes-1] = [0, 1]
             for t in 0..=20 {
                 let lane = eval_int(&model, &encoder.lanes["ego"][t]);
-                assert!(
-                    lane >= 0 && lane <= 1,
-                    "lane[{}]={} out of bounds",
-                    t,
-                    lane
-                );
+                assert!(lane >= 0 && lane <= 1, "lane[{}]={} out of bounds", t, lane);
             }
         });
     }
@@ -1228,8 +1217,12 @@ mod tests {
             assert_eq!(encoder.backend.check(), SatResult::Sat);
             let model = encoder.backend.get_model().unwrap();
 
-            let ego_traj = encoder.extract_actor_trajectory(&model, "ego", "ego").unwrap();
-            let npc_traj = encoder.extract_actor_trajectory(&model, "npc", "npc").unwrap();
+            let ego_traj = encoder
+                .extract_actor_trajectory(&model, "ego", "ego")
+                .unwrap();
+            let npc_traj = encoder
+                .extract_actor_trajectory(&model, "npc", "npc")
+                .unwrap();
 
             // Should have horizon+1 states
             assert_eq!(ego_traj.states.len(), horizon + 1);

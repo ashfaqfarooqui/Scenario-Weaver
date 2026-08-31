@@ -443,13 +443,13 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                 // Performance: Eliminates QF_NRA (nonlinear) solver requirement, keeps Z3 in
                 // QF_LRA (linear) theory for 10-20x speedup. Multi-solve now works reliably.
                 if actor.role == ActorRole::Pedestrian {
-                    let max_speed = actor
-                        .behavior
-                        .get("walking_mode")
-                        .map_or(PEDESTRIAN_WALK_MAX_SPEED, |mode| match mode.as_str() {
+                    let max_speed = actor.behavior.get("walking_mode").map_or(
+                        PEDESTRIAN_WALK_MAX_SPEED,
+                        |mode| match mode.as_str() {
                             Some("run") => PEDESTRIAN_RUN_MAX_SPEED,
                             _ => PEDESTRIAN_WALK_MAX_SPEED,
-                        });
+                        },
+                    );
 
                     let max_speed_real = Real::from_rational((max_speed * 10.0) as i64, 10_i64);
                     let neg_max_speed = -max_speed;
@@ -1437,7 +1437,9 @@ mod tests {
             assert_eq!(encoder.backend.check(), SatResult::Sat);
             let model = encoder.backend.get_model().unwrap();
 
-            let trajectory = encoder.extract_actor_trajectory(&model, "ego", "ego").unwrap();
+            let trajectory = encoder
+                .extract_actor_trajectory(&model, "ego", "ego")
+                .unwrap();
 
             // Should have horizon+1 states
             assert_eq!(trajectory.states.len(), horizon + 1);

@@ -133,9 +133,11 @@ impl ScenarioModel for HeadOnModel {
         let oncoming_npc = npcs
             .iter()
             .find(|n| n.lane == passing_lane && n.direction != ego.direction)
-            .ok_or_else(|| ScenarioGenError::InvalidSpec(
-                "Head-on scenario requires an oncoming actor (direction=-1)".to_string()
-            ))?;
+            .ok_or_else(|| {
+                ScenarioGenError::InvalidSpec(
+                    "Head-on scenario requires an oncoming actor (direction=-1)".to_string(),
+                )
+            })?;
         let oncoming_id = &oncoming_npc.id;
 
         let mut constraints = Vec::new();

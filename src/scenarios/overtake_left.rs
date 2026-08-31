@@ -115,7 +115,12 @@ impl ScenarioModel for OvertakeLeftModel {
 
 impl OvertakeLeftModel {
     /// Generate initial conditions LTL
-    fn initial_conditions(&self, spec: &ScenarioSpec, ego_id: &str, npc_id: &str) -> Result<LTLFormula> {
+    fn initial_conditions(
+        &self,
+        spec: &ScenarioSpec,
+        ego_id: &str,
+        npc_id: &str,
+    ) -> Result<LTLFormula> {
         let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let npc = &spec.npcs()[0];
 
@@ -140,7 +145,12 @@ impl OvertakeLeftModel {
     }
 
     /// Generate three-phase overtake behavior LTL
-    fn overtake_behavior(&self, spec: &ScenarioSpec, ego_id: &str, npc_id: &str) -> Result<LTLFormula> {
+    fn overtake_behavior(
+        &self,
+        spec: &ScenarioSpec,
+        ego_id: &str,
+        npc_id: &str,
+    ) -> Result<LTLFormula> {
         let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let original_lane = ego.lane;
         let passing_lane = ego.lane - 1; // Left lane

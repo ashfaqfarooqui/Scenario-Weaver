@@ -199,7 +199,10 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Resu
     if all_blocking_clauses.is_empty() {
         Ok(Bool::from_bool(true))
     } else if all_blocking_clauses.len() == 1 {
-        Ok(all_blocking_clauses.into_iter().next().expect("len checked above"))
+        Ok(all_blocking_clauses
+            .into_iter()
+            .next()
+            .expect("len checked above"))
     } else {
         Ok(Bool::or(&all_blocking_clauses))
     }

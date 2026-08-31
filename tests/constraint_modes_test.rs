@@ -32,7 +32,10 @@ fn test_adversarial_ttc_only_from_file() {
         Ok(scenario) => {
             assert_eq!(scenario.scenario_type, "cut_in_left");
             // TTC should be violated (low)
-            println!("adversarial_ttc: min_ttc={:.2}", scenario.validation.min_ttc);
+            println!(
+                "adversarial_ttc: min_ttc={:.2}",
+                scenario.validation.min_ttc
+            );
             assert!(
                 scenario.validation.min_ttc < 3.0,
                 "TTC should be violated (< 3.0), got: {:.2}",
@@ -112,10 +115,9 @@ fn test_multi_lane_lateral_distance() {
 
 #[test]
 fn test_optimizer_minimize_ttc_cut_in_right() {
-    let yaml = std::fs::read_to_string("examples/cut_in_right.yaml")
-        .expect("Should read example YAML");
-    let mut spec =
-        scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
+    let yaml =
+        std::fs::read_to_string("examples/cut_in_right.yaml").expect("Should read example YAML");
+    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
     spec.optimization_target = OptimizationTarget::MinimizeTtc;
     spec.duration = 5.0;
     spec.time_step = 0.5;
@@ -123,13 +125,19 @@ fn test_optimizer_minimize_ttc_cut_in_right() {
     match scenario_weaver::generate_single_scenario_from_spec(spec) {
         Ok(scenario) => {
             assert_eq!(scenario.scenario_type, "cut_in_right");
-            assert!(scenario.optimization.is_some(), "Should have optimization info");
+            assert!(
+                scenario.optimization.is_some(),
+                "Should have optimization info"
+            );
             let opt = scenario.optimization.as_ref().unwrap();
             assert!(opt.target.contains("MinimizeTtc"));
             assert!(opt.optimal_value.is_some());
             let val = opt.optimal_value.unwrap();
             // TTC proxy (distance - dt*speed) can be negative when closing speed dominates
-            assert!(val > -1000.0 && val < 1000.0, "TTC proxy value out of range: {val}");
+            assert!(
+                val > -1000.0 && val < 1000.0,
+                "TTC proxy value out of range: {val}"
+            );
             println!("cut_in_right MinimizeTtc: optimal={:.2}", val);
         }
         Err(e) => {
@@ -140,10 +148,9 @@ fn test_optimizer_minimize_ttc_cut_in_right() {
 
 #[test]
 fn test_optimizer_minimize_distance_overtake() {
-    let yaml = std::fs::read_to_string("examples/overtake_left.yaml")
-        .expect("Should read example YAML");
-    let mut spec =
-        scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
+    let yaml =
+        std::fs::read_to_string("examples/overtake_left.yaml").expect("Should read example YAML");
+    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
     spec.optimization_target = OptimizationTarget::MinimizeDistance;
     spec.duration = 5.0;
     spec.time_step = 0.5;
@@ -151,10 +158,16 @@ fn test_optimizer_minimize_distance_overtake() {
     match scenario_weaver::generate_single_scenario_from_spec(spec) {
         Ok(scenario) => {
             assert_eq!(scenario.scenario_type, "overtake_left");
-            assert!(scenario.optimization.is_some(), "Should have optimization info");
+            assert!(
+                scenario.optimization.is_some(),
+                "Should have optimization info"
+            );
             let opt = scenario.optimization.as_ref().unwrap();
             assert!(opt.target.contains("MinimizeDistance"));
-            println!("overtake_left MinimizeDistance: optimal={:?}", opt.optimal_value);
+            println!(
+                "overtake_left MinimizeDistance: optimal={:?}",
+                opt.optimal_value
+            );
         }
         Err(e) => {
             println!("overtake_left MinimizeDistance UNSAT (acceptable): {e}");
@@ -164,10 +177,9 @@ fn test_optimizer_minimize_distance_overtake() {
 
 #[test]
 fn test_ignore_mode_generates_with_fewer_constraints() {
-    let yaml = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML");
-    let mut spec =
-        scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
+    let yaml =
+        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
+    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
     spec.constraint_modes = ConstraintModes::Detailed {
         min_ttc: ConstraintMode::Ignore,
         min_distance: ConstraintMode::Enforce,
@@ -197,10 +209,9 @@ fn test_ignore_mode_generates_with_fewer_constraints() {
 
 #[test]
 fn test_violate_mode_negates_constraint() {
-    let yaml = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML");
-    let mut spec =
-        scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
+    let yaml =
+        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
+    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
     spec.constraint_modes = ConstraintModes::Detailed {
         min_ttc: ConstraintMode::Enforce,
         min_distance: ConstraintMode::Violate,
@@ -236,10 +247,9 @@ fn test_violate_mode_negates_constraint() {
 
 #[test]
 fn test_enforce_mode_respects_constraint() {
-    let yaml = std::fs::read_to_string("examples/cut_in_left.yaml")
-        .expect("Should read example YAML");
-    let mut spec =
-        scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
+    let yaml =
+        std::fs::read_to_string("examples/cut_in_left.yaml").expect("Should read example YAML");
+    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml).expect("Should parse YAML");
     // Default is enforce for ttc and distance
     spec.duration = 5.0;
     spec.time_step = 0.5;
@@ -264,7 +274,9 @@ fn test_enforce_mode_respects_constraint() {
     );
     println!(
         "enforce: min_ttc={:.2} (>= {:.1}), min_distance={:.2} (>= {:.1})",
-        scenario.validation.min_ttc, min_ttc_threshold,
-        scenario.validation.min_distance, min_dist_threshold
+        scenario.validation.min_ttc,
+        min_ttc_threshold,
+        scenario.validation.min_distance,
+        min_dist_threshold
     );
 }

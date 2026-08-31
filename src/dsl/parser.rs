@@ -31,10 +31,7 @@ pub fn parse_yaml(yaml_content: &str) -> Result<ScenarioSpec> {
     if let Some(road) = &spec.road {
         let lane_directions = road.lane_directions.clone();
         for actor in &mut spec.actors {
-            let lane_dir = lane_directions
-                .get(actor.lane)
-                .copied()
-                .unwrap_or(1);
+            let lane_dir = lane_directions.get(actor.lane).copied().unwrap_or(1);
             actor.direction = lane_dir;
         }
     }

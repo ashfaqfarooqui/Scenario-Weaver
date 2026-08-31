@@ -370,7 +370,10 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             Proposition::Ahead { actor1, actor2 } => {
                 let px1 = self.get_longitudinal_pos(actor1, time);
                 let px2 = self.get_longitudinal_pos(actor2, time);
-                let direction = self.spec.actors.iter()
+                let direction = self
+                    .spec
+                    .actors
+                    .iter()
                     .find(|a| &a.id == actor1)
                     .map_or(1, |a| a.direction);
                 if direction >= 0 {
@@ -1370,9 +1373,21 @@ mod tests {
             let npc_pos_f64: f64 = crate::solver::backend::parse_z3_real_pub(&npc_px_0.to_string());
             let ego_spd_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_vx_0.to_string());
 
-            assert!((ego_pos_f64 - 50.0).abs() < 0.1, "ego_pos should be ~50.0, got {}", ego_pos_f64);
-            assert!((ego_spd_f64 - 15.0).abs() < 0.1, "ego_speed should be ~15.0, got {}", ego_spd_f64);
-            assert!(npc_pos_f64 >= 60.0 && npc_pos_f64 <= 80.0, "npc_pos should be in [60,80], got {}", npc_pos_f64);
+            assert!(
+                (ego_pos_f64 - 50.0).abs() < 0.1,
+                "ego_pos should be ~50.0, got {}",
+                ego_pos_f64
+            );
+            assert!(
+                (ego_spd_f64 - 15.0).abs() < 0.1,
+                "ego_speed should be ~15.0, got {}",
+                ego_spd_f64
+            );
+            assert!(
+                npc_pos_f64 >= 60.0 && npc_pos_f64 <= 80.0,
+                "npc_pos should be in [60,80], got {}",
+                npc_pos_f64
+            );
         });
     }
 
@@ -1400,8 +1415,16 @@ mod tests {
             let ego_py_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_py_0.to_string());
             let npc_py_f64: f64 = crate::solver::backend::parse_z3_real_pub(&npc_py_0.to_string());
 
-            assert!((ego_py_f64 - 5.25).abs() < 0.5, "ego_py should be ~5.25, got {}", ego_py_f64);
-            assert!((npc_py_f64 - 1.75).abs() < 0.5, "npc_py should be ~1.75, got {}", npc_py_f64);
+            assert!(
+                (ego_py_f64 - 5.25).abs() < 0.5,
+                "ego_py should be ~5.25, got {}",
+                ego_py_f64
+            );
+            assert!(
+                (npc_py_f64 - 1.75).abs() < 0.5,
+                "npc_py should be ~1.75, got {}",
+                npc_py_f64
+            );
         });
     }
 
@@ -1442,8 +1465,13 @@ mod tests {
             let px1_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_px_1.to_string());
             let vx0_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_vx_0.to_string());
 
-            assert!((px1_f64 - (px0_f64 + vx0_f64 * 0.5)).abs() < 0.1,
-                "kinematic relation violated: px1={}, px0={}, vx0={}", px1_f64, px0_f64, vx0_f64);
+            assert!(
+                (px1_f64 - (px0_f64 + vx0_f64 * 0.5)).abs() < 0.1,
+                "kinematic relation violated: px1={}, px0={}, vx0={}",
+                px1_f64,
+                px0_f64,
+                vx0_f64
+            );
         });
     }
 

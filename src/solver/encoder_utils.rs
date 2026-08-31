@@ -451,7 +451,9 @@ mod tests {
             solver.assert(&lane2._eq(&Int::from_i64(2)));
             solver.assert(&py1._eq(&Real::from_rational(0, 1)));
             solver.assert(&py2._eq(&Real::from_rational(100, 1)));
-            solver.assert(&encode_same_lane_constraint(&lane1, &lane2, &py1, &py2, 3.5));
+            solver.assert(&encode_same_lane_constraint(
+                &lane1, &lane2, &py1, &py2, 3.5,
+            ));
             assert_eq!(solver.check(), SatResult::Sat);
         });
     }
@@ -469,7 +471,9 @@ mod tests {
             solver.assert(&lane2._eq(&Int::from_i64(2)));
             solver.assert(&py1._eq(&Real::from_rational(10, 10)));
             solver.assert(&py2._eq(&Real::from_rational(20, 10)));
-            solver.assert(&encode_same_lane_constraint(&lane1, &lane2, &py1, &py2, 3.5));
+            solver.assert(&encode_same_lane_constraint(
+                &lane1, &lane2, &py1, &py2, 3.5,
+            ));
             assert_eq!(solver.check(), SatResult::Sat);
         });
     }
@@ -487,7 +491,9 @@ mod tests {
             solver.assert(&lane2._eq(&Int::from_i64(3)));
             solver.assert(&py1._eq(&Real::from_rational(0, 1)));
             solver.assert(&py2._eq(&Real::from_rational(50, 1)));
-            solver.assert(&encode_same_lane_constraint(&lane1, &lane2, &py1, &py2, 3.5));
+            solver.assert(&encode_same_lane_constraint(
+                &lane1, &lane2, &py1, &py2, 3.5,
+            ));
             assert_eq!(solver.check(), SatResult::Unsat);
         });
     }

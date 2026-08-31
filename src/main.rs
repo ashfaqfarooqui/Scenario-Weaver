@@ -214,7 +214,10 @@ fn print_scenario_summary(scenario: &scenario_weaver::scenario::model::Scenario)
     println!("Scenario ID: {}", scenario.scenario_id);
     println!("Type: {}", scenario.scenario_type);
     println!("Duration: {:.1}s", scenario.duration);
-    println!("Time steps: {}", scenario.actors.first().map_or(0, |a| a.states.len()));
+    println!(
+        "Time steps: {}",
+        scenario.actors.first().map_or(0, |a| a.states.len())
+    );
 
     // Print actor initial conditions
     for actor in &scenario.actors {

@@ -8,8 +8,8 @@ use z3::ast::{Int, Real};
 use z3::Model;
 
 use crate::dsl::types::{
-    ActorSpec, PEDESTRIAN_MAX_ACCELERATION, PEDESTRIAN_MAX_DECELERATION,
-    PEDESTRIAN_RUN_MAX_SPEED, PEDESTRIAN_WALK_MAX_SPEED,
+    ActorSpec, PEDESTRIAN_MAX_ACCELERATION, PEDESTRIAN_MAX_DECELERATION, PEDESTRIAN_RUN_MAX_SPEED,
+    PEDESTRIAN_WALK_MAX_SPEED,
 };
 use crate::error::Result;
 use crate::scenario::model::{
@@ -283,18 +283,28 @@ mod tests {
             let ax = vec![Real::new_const("ax_0")];
             let ay = vec![Real::new_const("ay_0")];
 
-            encode_pedestrian_initial_state(&backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width);
+            encode_pedestrian_initial_state(
+                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width,
+            );
 
             assert_eq!(backend.check(), SatResult::Sat);
             let model = backend.get_model().unwrap();
 
             // px should be exactly 10.0
             let px_val = eval_real_val(&model, &px[0]);
-            assert!((px_val - 10.0).abs() < 0.01, "px should be 10.0, got {}", px_val);
+            assert!(
+                (px_val - 10.0).abs() < 0.01,
+                "px should be 10.0, got {}",
+                px_val
+            );
 
             // py should be lane*lane_width + lane_width/2 = 1*3.5 + 1.75 = 5.25
             let py_val = eval_real_val(&model, &py[0]);
-            assert!((py_val - 5.25).abs() < 0.01, "py should be 5.25, got {}", py_val);
+            assert!(
+                (py_val - 5.25).abs() < 0.01,
+                "py should be 5.25, got {}",
+                py_val
+            );
 
             // vx should be in [-1.41, 1.41] (PEDESTRIAN_WALK_MAX_SPEED)
             let vx_val = eval_real_val(&model, &vx[0]);
@@ -302,14 +312,17 @@ mod tests {
                 vx_val >= -PEDESTRIAN_WALK_MAX_SPEED - 0.01
                     && vx_val <= PEDESTRIAN_WALK_MAX_SPEED + 0.01,
                 "vx should be in [-{}, {}], got {}",
-                PEDESTRIAN_WALK_MAX_SPEED, PEDESTRIAN_WALK_MAX_SPEED, vx_val
+                PEDESTRIAN_WALK_MAX_SPEED,
+                PEDESTRIAN_WALK_MAX_SPEED,
+                vx_val
             );
 
             // ax should be in [-0.5, 0.5] (clamped to pedestrian limits)
             let ax_val = eval_real_val(&model, &ax[0]);
             assert!(
                 ax_val >= -0.5 - 0.01 && ax_val <= 0.5 + 0.01,
-                "ax should be in [-0.5, 0.5], got {}", ax_val
+                "ax should be in [-0.5, 0.5], got {}",
+                ax_val
             );
         });
     }
@@ -329,7 +342,9 @@ mod tests {
             let ax = vec![Real::new_const("ax_0")];
             let ay = vec![Real::new_const("ay_0")];
 
-            encode_pedestrian_initial_state(&backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width);
+            encode_pedestrian_initial_state(
+                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width,
+            );
 
             assert_eq!(backend.check(), SatResult::Sat);
             let model = backend.get_model().unwrap();
@@ -338,12 +353,17 @@ mod tests {
             let px_val = eval_real_val(&model, &px[0]);
             assert!(
                 px_val >= 5.0 - 0.01 && px_val <= 15.0 + 0.01,
-                "px should be in [5, 15], got {}", px_val
+                "px should be in [5, 15], got {}",
+                px_val
             );
 
             // py should be 0*3.5 + 1.75 = 1.75
             let py_val = eval_real_val(&model, &py[0]);
-            assert!((py_val - 1.75).abs() < 0.01, "py should be 1.75, got {}", py_val);
+            assert!(
+                (py_val - 1.75).abs() < 0.01,
+                "py should be 1.75, got {}",
+                py_val
+            );
         });
     }
 
@@ -362,13 +382,19 @@ mod tests {
             let ax = vec![Real::new_const("ax_0")];
             let ay = vec![Real::new_const("ay_0")];
 
-            encode_pedestrian_initial_state(&backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width);
+            encode_pedestrian_initial_state(
+                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width,
+            );
 
             // Assert vy must be exactly 99.0 (way outside walking limits) to prove it's unconstrained
             let big_val = Real::from_rational(990, 10);
             backend.assert(&vy[0].eq(&big_val));
 
-            assert_eq!(backend.check(), SatResult::Sat, "vy[0] should be unconstrained");
+            assert_eq!(
+                backend.check(),
+                SatResult::Sat,
+                "vy[0] should be unconstrained"
+            );
         });
     }
 
@@ -387,13 +413,19 @@ mod tests {
             let ax = vec![Real::new_const("ax_0")];
             let ay = vec![Real::new_const("ay_0")];
 
-            encode_pedestrian_initial_state(&backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width);
+            encode_pedestrian_initial_state(
+                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width,
+            );
 
             // Assert ay must be 50.0 (way outside pedestrian limits) to prove it's unconstrained
             let big_val = Real::from_rational(500, 10);
             backend.assert(&ay[0].eq(&big_val));
 
-            assert_eq!(backend.check(), SatResult::Sat, "ay[0] should be unconstrained");
+            assert_eq!(
+                backend.check(),
+                SatResult::Sat,
+                "ay[0] should be unconstrained"
+            );
         });
     }
 
@@ -412,13 +444,19 @@ mod tests {
             let ax = vec![Real::new_const("ax_0")];
             let ay = vec![Real::new_const("ay_0")];
 
-            encode_pedestrian_initial_state(&backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width);
+            encode_pedestrian_initial_state(
+                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width,
+            );
 
             // Try to force vx > PEDESTRIAN_RUN_MAX_SPEED => should be UNSAT
             let too_fast = Real::from_rational((PEDESTRIAN_RUN_MAX_SPEED * 10.0) as i64 + 1, 10);
             backend.assert(&vx[0].gt(&too_fast));
 
-            assert_eq!(backend.check(), SatResult::Unsat, "vx > run_max_speed should be UNSAT");
+            assert_eq!(
+                backend.check(),
+                SatResult::Unsat,
+                "vx > run_max_speed should be UNSAT"
+            );
         });
     }
 
@@ -451,8 +489,8 @@ mod tests {
             backend.assert(&ay_t.eq(&Real::from_rational(-1, 10)));
 
             encode_pedestrian_kinematics_step(
-                &backend, &px_t, &px_t1, &py_t, &py_t1,
-                &vx_t, &vx_t1, &vy_t, &vy_t1, &ax_t, &ay_t, &dt,
+                &backend, &px_t, &px_t1, &py_t, &py_t1, &vx_t, &vx_t1, &vy_t, &vy_t1, &ax_t, &ay_t,
+                &dt,
             );
 
             assert_eq!(backend.check(), SatResult::Sat);
@@ -460,11 +498,19 @@ mod tests {
 
             // px_t1 = 10.0 + 1.0 * 0.5 = 10.5
             let px1 = eval_real_val(&model, &px_t1);
-            assert!((px1 - 10.5).abs() < 0.01, "px_t1 should be 10.5, got {}", px1);
+            assert!(
+                (px1 - 10.5).abs() < 0.01,
+                "px_t1 should be 10.5, got {}",
+                px1
+            );
 
             // py_t1 = 5.0 + 0.5 * 0.5 = 5.25
             let py1 = eval_real_val(&model, &py_t1);
-            assert!((py1 - 5.25).abs() < 0.01, "py_t1 should be 5.25, got {}", py1);
+            assert!(
+                (py1 - 5.25).abs() < 0.01,
+                "py_t1 should be 5.25, got {}",
+                py1
+            );
 
             // vx_t1 = 1.0 + 0.2 * 0.5 = 1.1
             let vx1 = eval_real_val(&model, &vx_t1);
@@ -472,7 +518,11 @@ mod tests {
 
             // vy_t1 = 0.5 + (-0.1) * 0.5 = 0.45
             let vy1 = eval_real_val(&model, &vy_t1);
-            assert!((vy1 - 0.45).abs() < 0.01, "vy_t1 should be 0.45, got {}", vy1);
+            assert!(
+                (vy1 - 0.45).abs() < 0.01,
+                "vy_t1 should be 0.45, got {}",
+                vy1
+            );
         });
     }
 
@@ -485,18 +535,30 @@ mod tests {
             let dt = Real::from_rational(5, 10); // 0.5s
 
             // Create variable arrays for 5 timesteps (horizon+1)
-            let px: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("px_{}", t))).collect();
-            let py: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("py_{}", t))).collect();
-            let vx: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("vx_{}", t))).collect();
-            let vy: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("vy_{}", t))).collect();
-            let ax: Vec<_> = (0..horizon).map(|t| Real::new_const(format!("ax_{}", t))).collect();
-            let ay: Vec<_> = (0..horizon).map(|t| Real::new_const(format!("ay_{}", t))).collect();
+            let px: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("px_{}", t)))
+                .collect();
+            let py: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("py_{}", t)))
+                .collect();
+            let vx: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("vx_{}", t)))
+                .collect();
+            let vy: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("vy_{}", t)))
+                .collect();
+            let ax: Vec<_> = (0..horizon)
+                .map(|t| Real::new_const(format!("ax_{}", t)))
+                .collect();
+            let ay: Vec<_> = (0..horizon)
+                .map(|t| Real::new_const(format!("ay_{}", t)))
+                .collect();
 
             // Fix initial state
             backend.assert(&px[0].eq(&Real::from_rational(0, 1)));
             backend.assert(&py[0].eq(&Real::from_rational(0, 1)));
             backend.assert(&vx[0].eq(&Real::from_rational(10, 10))); // 1.0 m/s
-            backend.assert(&vy[0].eq(&Real::from_rational(5, 10)));  // 0.5 m/s
+            backend.assert(&vy[0].eq(&Real::from_rational(5, 10))); // 0.5 m/s
 
             // Fix constant acceleration
             for t in 0..horizon {
@@ -507,8 +569,18 @@ mod tests {
             // Encode kinematics for each step
             for t in 0..horizon {
                 encode_pedestrian_kinematics_step(
-                    &backend, &px[t], &px[t + 1], &py[t], &py[t + 1],
-                    &vx[t], &vx[t + 1], &vy[t], &vy[t + 1], &ax[t], &ay[t], &dt,
+                    &backend,
+                    &px[t],
+                    &px[t + 1],
+                    &py[t],
+                    &py[t + 1],
+                    &vx[t],
+                    &vx[t + 1],
+                    &vy[t],
+                    &vy[t + 1],
+                    &ax[t],
+                    &ay[t],
+                    &dt,
                 );
             }
 
@@ -518,11 +590,19 @@ mod tests {
             // With constant velocity (ax=ay=0), position should increase linearly
             // px at t=4: 0 + 1.0 * 0.5 * 4 = 2.0
             let px_final = eval_real_val(&model, &px[horizon]);
-            assert!((px_final - 2.0).abs() < 0.01, "px[4] should be 2.0, got {}", px_final);
+            assert!(
+                (px_final - 2.0).abs() < 0.01,
+                "px[4] should be 2.0, got {}",
+                px_final
+            );
 
             // py at t=4: 0 + 0.5 * 0.5 * 4 = 1.0
             let py_final = eval_real_val(&model, &py[horizon]);
-            assert!((py_final - 1.0).abs() < 0.01, "py[4] should be 1.0, got {}", py_final);
+            assert!(
+                (py_final - 1.0).abs() < 0.01,
+                "py[4] should be 1.0, got {}",
+                py_final
+            );
         });
     }
 
@@ -546,7 +626,11 @@ mod tests {
             let too_fast = Real::from_rational((PEDESTRIAN_WALK_MAX_SPEED * 10.0) as i64 + 1, 10);
             backend.assert(&vx.gt(&too_fast));
 
-            assert_eq!(backend.check(), SatResult::Unsat, "vx > walk_max should be UNSAT");
+            assert_eq!(
+                backend.check(),
+                SatResult::Unsat,
+                "vx > walk_max should be UNSAT"
+            );
         });
     }
 
@@ -568,7 +652,11 @@ mod tests {
             let too_neg = Real::from_rational(((-PEDESTRIAN_WALK_MAX_SPEED) * 10.0) as i64 - 1, 10);
             backend.assert(&vx.lt(&too_neg));
 
-            assert_eq!(backend.check(), SatResult::Unsat, "vx < -walk_max should be UNSAT");
+            assert_eq!(
+                backend.check(),
+                SatResult::Unsat,
+                "vx < -walk_max should be UNSAT"
+            );
         });
     }
 
@@ -592,7 +680,11 @@ mod tests {
             let too_high = Real::from_rational(6, 10); // 0.6
             backend.assert(&ax.gt(&too_high));
 
-            assert_eq!(backend.check(), SatResult::Unsat, "ax > 0.5 should be UNSAT");
+            assert_eq!(
+                backend.check(),
+                SatResult::Unsat,
+                "ax > 0.5 should be UNSAT"
+            );
         });
     }
 
@@ -614,7 +706,11 @@ mod tests {
             let v_3 = Real::from_rational(30, 10);
             backend.assert(&vx.eq(&v_3));
 
-            assert_eq!(backend.check(), SatResult::Sat, "vx=3.0 should be SAT for runner");
+            assert_eq!(
+                backend.check(),
+                SatResult::Sat,
+                "vx=3.0 should be SAT for runner"
+            );
         });
     }
 
@@ -636,7 +732,11 @@ mod tests {
             let too_fast = Real::from_rational((PEDESTRIAN_WALK_MAX_SPEED * 10.0) as i64 + 1, 10);
             backend.assert(&vy.gt(&too_fast));
 
-            assert_eq!(backend.check(), SatResult::Unsat, "vy > walk_max should be UNSAT");
+            assert_eq!(
+                backend.check(),
+                SatResult::Unsat,
+                "vy > walk_max should be UNSAT"
+            );
         });
     }
 
@@ -652,19 +752,33 @@ mod tests {
             let dt = Real::from_rational(5, 10);
 
             // Create variables
-            let px: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("px_{}", t))).collect();
-            let py: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("py_{}", t))).collect();
-            let vx: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("vx_{}", t))).collect();
-            let vy: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("vy_{}", t))).collect();
-            let ax: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("ax_{}", t))).collect();
-            let ay: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("ay_{}", t))).collect();
-            let lanes: Vec<_> = (0..=horizon).map(|t| Int::new_const(format!("lane_{}", t))).collect();
+            let px: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("px_{}", t)))
+                .collect();
+            let py: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("py_{}", t)))
+                .collect();
+            let vx: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("vx_{}", t)))
+                .collect();
+            let vy: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("vy_{}", t)))
+                .collect();
+            let ax: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("ax_{}", t)))
+                .collect();
+            let ay: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("ay_{}", t)))
+                .collect();
+            let lanes: Vec<_> = (0..=horizon)
+                .map(|t| Int::new_const(format!("lane_{}", t)))
+                .collect();
 
             // Fix initial state and constant dynamics
             backend.assert(&px[0].eq(&Real::from_rational(0, 1)));
             backend.assert(&py[0].eq(&Real::from_rational(35, 10))); // 3.5
             backend.assert(&vx[0].eq(&Real::from_rational(10, 10))); // 1.0
-            backend.assert(&vy[0].eq(&Real::from_rational(5, 10)));  // 0.5
+            backend.assert(&vy[0].eq(&Real::from_rational(5, 10))); // 0.5
             backend.assert(&ax[0].eq(&Real::from_rational(0, 1)));
             backend.assert(&ay[0].eq(&Real::from_rational(0, 1)));
 
@@ -680,8 +794,18 @@ mod tests {
                     backend.assert(&ay[t].eq(&Real::from_rational(0, 1)));
                 }
                 encode_pedestrian_kinematics_step(
-                    &backend, &px[t], &px[t + 1], &py[t], &py[t + 1],
-                    &vx[t], &vx[t + 1], &vy[t], &vy[t + 1], &ax[t], &ay[t], &dt,
+                    &backend,
+                    &px[t],
+                    &px[t + 1],
+                    &py[t],
+                    &py[t + 1],
+                    &vx[t],
+                    &vx[t + 1],
+                    &vy[t],
+                    &vy[t + 1],
+                    &ax[t],
+                    &ay[t],
+                    &dt,
                 );
             }
 
@@ -690,7 +814,8 @@ mod tests {
 
             let trajectory = extract_pedestrian_trajectory(
                 &model, "ped1", &px, &py, &vx, &vy, &ax, &ay, &lanes, horizon, dt_val,
-            ).unwrap();
+            )
+            .unwrap();
 
             assert_eq!(trajectory.id, "ped1");
             assert_eq!(trajectory.role, "pedestrian");
@@ -708,14 +833,14 @@ mod tests {
             // Check second state (t=0.5)
             let s1 = &trajectory.states[1];
             assert!((s1.time - 0.5).abs() < 0.001);
-            assert!((s1.cartesian.position.x - 0.5).abs() < 0.01);  // 0 + 1.0*0.5
+            assert!((s1.cartesian.position.x - 0.5).abs() < 0.01); // 0 + 1.0*0.5
             assert!((s1.cartesian.position.y - 3.75).abs() < 0.01); // 3.5 + 0.5*0.5
 
             // Check third state (t=1.0)
             let s2 = &trajectory.states[2];
             assert!((s2.time - 1.0).abs() < 0.001);
-            assert!((s2.cartesian.position.x - 1.0).abs() < 0.01);  // 0.5 + 1.0*0.5
-            assert!((s2.cartesian.position.y - 4.0).abs() < 0.01);  // 3.75 + 0.5*0.5
+            assert!((s2.cartesian.position.x - 1.0).abs() < 0.01); // 0.5 + 1.0*0.5
+            assert!((s2.cartesian.position.y - 4.0).abs() < 0.01); // 3.75 + 0.5*0.5
         });
     }
 
@@ -733,13 +858,27 @@ mod tests {
             let dt = Real::from_rational(5, 10);
 
             // Create variables
-            let px: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("px_{}", t))).collect();
-            let py: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("py_{}", t))).collect();
-            let vx: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("vx_{}", t))).collect();
-            let vy: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("vy_{}", t))).collect();
-            let ax: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("ax_{}", t))).collect();
-            let ay: Vec<_> = (0..=horizon).map(|t| Real::new_const(format!("ay_{}", t))).collect();
-            let lanes: Vec<_> = (0..=horizon).map(|t| Int::new_const(format!("lane_{}", t))).collect();
+            let px: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("px_{}", t)))
+                .collect();
+            let py: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("py_{}", t)))
+                .collect();
+            let vx: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("vx_{}", t)))
+                .collect();
+            let vy: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("vy_{}", t)))
+                .collect();
+            let ax: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("ax_{}", t)))
+                .collect();
+            let ay: Vec<_> = (0..=horizon)
+                .map(|t| Real::new_const(format!("ay_{}", t)))
+                .collect();
+            let lanes: Vec<_> = (0..=horizon)
+                .map(|t| Int::new_const(format!("lane_{}", t)))
+                .collect();
 
             // Fix lanes (pedestrian stays on lane 0 throughout)
             for t in 0..=horizon {
@@ -747,29 +886,60 @@ mod tests {
             }
 
             // 1. Encode initial state
-            encode_pedestrian_initial_state(&backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width);
+            encode_pedestrian_initial_state(
+                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width,
+            );
 
             // 2. Encode kinematics and bounds for each step
             for t in 0..horizon {
                 encode_pedestrian_kinematics_step(
-                    &backend, &px[t], &px[t + 1], &py[t], &py[t + 1],
-                    &vx[t], &vx[t + 1], &vy[t], &vy[t + 1], &ax[t], &ay[t], &dt,
+                    &backend,
+                    &px[t],
+                    &px[t + 1],
+                    &py[t],
+                    &py[t + 1],
+                    &vx[t],
+                    &vx[t + 1],
+                    &vy[t],
+                    &vy[t + 1],
+                    &ax[t],
+                    &ay[t],
+                    &dt,
                 );
                 encode_pedestrian_bounds_step(&backend, &vx[t], &vy[t], &ax[t], &ay[t], &actor);
             }
             // Also bound the final velocity step
             encode_pedestrian_bounds_step(
-                &backend, &vx[horizon], &vy[horizon],
-                &ax[horizon - 1], &ay[horizon - 1], &actor,
+                &backend,
+                &vx[horizon],
+                &vy[horizon],
+                &ax[horizon - 1],
+                &ay[horizon - 1],
+                &actor,
             );
 
-            assert_eq!(backend.check(), SatResult::Sat, "Full pedestrian encoding should be SAT");
+            assert_eq!(
+                backend.check(),
+                SatResult::Sat,
+                "Full pedestrian encoding should be SAT"
+            );
             let model = backend.get_model().unwrap();
 
             // 3. Extract trajectory
             let trajectory = extract_pedestrian_trajectory(
-                &model, "ped_cross", &px, &py, &vx, &vy, &ax, &ay, &lanes, horizon, dt_val,
-            ).unwrap();
+                &model,
+                "ped_cross",
+                &px,
+                &py,
+                &vx,
+                &vy,
+                &ax,
+                &ay,
+                &lanes,
+                horizon,
+                dt_val,
+            )
+            .unwrap();
 
             assert_eq!(trajectory.states.len(), horizon + 1);
             assert_eq!(trajectory.role, "pedestrian");
@@ -785,12 +955,16 @@ mod tests {
                 assert!(
                     (s_next.cartesian.position.x - expected_px).abs() < 0.05,
                     "px mismatch at t={}: {} vs expected {}",
-                    t + 1, s_next.cartesian.position.x, expected_px
+                    t + 1,
+                    s_next.cartesian.position.x,
+                    expected_px
                 );
                 assert!(
                     (s_next.cartesian.position.y - expected_py).abs() < 0.05,
                     "py mismatch at t={}: {} vs expected {}",
-                    t + 1, s_next.cartesian.position.y, expected_py
+                    t + 1,
+                    s_next.cartesian.position.y,
+                    expected_py
                 );
             }
 
@@ -799,11 +973,15 @@ mod tests {
                 let s = &trajectory.states[t];
                 assert!(
                     s.cartesian.velocity.vx.abs() <= PEDESTRIAN_WALK_MAX_SPEED + 0.05,
-                    "vx out of bounds at t={}: {}", t, s.cartesian.velocity.vx
+                    "vx out of bounds at t={}: {}",
+                    t,
+                    s.cartesian.velocity.vx
                 );
                 assert!(
                     s.cartesian.velocity.vy.abs() <= PEDESTRIAN_WALK_MAX_SPEED + 0.05,
-                    "vy out of bounds at t={}: {}", t, s.cartesian.velocity.vy
+                    "vy out of bounds at t={}: {}",
+                    t,
+                    s.cartesian.velocity.vy
                 );
             }
         });

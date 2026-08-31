@@ -3,9 +3,9 @@
 //! Converts internal Scenario data structures to SVG static images
 //! showing vehicle trajectories, lane layout, and safety metrics.
 
+use super::visualization_common::{self, ActorVisualRole, ViewportBounds};
 use crate::error::Result;
 use crate::scenario::model::Scenario;
-use super::visualization_common::{self, ActorVisualRole, ViewportBounds};
 use svg::node::element::{Circle, Group, Line, Path, Rectangle, Text};
 use svg::Document;
 
@@ -376,8 +376,8 @@ impl<'a> SvgVisualizer<'a> {
                             .iter()
                             .find(|s| (s.time - time).abs() < tolerance)
                         {
-                            let (svg_x, svg_y) = self
-                                .transform_coords(state.position().x, state.position().y);
+                            let (svg_x, svg_y) =
+                                self.transform_coords(state.position().x, state.position().y);
                             let marker = Circle::new()
                                 .set("cx", svg_x)
                                 .set("cy", svg_y)

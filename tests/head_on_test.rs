@@ -39,8 +39,14 @@ fn test_head_on_near_miss_generation() {
     assert_eq!(ego.role, "ego");
 
     // At least one actor has negative velocity (oncoming)
-    let has_negative_vx = scenario.actors.iter().any(|a| a.states[0].velocity().vx < 0.0);
-    assert!(has_negative_vx, "Should have an oncoming actor with negative vx");
+    let has_negative_vx = scenario
+        .actors
+        .iter()
+        .any(|a| a.states[0].velocity().vx < 0.0);
+    assert!(
+        has_negative_vx,
+        "Should have an oncoming actor with negative vx"
+    );
 
     // Safe scenario: constraints should ideally be satisfied, but the solver
     // may find solutions where minor violations occur due to discretization
@@ -194,7 +200,11 @@ fn test_head_on_export_openlabel() {
     if let Some(openlabel) = parsed.get("openlabel") {
         if let Some(objects) = openlabel.get("objects") {
             let obj_map = objects.as_object().expect("objects should be a map");
-            assert_eq!(obj_map.len(), 3, "Should have 3 actors in OpenLABEL objects");
+            assert_eq!(
+                obj_map.len(),
+                3,
+                "Should have 3 actors in OpenLABEL objects"
+            );
         }
     }
 }

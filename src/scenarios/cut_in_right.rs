@@ -61,7 +61,12 @@ impl ScenarioModel for CutInRightModel {
 }
 
 impl CutInRightModel {
-    fn initial_conditions(&self, spec: &ScenarioSpec, ego_id: &str, npc_id: &str) -> Result<LTLFormula> {
+    fn initial_conditions(
+        &self,
+        spec: &ScenarioSpec,
+        ego_id: &str,
+        npc_id: &str,
+    ) -> Result<LTLFormula> {
         let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let npc = spec.npcs()[0];
 

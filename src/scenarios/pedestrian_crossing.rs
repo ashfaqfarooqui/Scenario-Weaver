@@ -48,12 +48,10 @@ impl ScenarioModel for PedestrianCrossingModel {
 
         match direction {
             "left_to_right" | "right_to_left" => Ok(()),
-            _ => {
-                Err(ScenarioGenError::InvalidSpec(format!(
-                    "Invalid direction '{}': must be 'left_to_right' or 'right_to_left'",
-                    direction
-                )))
-            }
+            _ => Err(ScenarioGenError::InvalidSpec(format!(
+                "Invalid direction '{}': must be 'left_to_right' or 'right_to_left'",
+                direction
+            ))),
         }
     }
 

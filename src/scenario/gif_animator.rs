@@ -3,9 +3,9 @@
 //! Converts internal Scenario data structures to animated GIF showing
 //! vehicle trajectories evolving over time with real-time metrics overlay.
 
+use super::visualization_common::{self, ActorVisualRole, ViewportBounds};
 use crate::error::{Result, ScenarioGenError};
 use crate::scenario::model::{Scenario, Velocity};
-use super::visualization_common::{self, ActorVisualRole, ViewportBounds};
 use ab_glyph::{FontArc, PxScale};
 use gif::{Encoder, Frame, Repeat};
 use image::{Rgb, RgbImage};

@@ -113,8 +113,7 @@ fn test_export_scenario_to_xodr_valid() {
 fn test_export_scenario_to_openlabel_valid() {
     let scenario = generate_single_scenario(VALID_YAML).expect("Should generate scenario");
     let json_str = export_scenario_to_openlabel(&scenario).expect("Should export to OpenLABEL");
-    let parsed: serde_json::Value =
-        serde_json::from_str(&json_str).expect("Should be valid JSON");
+    let parsed: serde_json::Value = serde_json::from_str(&json_str).expect("Should be valid JSON");
     assert!(
         parsed.get("openlabel").is_some(),
         "JSON should have 'openlabel' key"
