@@ -101,8 +101,9 @@ pub struct LaneChangeConfig {
 
 /// Kinematic bicycle model parameters for a single actor.
 ///
-/// Models vehicle dynamics with front-wheel steering using a small-angle
-/// approximation. The minimum turn radius is `wheelbase / max_steering_angle`.
+/// Models vehicle dynamics with front-wheel steering. The minimum turn radius
+/// is the exact kinematic one, `wheelbase / tan(max_steering_angle)` — see
+/// [`BicycleParams::min_turn_radius`].
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct BicycleParams {
     /// Wheelbase in meters (distance between front and rear axles)
@@ -122,15 +123,36 @@ impl BicycleParams {
         if self.max_steering_angle <= 0.0 {
             return Err("max_steering_angle must be positive".to_string());
         }
+        // `min_turn_radius` divides by `tan(max_steering_angle)`, which is
+        // singular at pi/2 and negative beyond it. A steering angle at or past
+        // 90 deg is not a vehicle in any case.
+        if self.max_steering_angle >= std::f64::consts::FRAC_PI_2 {
+            return Err(format!(
+                "max_steering_angle must be below pi/2 ({:.4} rad), got {}",
+                std::f64::consts::FRAC_PI_2,
+                self.max_steering_angle
+            ));
+        }
         if self.max_steering_rate <= 0.0 {
             return Err("max_steering_rate must be positive".to_string());
         }
         Ok(())
     }
 
-    /// Get minimum turn radius (R = L / tan(δ_max) ≈ L / δ_max for small angles)
+    /// Minimum turn radius of the kinematic bicycle model, `R = L / tan(δ_max)`.
+    ///
+    /// This is the exact geometric relation, not the small-angle
+    /// `L / δ_max` this used to return. The two differ by
+    /// `tan(δ_max) / δ_max`, which at the 0.6 rad default steering lock of
+    /// `examples/bicycle_lane_change.yaml` is 14 %: 2.7 / tan(0.6) = 3.95 m,
+    /// against the 4.5 m the old formula (and `docs/coordinate-systems.md`)
+    /// advertised.
+    ///
+    /// `BicycleParams::validate` keeps `max_steering_angle` in (0, pi/2), so
+    /// the tangent is finite and positive here.
+    #[must_use]
     pub fn min_turn_radius(&self) -> f64 {
-        self.wheelbase / self.max_steering_angle
+        self.wheelbase / self.max_steering_angle.tan()
     }
 }
 
@@ -155,6 +177,13 @@ impl BicycleConfig {
         }
         if self.default_max_steering_angle <= 0.0 {
             return Err("default_max_steering_angle must be positive".to_string());
+        }
+        if self.default_max_steering_angle >= std::f64::consts::FRAC_PI_2 {
+            return Err(format!(
+                "default_max_steering_angle must be below pi/2 ({:.4} rad), got {}",
+                std::f64::consts::FRAC_PI_2,
+                self.default_max_steering_angle
+            ));
         }
         if self.default_max_steering_rate <= 0.0 {
             return Err("default_max_steering_rate must be positive".to_string());
@@ -1025,6 +1054,43 @@ num_scenarios: 1
         assert_eq!(spec.get_lane_width(), 3.5);
         assert_eq!(spec.get_lane_direction(0), 1);
         assert_eq!(spec.get_lane_direction(2), -1);
+    }
+
+    /// SW-11: the minimum turn radius is the exact kinematic
+    /// `L / tan(δ_max)`, not the small-angle `L / δ_max`.
+    #[test]
+    fn test_min_turn_radius_is_exact() {
+        let params = BicycleParams {
+            wheelbase: 2.7,
+            max_steering_angle: 0.6,
+            max_steering_rate: 0.5,
+        };
+        let exact = 2.7 / 0.6_f64.tan();
+        assert!((params.min_turn_radius() - exact).abs() < 1e-12);
+        // The value docs/coordinate-systems.md used to advertise, 14 % out.
+        let small_angle: f64 = 2.7 / 0.6;
+        assert!((small_angle - 4.5).abs() < 1e-9);
+        assert!((params.min_turn_radius() - 3.9466).abs() < 1e-4);
+        // 14 % apart, which is the error the docs advertised.
+        assert!(((small_angle / params.min_turn_radius()) - 1.140).abs() < 1e-3);
+    }
+
+    /// `tan` is singular at pi/2, so the steering lock has to stay below it.
+    #[test]
+    fn test_steering_angle_must_be_below_a_right_angle() {
+        let params = BicycleParams {
+            wheelbase: 2.7,
+            max_steering_angle: std::f64::consts::FRAC_PI_2,
+            max_steering_rate: 0.5,
+        };
+        assert!(params.validate().is_err());
+
+        let cfg = BicycleConfig {
+            default_wheelbase: 2.7,
+            default_max_steering_angle: 2.0,
+            default_max_steering_rate: 0.5,
+        };
+        assert!(cfg.validate().is_err());
     }
 
     #[test]

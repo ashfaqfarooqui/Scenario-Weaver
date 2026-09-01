@@ -12,7 +12,7 @@
 #       concentrated in tests/) is burned down, add `-D warnings` to that step
 #       below so it gates like the --lib --bins step already does.
 #   (a2) Drive LIB_BINS_BASELINE below to 0 and switch that step back to a plain
-#       `-D warnings` gate. Deferred to wave 5 deliberately: 23 of the 62 are
+#       `-D warnings` gate. Deferred to wave 5 deliberately: 23 of the 60 are
 #       wrap-around cast lints in solver code that SW-08 (exact f64->Real
 #       conversion) rewrites anyway, so fixing them now is duplicated work.
 #   (b) Once openscenario-rs 0.3.3 is published to crates.io and the path
@@ -77,7 +77,11 @@ if [[ "$FAST" -eq 0 ]]; then
   # drop to reporting-only (which would let new warnings in unnoticed), this step
   # fails if the count goes UP. Ratcheting down is free; ratcheting up is caught.
   # When you legitimately reduce the count, lower the baseline in the same commit.
-  LIB_BINS_BASELINE=62
+  # 62 -> 60 in the SW-11 commit: the two `manual_let_else` findings in
+  # `src/solver/encoders/bicycle.rs` are gone, one because the `match` around
+  # `get_actor_bicycle_params` became a `let ... else`, the other because the
+  # block that held it was rewritten. Nothing was suppressed or allow()d.
+  LIB_BINS_BASELINE=60
 
   # Cargo fingerprints a clippy unit like any other build unit: on a warm cache
   # it reports "Finished" and re-emits NOTHING. Both clippy steps below then

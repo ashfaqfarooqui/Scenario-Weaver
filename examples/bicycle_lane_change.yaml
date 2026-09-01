@@ -30,7 +30,7 @@ duration: 10.0
 # Bicycle model configuration (scenario-level defaults)
 bicycle_config:
   default_wheelbase: 2.7              # meters (typical sedan)
-  default_max_steering_angle: 0.6     # radians (~34°, minimum turn radius ~4.5m)
+  default_max_steering_angle: 0.6     # radians (~34°); R_min = L/tan(δ_max) = 2.7/tan(0.6) ≈ 3.95 m
   default_max_steering_rate: 0.5      # rad/s (steering wheel can turn 0.5 rad per second)
 
 road:
