@@ -1,0 +1,26 @@
+# nextest configuration (SW-07).
+#
+# The reason this exists: a solver regression can turn a 0.05s test into an
+# unbounded hang, and without a per-test timeout that is indistinguishable from
+# a slow build. `terminate-after` makes a hung solver a failure with a name.
+#
+# `terminate-after` is a MULTIPLE of `period`, not a duration:
+# period 30s x 4 = killed at 120s.
+
+[profile.default]
+# Warn at 30s, kill at 120s. Measured ceiling for a healthy suite is 53.7s
+# (bicycle_export_test::test_bicycle_vs_cartesian_both_generate, overridden
+# below); the next slowest is 24.3s, so 30s warns on real outliers only.
+slow-timeout = { period = "30s", terminate-after = 4 }
+
+# Report every failure in one run rather than stopping at the first, matching
+# how scripts/check.sh reports its gating steps.
+fail-fast = false
+
+# Two Z3 solves plus a full export of the same spec under both coordinate
+# systems. Legitimately ~54s, the slowest test in the suite by 2x. Given its own
+# budget so the global threshold can stay tight enough to be meaningful.
+# If SW-11's bicycle work changes this materially, revisit rather than widen.
+[[profile.default.overrides]]
+filter = 'test(test_bicycle_vs_cartesian_both_generate)'
+slow-timeout = { period = "60s", terminate-after = 4 }
