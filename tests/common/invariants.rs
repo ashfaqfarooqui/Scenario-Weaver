@@ -125,17 +125,6 @@ impl std::fmt::Display for Violation {
 /// owns this and the fix is scheduled".
 pub const KNOWN_BROKEN_INVARIANTS: &[(Invariant, &str)] = &[
     (
-        Invariant::Kinematics,
-        "SW-09 (was SW-08 + SW-09): SW-08 fixed the longitudinal half — px and vx now \
-         satisfy p + v*dt + a*dt^2/2 and v + a*dt exactly on all 21 examples, and the \
-         three pedestrian examples satisfy the invariant outright. What is left is C2: \
-         for vehicles the vy[t+1] = vy[t] + ay[t]*dt assertion sits inside a \
-         `if role == Pedestrian` branch, so ay is a free variable and vy jumps with \
-         ay = 0 reported beside it. 54 breaches over 18 examples, every one of them on \
-         the lateral axis (48 on vy, 6 on py where Z3 happened to pick a non-zero ay); \
-         zero on px or vx.",
-    ),
-    (
         Invariant::ConstraintModes,
         "SW-12 (violate) and SW-10 (enforce): `violate` is satisfied by equality — \
          cut_in_left_adversarial_all reports min_ttc = 3.0 against a threshold of exactly \

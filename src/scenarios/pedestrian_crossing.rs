@@ -8,6 +8,7 @@ use crate::dsl::types::ScenarioSpec;
 use crate::error::{Result, ScenarioGenError};
 use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;
+use crate::solver::encoder_utils::real_from_f64;
 
 /// Pedestrian crossing scenario model
 pub(crate) struct PedestrianCrossingModel;
@@ -170,7 +171,7 @@ impl ScenarioModel for PedestrianCrossingModel {
         horizon: usize,
     ) -> Result<()> {
         use crate::dsl::ActorRole;
-        use z3::ast::{Int, Real};
+        use z3::ast::Int;
 
         // Get pedestrian actor
         let npcs = spec.npcs();
@@ -208,9 +209,8 @@ impl ScenarioModel for PedestrianCrossingModel {
                 // Create a disjunction: at least one time step has speed < 0.2 m/s
                 // Linear box constraint to avoid NRA (quadratic) overhead
                 let slow_threshold = 0.2; // m/s
-                let threshold_real = Real::from_rational((slow_threshold * 100.0) as i64, 100_i64);
-                let neg_threshold_real =
-                    Real::from_rational((-slow_threshold * 100.0) as i64, 100_i64);
+                let threshold_real = real_from_f64(slow_threshold);
+                let neg_threshold_real = real_from_f64(-slow_threshold);
 
                 let mut slow_constraints = vec![];
                 for t in start_hesitate..end_hesitate {

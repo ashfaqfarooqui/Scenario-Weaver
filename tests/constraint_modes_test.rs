@@ -278,25 +278,28 @@ fn test_violate_mode_negates_constraint() {
 /// this test fails, rather than passing vacuously on a sentinel that satisfies
 /// any `>=` threshold.
 ///
-/// The fixture is `unsafe_following.yaml`: it declares both modes as `enforce`
-/// and is one of the examples whose solution actually contains a same-lane
-/// approaching pair, so both metrics are measured (TTC 3.78 s against a 3.0 s
-/// threshold, distance 27.8 m against 5.0 m).
+/// The fixture is `speed_limit_violation.yaml`: it declares both modes as
+/// `enforce` and is one of the examples whose solution actually contains a
+/// same-lane approaching pair, so both metrics are measured (TTC 3.13 s against
+/// a 3.0 s threshold, distance 10.06 m against 5.0 m).
 ///
-/// It replaced `overtake_with_opposite.yaml`, which stopped producing a
-/// measured TTC when SW-08 corrected the lane centres and the position
-/// integration and Z3 landed on a different (equally valid) model — its npc is
-/// now never *approaching* the ego while sharing a lane. Which examples happen
-/// to evaluate a TTC at all is the SW-10 defect (the lane variable lags the
-/// lateral position), and until that lands any single-fixture version of this
-/// test is choosing from whatever the solver happens to produce; the
-/// corpus-wide version is `examples_smoke_test::
-/// test_enforce_min_ttc_examples_meet_their_threshold`, already `#[ignore]`d
-/// against SW-10.
+/// It is the *second* fixture this test has had to move to. It replaced
+/// `unsafe_following.yaml`, which stopped producing a measured TTC when SW-09
+/// chained `vy` to `ay`; that had replaced `overtake_with_opposite.yaml`, which
+/// stopped producing one when SW-08 corrected the lane centres and the position
+/// integration. In both cases Z3 landed on a different, equally valid model in
+/// which the npc is never *approaching* the ego while sharing a lane.
+///
+/// Which examples happen to evaluate a TTC at all is the SW-10 defect (the lane
+/// variable lags the lateral position), and until that lands any single-fixture
+/// version of this test is choosing from whatever the solver happens to
+/// produce — expect to move it again. The corpus-wide version is
+/// `examples_smoke_test::test_enforce_min_ttc_examples_meet_their_threshold`,
+/// already `#[ignore]`d against SW-10.
 #[test]
 fn test_enforce_mode_respects_constraint() {
     // Declares `min_ttc: enforce` and `min_distance: enforce`.
-    let spec = common::parse_example("unsafe_following.yaml");
+    let spec = common::parse_example("speed_limit_violation.yaml");
     assert_eq!(spec.constraint_modes.min_ttc(), ConstraintMode::Enforce);
     assert_eq!(
         spec.constraint_modes.min_distance(),

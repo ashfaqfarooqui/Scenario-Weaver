@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use z3::ast::{Bool, Int, Real};
 use z3::Model;
 
-use crate::dsl::types::{ActorRole, ScenarioSpec};
+use crate::dsl::types::{ActorRole, ActorSpec, ScenarioSpec};
 use crate::error::{Result, ScenarioGenError};
 use crate::scenario::model::{
     Acceleration, ActorTrajectory, CartesianState, Position, State, Velocity,
@@ -29,6 +29,10 @@ use crate::solver::backend::Z3Backend;
 use crate::solver::coordinate_encoder::CoordinateEncoder;
 use crate::solver::encoder_utils::{
     collect_lane_change_data, extract_int, extract_real, real_from_f64,
+};
+use crate::solver::encoders::pedestrian::{
+    encode_pedestrian_bounds_step, encode_pedestrian_initial_state,
+    encode_pedestrian_kinematics_step, extract_pedestrian_trajectory,
 };
 
 /// Bicycle model coordinate system encoder
@@ -70,6 +74,15 @@ pub struct BicycleEncoder<B: Z3Backend> {
     /// Lateral velocities (vy, m/s) — independent variables with linear bounds
     /// Bounded by |vy| <= k * v during lane changes, vy = 0 during stable phases
     velocities_y: HashMap<String, Vec<Real>>,
+
+    /// Lateral accelerations (ay, m/s²)
+    ///
+    /// Added by SW-09. `vy` used to be an independent variable with nothing
+    /// behind it, and extraction reported a hard-coded `ay = 0.0`, so the
+    /// exported trajectory claimed zero lateral acceleration while `vy` stepped
+    /// 0 -> -8 -> -3 m/s. `vy[t+1] = vy[t] + ay[t]*dt` now ties the two, with
+    /// `|ay| <= spec.max_lateral_acceleration`.
+    accelerations_y: HashMap<String, Vec<Real>>,
 }
 
 impl<B: Z3Backend> BicycleEncoder<B> {
@@ -89,6 +102,7 @@ impl<B: Z3Backend> BicycleEncoder<B> {
             accelerations: HashMap::new(),
             lanes: HashMap::new(),
             velocities_y: HashMap::new(),
+            accelerations_y: HashMap::new(),
         }
     }
 
@@ -440,6 +454,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             let mut a_vars = Vec::new();
             let mut lane_vars = Vec::new();
             let mut vy_vars = Vec::new();
+            let mut ay_vars = Vec::new();
 
             for t in 0..=horizon {
                 px_vars.push(Real::new_const(format!("{}__px_{}", actor_id, t)));
@@ -451,6 +466,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
                 lane_vars.push(Int::new_const(format!("{}__lane_{}", actor_id, t)));
                 // Lateral velocity (independent variable with linear bounds)
                 vy_vars.push(Real::new_const(format!("{}__vy_{}", actor_id, t)));
+                ay_vars.push(Real::new_const(format!("{}__ay_{}", actor_id, t)));
             }
 
             self.positions_x.insert(actor_id.clone(), px_vars);
@@ -461,6 +477,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             self.accelerations.insert(actor_id.clone(), a_vars);
             self.lanes.insert(actor_id.clone(), lane_vars);
             self.velocities_y.insert(actor_id.clone(), vy_vars);
+            self.accelerations_y.insert(actor_id.clone(), ay_vars);
         }
     }
 
@@ -473,6 +490,59 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         // Collect lane change data to determine stable vs transition phases
         let lane_changes_data = collect_lane_change_data(&self.spec, self.horizon);
 
+        // `max_lateral_acceleration` is a hard envelope with no `ConstraintMode`
+        // of its own; it now bounds the acceleration that actually drives `vy`.
+        let max_ay = real_from_f64(self.spec.max_lateral_acceleration);
+        let neg_max_ay = real_from_f64(-self.spec.max_lateral_acceleration);
+
+        // Pedestrians: the 2D point-mass model, shared with the Cartesian
+        // encoder (`encoders::pedestrian`).
+        //
+        // This is the C3 fix. Every pedestrian-touching loop in this file used
+        // to `continue` past them — no px, py or v update was ever asserted, so
+        // a pedestrian's position at t > 0 was entirely unconstrained and the
+        // solver was free to teleport them anywhere that satisfied the safety
+        // propositions. `ScenarioSpec::validate` does not reject the
+        // combination, so it was reachable from user YAML.
+        //
+        // The bicycle state maps onto the point-mass state directly:
+        // `speed_v` is vx, `accelerations` is ax, `velocities_y` is vy, and
+        // `accelerations_y` is ay. Heading and steering stay unconstrained and
+        // unread for pedestrians, who have neither.
+        for actor in &self.spec.actors {
+            if actor.role != ActorRole::Pedestrian {
+                continue;
+            }
+            let actor_id = &actor.id;
+            for t in 0..=self.horizon {
+                encode_pedestrian_bounds_step(
+                    &self.backend,
+                    &self.speed_v[actor_id][t],
+                    &self.velocities_y[actor_id][t],
+                    &self.accelerations[actor_id][t],
+                    &self.accelerations_y[actor_id][t],
+                    actor,
+                );
+                if t < self.horizon {
+                    encode_pedestrian_kinematics_step(
+                        &self.backend,
+                        &self.positions_x[actor_id][t],
+                        &self.positions_x[actor_id][t + 1],
+                        &self.positions_y[actor_id][t],
+                        &self.positions_y[actor_id][t + 1],
+                        &self.speed_v[actor_id][t],
+                        &self.speed_v[actor_id][t + 1],
+                        &self.velocities_y[actor_id][t],
+                        &self.velocities_y[actor_id][t + 1],
+                        &self.accelerations[actor_id][t],
+                        &self.accelerations_y[actor_id][t],
+                        &dt_val,
+                        &half_dt,
+                    );
+                }
+            }
+        }
+
         // Collect actor info to avoid borrow checker issues
         let actor_info: Vec<_> = self
             .spec
@@ -483,7 +553,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
 
         for (actor_id, role, direction, speed_max) in &actor_info {
             if *role == ActorRole::Pedestrian {
-                // TODO: Implement simplified pedestrian model
+                // Handled by the point-mass loop above.
                 continue;
             }
 
@@ -539,19 +609,35 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
                 };
                 self.backend.assert(&px_t1.eq(&px_next));
 
-                // Lateral: py[t+1] = py[t] + vy[t] * dt, forward Euler, kept.
-                // vy here is an independent variable with no acceleration
-                // behind it at all (H6/SW-11: theta and delta are never
-                // related to vy), so there is no second-order term to add.
-                // The trapezoidal form would only add a null space —
-                // vy[t+1] = -vy[t] leaves py unchanged — which is what it did
-                // to the cartesian vehicles; see the comment there.
-                let py_next = py_t + &(vy_t * &dt_val);
+                // Lateral, matching the longitudinal axis:
+                //   vy[t+1] = vy[t] + ay[t]*dt
+                //   py[t+1] = py[t] + (vy[t] + vy[t+1]) * dt/2
+                // Before SW-09, `vy` was an independent variable with no
+                // acceleration behind it and extraction reported ay = 0.0
+                // regardless, so the trajectory in the JSON contradicted the
+                // velocities printed beside it (npc: vy 0 -> -8 -> -3 m/s with
+                // ay = 0.000). Chaining vy to a bounded ay also closes the null
+                // space that made forward Euler necessary here: with vy free,
+                // vy[t+1] = -vy[t] left py unchanged at zero cost.
+                let ay_t = &self.accelerations_y[actor_id][t];
+                let vy_t1 = &self.velocities_y[actor_id][t + 1];
+                self.backend.assert(&vy_t1.eq(&(vy_t + &(ay_t * &dt_val))));
+
+                let py_next = py_t + &((vy_t + vy_t1) * &half_dt);
                 self.backend.assert(&py_t1.eq(&py_next));
 
                 // Speed: v[t+1] = v[t] + a[t] * dt (linear)
                 let v_next = v_t + &(a_t * &dt_val);
                 self.backend.assert(&v_t1.eq(&v_next));
+            }
+
+            // Lateral acceleration envelope, horizon inclusive: the trapezoidal
+            // py update reads vy[horizon], so ay[horizon] is reachable through
+            // the chain and must not be left free to be extracted as anything.
+            for t in 0..=self.horizon {
+                let ay_t = &self.accelerations_y[actor_id][t];
+                self.backend.assert(&ay_t.ge(&neg_max_ay));
+                self.backend.assert(&ay_t.le(&max_ay));
             }
 
             // Phase-specific constraints for all time steps including horizon
@@ -591,11 +677,44 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
     }
 
     fn encode_initial_conditions(&mut self) {
+        // Pedestrians take the shared point-mass initial state. The bicycle
+        // block below would otherwise pin their heading and steering to zero
+        // and force a non-negative, direction-locked speed, none of which is
+        // meaningful for an actor that has no wheels and crosses laterally.
+        let pedestrians: Vec<ActorSpec> = self
+            .spec
+            .actors
+            .iter()
+            .filter(|a| a.role == ActorRole::Pedestrian)
+            .cloned()
+            .collect();
+        let lane_width = self.spec.get_lane_width();
+        for actor in &pedestrians {
+            let actor_id = &actor.id;
+            let lane_var = &self.lanes[actor_id][0];
+            // `try_from` rather than `as`: a lane index is a `usize` and the
+            // wrapping cast the rest of this file still uses is a live lint.
+            let lane_val = Int::from_i64(i64::try_from(actor.lane).unwrap_or(i64::MAX));
+            self.backend.assert(&lane_var.eq(&lane_val));
+            encode_pedestrian_initial_state(
+                &self.backend,
+                &self.positions_x[actor_id],
+                &self.positions_y[actor_id],
+                &self.speed_v[actor_id],
+                &self.velocities_y[actor_id],
+                &self.accelerations[actor_id],
+                &self.accelerations_y[actor_id],
+                actor,
+                lane_width,
+            );
+        }
+
         // Collect actor data first to avoid borrow checker issues
         let actor_data: Vec<_> = self
             .spec
             .actors
             .iter()
+            .filter(|actor| actor.role != ActorRole::Pedestrian)
             .map(|actor| {
                 (
                     actor.id.clone(),
@@ -814,6 +933,30 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         actor_id: &str,
         role: &str,
     ) -> Result<ActorTrajectory> {
+        // Pedestrians are a plain 2D point mass here, extracted by the shared
+        // helper: (speed_v, velocities_y) are their (vx, vy) and
+        // (accelerations, accelerations_y) their (ax, ay), all real solver
+        // variables rather than the `ay = 0.0` the bicycle path hard-codes.
+        if self
+            .spec
+            .get_actor(actor_id)
+            .is_some_and(|a| a.role == ActorRole::Pedestrian)
+        {
+            return extract_pedestrian_trajectory(
+                model,
+                actor_id,
+                &self.positions_x[actor_id],
+                &self.positions_y[actor_id],
+                &self.speed_v[actor_id],
+                &self.velocities_y[actor_id],
+                &self.accelerations[actor_id],
+                &self.accelerations_y[actor_id],
+                &self.lanes[actor_id],
+                self.horizon,
+                self.spec.time_step,
+            );
+        }
+
         let mut trajectory = ActorTrajectory {
             id: actor_id.to_string(),
             role: role.to_string(),
@@ -840,13 +983,11 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             // vx ≈ v (small angle: cos(θ) ≈ 1)
             let vx = v;
 
-            // For acceleration, we have longitudinal acceleration 'a'
-            // Lateral acceleration comes from centripetal acceleration during turns
-            // For bicycle model: ay ≈ v * dθ/dt ≈ v * (v/L) * δ
-            // However, we don't extract δ or compute derivatives here
-            // For simplicity, set lateral acceleration to 0 in output
+            // Lateral acceleration is a real solver variable now (SW-09), tied
+            // to vy by vy[t+1] = vy[t] + ay[t]*dt, so it is read out rather
+            // than reported as a hard-coded zero.
             let ax = a;
-            let ay = 0.0; // Simplified - could be computed from steering and speed
+            let ay = extract_real(model, &self.accelerations_y[actor_id][t])?;
 
             let state = State {
                 time,

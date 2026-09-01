@@ -75,6 +75,16 @@ actors:
     direction: -1               # Backward (-x) - oncoming traffic
     acceleration: [-2.0, 1.0]
 
+# Lateral comfort envelope.
+#
+# A 3.5 m lane change in 1.5-2.0 s needs about 3 m/s2 of lateral acceleration;
+# the 2.0 m/s2 default is a comfort figure for a leisurely change. Until SW-09
+# this file was solvable at the default only because `ay` was a free variable
+# that no equation read, so the bound constrained nothing. It is now the
+# acceleration that drives `vy`, and the manoeuvre this scenario asks for has
+# to declare the envelope it actually needs.
+max_lateral_acceleration: 3.0
+
 # Safety constraints - ENFORCE to maintain safety for all pairs
 min_ttc: 2.0
 min_distance: 5.0

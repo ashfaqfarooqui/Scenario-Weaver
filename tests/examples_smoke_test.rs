@@ -369,17 +369,17 @@ fn test_extraction_agreement_across_the_corpus() {
 ///   the velocity update and keeps position coupled only to the velocity chain.
 ///   Zero `px` and zero `vx` breaches remain corpus-wide, and the three
 ///   pedestrian examples satisfy the whole invariant.
-/// - **C2 / SW-09 — open, and now the only reason this fails.** For vehicles,
-///   `ay` is never connected to `vy`: the
-///   `vy[t+1] = vy[t] + ay[t]·dt` assertion sits inside a
-///   `if role == Pedestrian` branch. `cut_in_left`'s npc steps
-///   `vy = 0 → -2.0 → +2.0` with `ay = 0.0` throughout, and later
-///   `+1.64 → -1.685`. The `ay` in the JSON and the `.xosc` is fiction, and
-///   `max_lateral_acceleration` bounds a variable that constrains nothing.
+/// - **C2 / SW-09 — fixed.** For vehicles, `ay` was never connected to `vy`:
+///   the `vy[t+1] = vy[t] + ay[t]·dt` assertion sat inside a
+///   `if role == Pedestrian` branch while the `py` update below it applied to
+///   everyone. `cut_in_left`'s npc stepped `vy = 0 → -2.0 → +2.0` with
+///   `ay = 0.0` throughout, so the `ay` in the JSON and the `.xosc` was fiction
+///   and `max_lateral_acceleration` bounded a variable that constrained
+///   nothing. Both axes now integrate the accelerations reported beside them,
+///   through one shared point-mass step in `solver::encoders::pedestrian` that
+///   the Cartesian encoder uses for every actor and the Bicycle encoder uses
+///   for pedestrians. 234 breaches corpus-wide before, 0 after.
 #[test]
-#[ignore = "SW-09: lateral acceleration is a free variable for vehicles, so vy jumps with ay = 0. \
-            The SW-08 half is fixed: 0 px and 0 vx breaches remain, and all three pedestrian \
-            examples now satisfy the invariant outright"]
 fn test_kinematic_consistency_across_the_corpus() {
     assert_corpus_invariant(Invariant::Kinematics);
 }

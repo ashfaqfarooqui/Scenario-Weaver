@@ -9,11 +9,7 @@ use std::ops::Add;
 use z3::ast::{Bool, Int, Real};
 use z3::Model;
 
-use crate::dsl::types::{ActorRole, ScenarioSpec};
-use crate::dsl::types::{
-    PEDESTRIAN_MAX_ACCELERATION, PEDESTRIAN_MAX_DECELERATION, PEDESTRIAN_RUN_MAX_SPEED,
-    PEDESTRIAN_WALK_MAX_SPEED,
-};
+use crate::dsl::types::{ActorRole, ActorSpec, ScenarioSpec};
 use crate::error::Result;
 use crate::scenario::model::{
     Acceleration, ActorTrajectory, CartesianState, Position, State, Velocity,
@@ -23,18 +19,10 @@ use crate::solver::coordinate_encoder::CoordinateEncoder;
 use crate::solver::encoder_utils::{
     collect_lane_change_data, extract_int, extract_real, real_from_f64,
 };
-
-/// Maximum speed the box velocity constraint allows a pedestrian, chosen by
-/// the actor's `walking_mode` behaviour key.
-fn pedestrian_max_speed(actor: &crate::dsl::types::ActorSpec) -> f64 {
-    actor
-        .behavior
-        .get("walking_mode")
-        .map_or(PEDESTRIAN_WALK_MAX_SPEED, |mode| match mode.as_str() {
-            Some("run") => PEDESTRIAN_RUN_MAX_SPEED,
-            _ => PEDESTRIAN_WALK_MAX_SPEED,
-        })
-}
+use crate::solver::encoders::pedestrian::{
+    encode_pedestrian_bounds_step, encode_pedestrian_initial_state,
+    encode_pedestrian_kinematics_step, extract_pedestrian_trajectory,
+};
 
 /// Cartesian coordinate system encoder
 ///
@@ -109,6 +97,25 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         self.backend.assert(&py_var.eq(&expected_py));
     }
 
+    /// A step in which a vehicle is not changing lanes: pinned to the lane
+    /// centre, and not moving laterally at all.
+    ///
+    /// The `vy = 0` half is new with SW-09 and is the counterpart of the
+    /// bicycle encoder's stable-phase rule. Pinning `py` alone leaves a
+    /// sawtooth: `py[t+1] = py[t] + (vy[t] + vy[t+1])*dt/2` with `py` fixed
+    /// admits any `vy[t+1] = -vy[t]`, so with `|ay| <= 2` and `dt = 0.1` the
+    /// solver would alternate `vy` between ±0.1 m/s while parked on the lane
+    /// centre — kinematically consistent, physically nonsense, and enough to
+    /// break the `vy/vx <= 0.15` heading-ratio tests once the vehicle has
+    /// braked and `vx` is small. `vy = 0` on a pinned step forces `ay = 0`
+    /// there through the velocity chain.
+    fn encode_stable_lateral_state_at_time(&mut self, actor_id: &str, t: usize) {
+        self.encode_lane_position_coupling_at_time(actor_id, t);
+        let zero = Real::from_rational(0_i64, 1_i64);
+        let vy_var = &self.velocities_y[actor_id][t];
+        self.backend.assert(&vy_var.eq(&zero));
+    }
+
     /// Encode initial state for a single actor (Cartesian-specific)
     fn encode_actor_initial_state(
         &mut self,
@@ -120,7 +127,7 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         speed_max: f64,
         accel_min: f64,
         accel_max: f64,
-        role: ActorRole,
+        _role: ActorRole,
         direction: i32,
     ) {
         // Lane at t=0
@@ -172,14 +179,10 @@ impl<B: Z3Backend> CartesianEncoder<B> {
             }
         }
 
-        // Initial lateral velocity
-        // For vehicles: zero (not changing lanes initially)
-        // For pedestrians: unconstrained (they need to cross laterally)
+        // Initial lateral velocity: zero (not changing lanes initially).
         let vy_var = &self.velocities_y[actor_id][0];
         let zero = Real::from_rational(0_i64, 1_i64);
-        if role != ActorRole::Pedestrian {
-            self.backend.assert(&vy_var.eq(&zero));
-        }
+        self.backend.assert(&vy_var.eq(&zero));
 
         // Initial acceleration at t=0
         let ax_var = &self.accelerations_x[actor_id][0];
@@ -195,13 +198,9 @@ impl<B: Z3Backend> CartesianEncoder<B> {
             self.backend.assert(&ax_var.le(&max_val));
         }
 
-        // Initial lateral acceleration
-        // For vehicles: zero (not changing lanes initially)
-        // For pedestrians: unconstrained (they need to accelerate laterally to cross)
+        // Initial lateral acceleration: zero (not changing lanes initially).
         let ay_var = &self.accelerations_y[actor_id][0];
-        if role != ActorRole::Pedestrian {
-            self.backend.assert(&ay_var.eq(&zero));
-        }
+        self.backend.assert(&ay_var.eq(&zero));
 
         // Encode initial lane-position coupling
         self.encode_lane_position_coupling_at_time(actor_id, 0);
@@ -328,26 +327,10 @@ impl<B: Z3Backend> CartesianEncoder<B> {
             }
         }
 
-        // Encode lateral acceleration bounds for smoothness
-        self.encode_lateral_acceleration_bounds(actor_id, start_step, end_step);
-    }
-
-    /// Encode lateral acceleration bounds during lane changes
-    fn encode_lateral_acceleration_bounds(
-        &mut self,
-        actor_id: &str,
-        start_step: usize,
-        end_step: usize,
-    ) {
-        // Use configurable max lateral acceleration from spec
-        let max_ay_value = self.spec.max_lateral_acceleration;
-        let max_ay = real_from_f64(max_ay_value);
-
-        for t in start_step..=end_step.min(self.horizon) {
-            let ay_t = &self.accelerations_y[actor_id][t];
-            self.backend.assert(&ay_t.le(&max_ay));
-            self.backend.assert(&ay_t.ge(&-&max_ay));
-        }
+        // `max_lateral_acceleration` used to be applied only here, over the
+        // lane-change window. Now that `ay` is chained to `vy` for every actor
+        // (SW-09/C2) it is a real envelope everywhere, so `encode_kinematics`
+        // applies it at every step and this window-local copy is gone.
     }
 }
 
@@ -387,172 +370,100 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
 
     fn encode_kinematics(&mut self, dt: f64) {
         let dt_real = real_from_f64(dt);
-        // Half of dt, for the trapezoidal position update below.
+        // Half of dt, for the trapezoidal position updates in the shared
+        // point-mass step below.
         let half_dt = real_from_f64(dt / 2.0);
         let zero = Real::from_rational(0_i64, 1_i64);
 
+        // `max_lateral_acceleration` is a hard envelope, not a safety metric:
+        // it has no `ConstraintMode` of its own and `tests/common/invariants.rs`
+        // treats it as unconditional. Before SW-09 it was applied only over
+        // lane-change windows, which cost nothing because `ay` was a free
+        // variable that no equation read. It now bounds the acceleration that
+        // actually drives `vy`, at every step.
+        let max_ay = real_from_f64(self.spec.max_lateral_acceleration);
+        let neg_max_ay = real_from_f64(-self.spec.max_lateral_acceleration);
+
         for actor in &self.spec.actors {
             let actor_id = &actor.id;
+            let is_pedestrian = actor.role == ActorRole::Pedestrian;
 
-            // Get acceleration bounds from actor spec
-            // For pedestrians, clamp to pedestrian-specific physics limits
-            let (ax_min, ax_max) = if actor.role == ActorRole::Pedestrian {
-                let spec_min = actor.acceleration.min();
-                let spec_max = actor.acceleration.max();
-                (
-                    spec_min.max(PEDESTRIAN_MAX_DECELERATION),
-                    spec_max.min(PEDESTRIAN_MAX_ACCELERATION),
-                )
-            } else {
-                (actor.acceleration.min(), actor.acceleration.max())
-            };
-            let ax_min_real = real_from_f64(ax_min);
-            let ax_max_real = real_from_f64(ax_max);
+            let ax_min_real = real_from_f64(actor.acceleration.min());
+            let ax_max_real = real_from_f64(actor.acceleration.max());
 
-            for t in 0..self.horizon {
-                // ========== LONGITUDINAL DYNAMICS ==========
-
-                // Acceleration bounds at each timestep
-                let ax_t = &self.accelerations_x[actor_id][t];
-                self.backend.assert(&ax_t.ge(&ax_min_real));
-                self.backend.assert(&ax_t.le(&ax_max_real));
-
-                // Velocity update: vx[t+1] = vx[t] + ax[t] * dt
+            // Bounds run to the horizon inclusive. The trapezoidal position
+            // update reads v[t+1], so v[horizon] and — through the velocity
+            // chain — a[horizon] appear in the encoding; a bound that stopped
+            // at horizon-1 would leave the last extracted acceleration free to
+            // be anything at all, which is what the reported `ay` used to be
+            // for every vehicle at every step.
+            for t in 0..=self.horizon {
                 let vx_t = &self.velocities_x[actor_id][t];
-                let vx_t1 = &self.velocities_x[actor_id][t + 1];
-                let expected_vx = vx_t + &(ax_t * &dt_real);
-                self.backend.assert(&vx_t1.eq(&expected_vx));
+                let vy_t = &self.velocities_y[actor_id][t];
+                let ax_t = &self.accelerations_x[actor_id][t];
+                let ay_t = &self.accelerations_y[actor_id][t];
 
-                // Position update, exact for piecewise-constant acceleration:
-                //   px[t+1] = px[t] + vx[t]*dt + 0.5*ax[t]*dt^2
-                // written in the equivalent trapezoidal form
-                //   px[t+1] = px[t] + (vx[t] + vx[t+1]) * dt/2
-                // Substituting the velocity update asserted immediately above,
-                // (vx[t] + vx[t+1])/2 = vx[t] + 0.5*ax[t]*dt, so the two forms
-                // are the same constraint and admit exactly the same solution
-                // set. Still QF_LRA either way: dt/2 is a constant.
-                //
-                // The trapezoidal form is preferred because it leaves px
-                // coupled only to the velocity chain, where writing ax[t]
-                // straight into the px update couples px[t+1] to ax[t] as well.
-                // Both were measured on the full corpus. The explicit form is
-                // not catastrophic — the >120 s blowup reported before this
-                // work does not reproduce once the exact rationals and the
-                // corrected lane centres are in — but it is consistently
-                // slower: cut_in_left 0.84 s -> 2.05 s, simple_bidirectional
-                // 0.038 -> 0.124, overtake_with_opposite 0.030 -> 0.130, with
-                // no example faster. Since the two are logically identical,
-                // the cheaper one wins.
-                let px_t = &self.positions_x[actor_id][t];
-                let px_t1 = &self.positions_x[actor_id][t + 1];
-                let expected_px = px_t + &((vx_t + vx_t1) * &half_dt);
-                self.backend.assert(&px_t1.eq(&expected_px));
-
-                // ========== LATERAL DYNAMICS ==========
-
-                // Lateral acceleration bounds (for pedestrians)
-                if actor.role == ActorRole::Pedestrian {
-                    let ay_t = &self.accelerations_y[actor_id][t];
-                    self.backend.assert(&ay_t.ge(&ax_min_real));
-                    self.backend.assert(&ay_t.le(&ax_max_real));
-
-                    // Lateral velocity update for pedestrians: vy[t+1] = vy[t] + ay[t] * dt
-                    let vy_t = &self.velocities_y[actor_id][t];
-                    let vy_t1 = &self.velocities_y[actor_id][t + 1];
-                    let expected_vy = vy_t + &(ay_t * &dt_real);
-                    self.backend.assert(&vy_t1.eq(&expected_vy));
+                if is_pedestrian {
+                    // Acceleration clamped to the pedestrian limits on both
+                    // axes, plus the linearised speed box |vx|,|vy| <= v_max.
+                    //
+                    // The box replaces the quadratic disk vx^2 + vy^2 <= v_max^2
+                    // so the encoding stays in QF_LRA (10-20x faster, and the
+                    // optimiser works at all); it is over-conservative by up to
+                    // sqrt(2) on the diagonal, which the speed constants
+                    // compensate for.
+                    encode_pedestrian_bounds_step(&self.backend, vx_t, vy_t, ax_t, ay_t, actor);
+                } else {
+                    self.backend.assert(&ax_t.ge(&ax_min_real));
+                    self.backend.assert(&ax_t.le(&ax_max_real));
+                    self.backend.assert(&ay_t.ge(&neg_max_ay));
+                    self.backend.assert(&ay_t.le(&max_ay));
                 }
 
-                // Lateral position update.
-                //
-                // Second-order (trapezoidal) *only* for pedestrians, because
-                // they are the only actors whose vy is chained to ay by the
-                // update just above. For them this is exactly
-                // py + vy*dt + 0.5*ay*dt^2 and it fixes the same H1 defect as
-                // the longitudinal update.
-                //
-                // Vehicles keep forward Euler, deliberately. Their ay is a free
-                // variable that constrains nothing (C2, owned by SW-09), so
-                // there is no second-order term to recover — and the
-                // trapezoidal form has a null space that a missing velocity
-                // chain makes reachable: py[t+1] = py[t] holds for any
-                // vy[t+1] = -vy[t], so a vehicle parked on its lane centre can
-                // sawtooth vy between +2 and -2 m/s at no cost. Forward Euler
-                // pins vy = 0 there instead. This should become trapezoidal
-                // for every actor the moment SW-09 asserts vy[t+1] = vy[t] +
-                // ay[t]*dt for vehicles.
-                let py_t = &self.positions_y[actor_id][t];
-                let py_t1 = &self.positions_y[actor_id][t + 1];
-                let vy_t = &self.velocities_y[actor_id][t];
-                let expected_py = if actor.role == ActorRole::Pedestrian {
-                    let vy_t1 = &self.velocities_y[actor_id][t + 1];
-                    py_t + &((vy_t + vy_t1) * &half_dt)
-                } else {
-                    py_t + &(vy_t * &dt_real)
-                };
-                self.backend.assert(&py_t1.eq(&expected_py));
-
-                // Ego without lane changes never changes lanes (vy = 0)
+                // Ego without lane changes never changes lanes (vy = 0, and
+                // therefore ay = 0 through the chain below).
                 if actor.role == ActorRole::Ego && actor.lane_changes.is_empty() {
                     self.backend.assert(&vy_t.eq(&zero));
                 }
 
-                // Pedestrian speed magnitude constraints
-                //
-                // LINEARIZED VERSION (Phase 2): Replaced quadratic disk constraint
-                // (vx^2 + vy^2 <= max^2) with linear box constraint (|vx| <= max AND |vy| <= max)
-                //
-                // Trade-off: Box is over-conservative (contains disk), so diagonal speeds up
-                // to sqrt(2) * max are allowed. Compensated by reducing max speeds by sqrt(2)
-                // in constants to maintain semantic correctness.
-                //
-                // Performance: Eliminates QF_NRA (nonlinear) solver requirement, keeps Z3 in
-                // QF_LRA (linear) theory for 10-20x speedup. Multi-solve now works reliably.
-                if actor.role == ActorRole::Pedestrian {
-                    let max_speed = pedestrian_max_speed(actor);
-                    let max_speed_real = real_from_f64(max_speed);
-                    let neg_max_speed_real = real_from_f64(-max_speed);
-
-                    // Linear box constraint: |vx| <= max_speed AND |vy| <= max_speed
-                    // vx >= -max_speed AND vx <= max_speed
-                    self.backend.assert(&vx_t.ge(&neg_max_speed_real));
-                    self.backend.assert(&vx_t.le(&max_speed_real));
-
-                    // vy >= -max_speed AND vy <= max_speed
-                    self.backend.assert(&vy_t.ge(&neg_max_speed_real));
-                    self.backend.assert(&vy_t.le(&max_speed_real));
+                if t == self.horizon {
+                    continue;
                 }
-            }
 
-            // Velocity bounds at the final step.
-            //
-            // The trapezoidal position update above reads v[t+1], so
-            // v[horizon] now appears in a constraint; under the old
-            // forward-Euler update it appeared in none and Z3 was free to
-            // pick anything for it. Without this block the solver pays for
-            // the last position step with an arbitrary final velocity —
-            // observed on cut_in_left as the ego jumping a full lane width
-            // laterally in the last step with vy[10.0s] = -70 m/s. It applies
-            // to pedestrians, whose lateral update is trapezoidal too; for
-            // vehicles vy[horizon] is once again unused, and pinning the ego's
-            // to zero simply keeps the extracted value from being arbitrary.
-            // The bounds repeated here are exactly the ones the loop applies
-            // at every other step; nothing new is asserted.
-            let t = self.horizon;
-            if actor.role == ActorRole::Ego && actor.lane_changes.is_empty() {
-                let vy_t = &self.velocities_y[actor_id][t];
-                self.backend.assert(&vy_t.eq(&zero));
-            }
-            if actor.role == ActorRole::Pedestrian {
-                let max_speed = pedestrian_max_speed(actor);
-                let max_speed_real = real_from_f64(max_speed);
-                let neg_max_speed_real = real_from_f64(-max_speed);
-                let vx_t = &self.velocities_x[actor_id][t];
-                let vy_t = &self.velocities_y[actor_id][t];
-                self.backend.assert(&vx_t.ge(&neg_max_speed_real));
-                self.backend.assert(&vx_t.le(&max_speed_real));
-                self.backend.assert(&vy_t.ge(&neg_max_speed_real));
-                self.backend.assert(&vy_t.le(&max_speed_real));
+                // One integration step, both axes, for every actor.
+                //
+                // This is the C2 fix. `vy[t+1] = vy[t] + ay[t]*dt` used to sit
+                // inside an `if role == Pedestrian` branch while the `py`
+                // update below it applied to everyone, so for a vehicle
+                // nothing connected `ay` to `vy`: `max_lateral_acceleration`
+                // bounded a variable that constrained nothing, the `ay` in
+                // scenario.json and the .xosc was fiction, and `vy` sign-flipped
+                // step to step (cut_in_left's npc ran 1.28 -> -1.73 -> 1.12 with
+                // ay = 0.000 reported throughout). The equations are the same
+                // 2D point-mass equations for vehicles and pedestrians alike in
+                // this coordinate system, so there is now one copy of them, in
+                // `encoders::pedestrian`.
+                //
+                // With `vy` chained the lateral position update is trapezoidal
+                // for everyone too — the null space that forced vehicles onto
+                // forward Euler (py[t+1] = py[t] for any vy[t+1] = -vy[t], so a
+                // parked vehicle could sawtooth vy between +2 and -2 at no
+                // cost) is closed by the bounded `ay` behind `vy`.
+                encode_pedestrian_kinematics_step(
+                    &self.backend,
+                    &self.positions_x[actor_id][t],
+                    &self.positions_x[actor_id][t + 1],
+                    &self.positions_y[actor_id][t],
+                    &self.positions_y[actor_id][t + 1],
+                    vx_t,
+                    &self.velocities_x[actor_id][t + 1],
+                    vy_t,
+                    &self.velocities_y[actor_id][t + 1],
+                    ax_t,
+                    ay_t,
+                    &dt_real,
+                    &half_dt,
+                );
             }
         }
 
@@ -575,7 +486,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                 if changes.is_empty() {
                     // No lane changes: enforce coupling at all time steps
                     for t in 0..=self.horizon {
-                        self.encode_lane_position_coupling_at_time(&actor_id, t);
+                        self.encode_stable_lateral_state_at_time(&actor_id, t);
                     }
                 } else {
                     // Multiple lane changes: encode phases
@@ -583,7 +494,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
 
                     // Before first lane change: enforce lane-position coupling
                     for t in 0..first_start.min(self.horizon) {
-                        self.encode_lane_position_coupling_at_time(&actor_id, t);
+                        self.encode_stable_lateral_state_at_time(&actor_id, t);
                     }
 
                     // Process each lane change and intermediate phases
@@ -604,25 +515,65 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                         };
 
                         for t in (lc.end_step + 1)..next_start.min(self.horizon + 1) {
-                            self.encode_lane_position_coupling_at_time(&actor_id, t);
+                            self.encode_stable_lateral_state_at_time(&actor_id, t);
                         }
                     }
                 }
             } else {
                 // No lane changes: enforce coupling at all time steps
                 for t in 0..=self.horizon {
-                    self.encode_lane_position_coupling_at_time(&actor_id, t);
+                    self.encode_stable_lateral_state_at_time(&actor_id, t);
                 }
             }
         }
     }
 
     fn encode_initial_conditions(&mut self) {
+        // Pedestrians go through the shared point-mass helper: same px range,
+        // same lane-centre py, the spec's speed range capped by the walking or
+        // running limit, the acceleration range clamped to the pedestrian
+        // limits, and vy[0]/ay[0] left free so they can already be crossing.
+        // The vehicle block below would instead force vy[0] = ay[0] = 0 and
+        // lock vx[0] to the sign of `direction`.
+        //
+        // Cloned so the `&mut self` calls in the loop do not collide with a
+        // borrow of `self.spec`, the same reason the vehicle path collects its
+        // fields into a tuple first.
+        let pedestrians: Vec<ActorSpec> = self
+            .spec
+            .actors
+            .iter()
+            .filter(|a| a.role == ActorRole::Pedestrian)
+            .cloned()
+            .collect();
+        let lane_width = self.spec.get_lane_width();
+        for actor in &pedestrians {
+            let actor_id = &actor.id;
+            let lane_var = &self.lanes[actor_id][0];
+            // `try_from` rather than `as`: a lane index is a `usize` and the
+            // wrapping cast the rest of this file still uses is a live lint.
+            let lane_val = Int::from_i64(i64::try_from(actor.lane).unwrap_or(i64::MAX));
+            self.backend.assert(&lane_var.eq(&lane_val));
+            encode_pedestrian_initial_state(
+                &self.backend,
+                &self.positions_x[actor_id],
+                &self.positions_y[actor_id],
+                &self.velocities_x[actor_id],
+                &self.velocities_y[actor_id],
+                &self.accelerations_x[actor_id],
+                &self.accelerations_y[actor_id],
+                actor,
+                lane_width,
+            );
+            self.encode_lane_position_coupling_at_time(actor_id, 0);
+        }
+
         // Collect all actor data upfront to avoid borrow checker issues
         let actor_data: Vec<_> = self
             .spec
             .actors
             .iter()
+            .filter(|actor| actor.role != ActorRole::Pedestrian)
             .map(|actor| {
                 (
                     actor.id.clone(),
@@ -793,6 +744,30 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         actor_id: &str,
         role: &str,
     ) -> Result<ActorTrajectory> {
+        // Pedestrians go through the shared extractor. The Cartesian variables
+        // already are (px, py, vx, vy, ax, ay), so this reads the same values
+        // the loop below would; routing it through one function keeps the
+        // Bicycle encoder — where the mapping is not the identity — honest.
+        if self
+            .spec
+            .get_actor(actor_id)
+            .is_some_and(|a| a.role == ActorRole::Pedestrian)
+        {
+            return extract_pedestrian_trajectory(
+                model,
+                actor_id,
+                &self.positions_x[actor_id],
+                &self.positions_y[actor_id],
+                &self.velocities_x[actor_id],
+                &self.velocities_y[actor_id],
+                &self.accelerations_x[actor_id],
+                &self.accelerations_y[actor_id],
+                &self.lanes[actor_id],
+                self.horizon,
+                self.spec.time_step,
+            );
+        }
+
         let mut trajectory = ActorTrajectory::new(actor_id.to_string(), role.to_string());
 
         for t in 0..=self.horizon {

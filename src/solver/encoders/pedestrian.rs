@@ -1,8 +1,20 @@
-//! Shared pedestrian encoder helpers
+//! Shared 2D point-mass encoder helpers
 //!
 //! Provides reusable functions for encoding pedestrian dynamics in Z3.
 //! Pedestrians use a simple 2D point-mass model (no steering, no heading).
-//! Both CartesianEncoder and BicycleEncoder can call these helpers.
+//!
+//! Both `CartesianEncoder` and `BicycleEncoder` call these helpers, and the
+//! Cartesian encoder additionally uses [`encode_pedestrian_kinematics_step`]
+//! for its *vehicles*: the Cartesian model is a 2D point mass for every actor,
+//! and before SW-09 the only thing that distinguished a vehicle from a
+//! pedestrian there was that the vehicle's `vy` was never chained to its `ay`
+//! (finding C2 — a free lateral acceleration that bounded nothing and put
+//! fiction in the exported `.xosc`). There is now one integration step, used by
+//! everything the Cartesian encoder emits.
+//!
+//! All conversions from `f64` go through [`real_from_f64`], which is exact for
+//! every value a spec can hold; the ad-hoc `(x * 10.0) as i64` truncations this
+//! module used to carry silently rounded, e.g., a 0.05 m/s bound to 0.0.
 
 use z3::ast::{Int, Real};
 use z3::Model;
@@ -16,16 +28,40 @@ use crate::scenario::model::{
     Acceleration, ActorTrajectory, CartesianState, Position, State, Velocity,
 };
 use crate::solver::backend::Z3Backend;
-use crate::solver::encoder_utils::{extract_int, extract_real};
+use crate::solver::encoder_utils::{extract_int, extract_real, real_from_f64};
+
+/// The pedestrian's speed cap, selected by `behavior.walking_mode`.
+fn pedestrian_max_speed(actor: &ActorSpec) -> f64 {
+    actor
+        .behavior
+        .get("walking_mode")
+        .map_or(PEDESTRIAN_WALK_MAX_SPEED, |mode| match mode.as_str() {
+            Some("run") => PEDESTRIAN_RUN_MAX_SPEED,
+            _ => PEDESTRIAN_WALK_MAX_SPEED,
+        })
+}
+
+/// The actor's acceleration range, clamped to the pedestrian physics limits.
+fn pedestrian_accel_range(actor: &ActorSpec) -> (f64, f64) {
+    (
+        actor.acceleration.min().max(PEDESTRIAN_MAX_DECELERATION),
+        actor.acceleration.max().min(PEDESTRIAN_MAX_ACCELERATION),
+    )
+}
 
 /// Encode the initial state constraints for a pedestrian at t=0.
 ///
 /// - `px[0]`: range or fixed from `actor.position`
 /// - `py[0]`: computed from `actor.lane * lane_width + lane_width / 2.0`
-/// - `vx[0]`: bounded by `[-max_speed, +max_speed]` (pedestrians aren't locked to a direction)
+/// - `vx[0]`: the actor's own speed range, signed by `actor.direction` and
+///   intersected with `[-max_speed, +max_speed]`
 /// - `vy[0]`: left UNCONSTRAINED (pedestrian may already be crossing)
 /// - `ax[0]`: bounded by actor acceleration range, clamped to pedestrian limits
 /// - `ay[0]`: left UNCONSTRAINED
+///
+/// The `vx[0]` rule is deliberately the intersection and not just the speed
+/// cap: the cap alone would discard `speed:` from the spec entirely, which is
+/// what the Cartesian encoder used to honour on its own inline path.
 #[allow(clippy::too_many_arguments)]
 pub fn encode_pedestrian_initial_state<B: Z3Backend>(
     backend: &B,
@@ -42,58 +78,63 @@ pub fn encode_pedestrian_initial_state<B: Z3Backend>(
     let pos_min = actor.position.min();
     let pos_max = actor.position.max();
     if (pos_min - pos_max).abs() < 1e-6 {
-        let pos_val = Real::from_rational((pos_min * 10.0) as i64, 10_i64);
-        backend.assert(&px[0].eq(&pos_val));
+        backend.assert(&px[0].eq(real_from_f64(pos_min)));
     } else {
-        let min_val = Real::from_rational((pos_min * 10.0) as i64, 10_i64);
-        let max_val = Real::from_rational((pos_max * 10.0) as i64, 10_i64);
-        backend.assert(&px[0].ge(&min_val));
-        backend.assert(&px[0].le(&max_val));
+        backend.assert(&px[0].ge(real_from_f64(pos_min)));
+        backend.assert(&px[0].le(real_from_f64(pos_max)));
     }
 
     // py[0]: lateral position from lane center
     let py_initial = actor.lane as f64 * lane_width + lane_width / 2.0;
-    let py_val = Real::from_rational((py_initial * 100.0).round() as i64, 100_i64);
-    backend.assert(&py[0].eq(&py_val));
+    backend.assert(&py[0].eq(real_from_f64(py_initial)));
 
-    // vx[0]: bounded by [-max_speed, +max_speed]
-    let max_speed = actor
-        .behavior
-        .get("walking_mode")
-        .map_or(PEDESTRIAN_WALK_MAX_SPEED, |mode| match mode.as_str() {
-            Some("run") => PEDESTRIAN_RUN_MAX_SPEED,
-            _ => PEDESTRIAN_WALK_MAX_SPEED,
-        });
-    let max_speed_real = Real::from_rational((max_speed * 10.0) as i64, 10_i64);
-    let neg_max_speed_real = Real::from_rational(((-max_speed) * 10.0) as i64, 10_i64);
-    backend.assert(&vx[0].ge(&neg_max_speed_real));
-    backend.assert(&vx[0].le(&max_speed_real));
+    // vx[0]: the spec's speed range, signed by direction, capped by the
+    // pedestrian's walking/running limit.
+    let max_speed = pedestrian_max_speed(actor);
+    let (speed_min, speed_max) = if actor.direction == 1 {
+        (actor.speed.min(), actor.speed.max())
+    } else {
+        (-actor.speed.max(), -actor.speed.min())
+    };
+    let vx_min = speed_min.max(-max_speed);
+    let vx_max = speed_max.min(max_speed);
+    if (vx_min - vx_max).abs() < 1e-6 {
+        backend.assert(&vx[0].eq(real_from_f64(vx_min)));
+    } else {
+        backend.assert(&vx[0].ge(real_from_f64(vx_min)));
+        backend.assert(&vx[0].le(real_from_f64(vx_max)));
+    }
 
     // vy[0]: UNCONSTRAINED (pedestrian may already be crossing)
 
     // ax[0]: bounded by actor acceleration range, clamped to pedestrian limits
-    let accel_min = actor.acceleration.min().max(PEDESTRIAN_MAX_DECELERATION);
-    let accel_max = actor.acceleration.max().min(PEDESTRIAN_MAX_ACCELERATION);
+    let (accel_min, accel_max) = pedestrian_accel_range(actor);
     if (accel_min - accel_max).abs() < 1e-6 {
-        let accel_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
-        backend.assert(&ax[0].eq(&accel_val));
+        backend.assert(&ax[0].eq(real_from_f64(accel_min)));
     } else {
-        let min_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
-        let max_val = Real::from_rational((accel_max * 10.0) as i64, 10_i64);
-        backend.assert(&ax[0].ge(&min_val));
-        backend.assert(&ax[0].le(&max_val));
+        backend.assert(&ax[0].ge(real_from_f64(accel_min)));
+        backend.assert(&ax[0].le(real_from_f64(accel_max)));
     }
 
     // ay[0]: UNCONSTRAINED
 }
 
-/// Encode one kinematics timestep for a pedestrian (simple 2D point-mass).
+/// Encode one kinematics timestep of the 2D point-mass model.
 ///
-/// Asserts:
-/// - `px_t1 = px_t + vx_t * dt`
-/// - `py_t1 = py_t + vy_t * dt`
+/// Asserts, on both axes, the exact constant-acceleration update written in
+/// trapezoidal form:
+/// - `px_t1 = px_t + (vx_t + vx_t1) * dt/2`  (≡ `px + vx*dt + ½*ax*dt²`)
+/// - `py_t1 = py_t + (vy_t + vy_t1) * dt/2`  (≡ `py + vy*dt + ½*ay*dt²`)
 /// - `vx_t1 = vx_t + ax_t * dt`
 /// - `vy_t1 = vy_t + ay_t * dt`
+///
+/// The trapezoidal form is identical to the explicit one given the velocity
+/// updates asserted alongside it, and is the cheaper of the two for Z3 because
+/// it leaves position coupled only to the velocity chain (measured in SW-08).
+/// Everything here is constant × variable, so the encoding stays in QF_LRA.
+///
+/// `half_dt` must be `dt / 2`; it is passed in rather than derived so the
+/// caller builds both numerals once for the whole horizon.
 #[allow(clippy::too_many_arguments)]
 pub fn encode_pedestrian_kinematics_step<B: Z3Backend>(
     backend: &B,
@@ -108,15 +149,8 @@ pub fn encode_pedestrian_kinematics_step<B: Z3Backend>(
     ax_t: &Real,
     ay_t: &Real,
     dt: &Real,
+    half_dt: &Real,
 ) {
-    // px_t1 = px_t + vx_t * dt
-    let expected_px = px_t + &(vx_t * dt);
-    backend.assert(&px_t1.eq(&expected_px));
-
-    // py_t1 = py_t + vy_t * dt
-    let expected_py = py_t + &(vy_t * dt);
-    backend.assert(&py_t1.eq(&expected_py));
-
     // vx_t1 = vx_t + ax_t * dt
     let expected_vx = vx_t + &(ax_t * dt);
     backend.assert(&vx_t1.eq(&expected_vx));
@@ -124,6 +158,14 @@ pub fn encode_pedestrian_kinematics_step<B: Z3Backend>(
     // vy_t1 = vy_t + ay_t * dt
     let expected_vy = vy_t + &(ay_t * dt);
     backend.assert(&vy_t1.eq(&expected_vy));
+
+    // px_t1 = px_t + (vx_t + vx_t1) * dt/2
+    let expected_px = px_t + &((vx_t + vx_t1) * half_dt);
+    backend.assert(&px_t1.eq(&expected_px));
+
+    // py_t1 = py_t + (vy_t + vy_t1) * dt/2
+    let expected_py = py_t + &((vy_t + vy_t1) * half_dt);
+    backend.assert(&py_t1.eq(&expected_py));
 }
 
 /// Encode per-step bounds for a pedestrian's velocity and acceleration.
@@ -139,10 +181,9 @@ pub fn encode_pedestrian_bounds_step<B: Z3Backend>(
     actor: &ActorSpec,
 ) {
     // Acceleration bounds: clamp to pedestrian limits [-1.0, +1.0]
-    let accel_min = actor.acceleration.min().max(PEDESTRIAN_MAX_DECELERATION);
-    let accel_max = actor.acceleration.max().min(PEDESTRIAN_MAX_ACCELERATION);
-    let ax_min_real = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
-    let ax_max_real = Real::from_rational((accel_max * 10.0) as i64, 10_i64);
+    let (accel_min, accel_max) = pedestrian_accel_range(actor);
+    let ax_min_real = real_from_f64(accel_min);
+    let ax_max_real = real_from_f64(accel_max);
 
     backend.assert(&ax_t.ge(&ax_min_real));
     backend.assert(&ax_t.le(&ax_max_real));
@@ -150,16 +191,9 @@ pub fn encode_pedestrian_bounds_step<B: Z3Backend>(
     backend.assert(&ay_t.le(&ax_max_real));
 
     // Speed box constraint: |vx| <= max_speed AND |vy| <= max_speed
-    let max_speed = actor
-        .behavior
-        .get("walking_mode")
-        .map_or(PEDESTRIAN_WALK_MAX_SPEED, |mode| match mode.as_str() {
-            Some("run") => PEDESTRIAN_RUN_MAX_SPEED,
-            _ => PEDESTRIAN_WALK_MAX_SPEED,
-        });
-
-    let max_speed_real = Real::from_rational((max_speed * 10.0) as i64, 10_i64);
-    let neg_max_speed_real = Real::from_rational(((-max_speed) * 10.0) as i64, 10_i64);
+    let max_speed = pedestrian_max_speed(actor);
+    let max_speed_real = real_from_f64(max_speed);
+    let neg_max_speed_real = real_from_f64(-max_speed);
 
     backend.assert(&vx_t.ge(&neg_max_speed_real));
     backend.assert(&vx_t.le(&max_speed_real));
@@ -306,7 +340,9 @@ mod tests {
                 py_val
             );
 
-            // vx should be in [-1.41, 1.41] (PEDESTRIAN_WALK_MAX_SPEED)
+            // vx is the actor's own speed range intersected with the walking
+            // cap. `make_pedestrian` declares [0.5, 1.0], which sits inside
+            // ±PEDESTRIAN_WALK_MAX_SPEED, so the cap is what is checked here.
             let vx_val = eval_real_val(&model, &vx[0]);
             assert!(
                 vx_val >= -PEDESTRIAN_WALK_MAX_SPEED - 0.01
@@ -479,6 +515,7 @@ mod tests {
             let ax_t = Real::new_const("ax_0");
             let ay_t = Real::new_const("ay_0");
             let dt = Real::from_rational(5, 10); // 0.5s
+            let half_dt = Real::from_rational(25, 100); // dt / 2
 
             // Fix initial state: px=10, py=5, vx=1.0, vy=0.5, ax=0.2, ay=-0.1
             backend.assert(&px_t.eq(&Real::from_rational(100, 10)));
@@ -490,25 +527,30 @@ mod tests {
 
             encode_pedestrian_kinematics_step(
                 &backend, &px_t, &px_t1, &py_t, &py_t1, &vx_t, &vx_t1, &vy_t, &vy_t1, &ax_t, &ay_t,
-                &dt,
+                &dt, &half_dt,
             );
 
             assert_eq!(backend.check(), SatResult::Sat);
             let model = backend.get_model().unwrap();
 
-            // px_t1 = 10.0 + 1.0 * 0.5 = 10.5
+            // The position update is the exact constant-acceleration one,
+            // p + v*dt + 1/2*a*dt^2, written trapezoidally. The old
+            // expectations here were the forward-Euler p + v*dt, which is the
+            // H1 defect SW-08 fixed; they differ by 1/2*a*dt^2 exactly.
+            //
+            // px_t1 = 10.0 + 1.0*0.5 + 0.5*0.2*0.25 = 10.525
             let px1 = eval_real_val(&model, &px_t1);
             assert!(
-                (px1 - 10.5).abs() < 0.01,
-                "px_t1 should be 10.5, got {}",
+                (px1 - 10.525).abs() < 1e-9,
+                "px_t1 should be 10.525, got {}",
                 px1
             );
 
-            // py_t1 = 5.0 + 0.5 * 0.5 = 5.25
+            // py_t1 = 5.0 + 0.5*0.5 + 0.5*(-0.1)*0.25 = 5.2375
             let py1 = eval_real_val(&model, &py_t1);
             assert!(
-                (py1 - 5.25).abs() < 0.01,
-                "py_t1 should be 5.25, got {}",
+                (py1 - 5.2375).abs() < 1e-9,
+                "py_t1 should be 5.2375, got {}",
                 py1
             );
 
@@ -533,6 +575,7 @@ mod tests {
             let backend = SolverBackend::new();
             let horizon = 4;
             let dt = Real::from_rational(5, 10); // 0.5s
+            let half_dt = Real::from_rational(25, 100); // dt / 2
 
             // Create variable arrays for 5 timesteps (horizon+1)
             let px: Vec<_> = (0..=horizon)
@@ -581,6 +624,7 @@ mod tests {
                     &ax[t],
                     &ay[t],
                     &dt,
+                    &half_dt,
                 );
             }
 
@@ -750,6 +794,7 @@ mod tests {
             let horizon = 2;
             let dt_val = 0.5;
             let dt = Real::from_rational(5, 10);
+            let half_dt = Real::from_rational(25, 100); // dt / 2
 
             // Create variables
             let px: Vec<_> = (0..=horizon)
@@ -806,6 +851,7 @@ mod tests {
                     &ax[t],
                     &ay[t],
                     &dt,
+                    &half_dt,
                 );
             }
 
@@ -856,6 +902,7 @@ mod tests {
             let horizon = 4;
             let dt_val = 0.5;
             let dt = Real::from_rational(5, 10);
+            let half_dt = Real::from_rational(25, 100); // dt / 2
 
             // Create variables
             let px: Vec<_> = (0..=horizon)
@@ -905,6 +952,7 @@ mod tests {
                     &ax[t],
                     &ay[t],
                     &dt,
+                    &half_dt,
                 );
                 encode_pedestrian_bounds_step(&backend, &vx[t], &vy[t], &ax[t], &ay[t], &actor);
             }
@@ -944,27 +992,51 @@ mod tests {
             assert_eq!(trajectory.states.len(), horizon + 1);
             assert_eq!(trajectory.role, "pedestrian");
 
-            // Verify physics consistency: position changes match velocity * dt
+            // Verify physics consistency: the extracted trajectory must satisfy
+            // the exact constant-acceleration update on both axes, and the
+            // velocity update that goes with it. Asserted at 1e-9, not the 0.05
+            // this used to allow against a forward-Euler expectation: Z3 values
+            // are exact rationals, so the residual is zero to the last bit.
+            let half_dt2 = 0.5 * dt_val * dt_val;
             for t in 0..horizon {
                 let s = &trajectory.states[t];
                 let s_next = &trajectory.states[t + 1];
+                let (p, v, a) = (
+                    &s.cartesian.position,
+                    &s.cartesian.velocity,
+                    &s.cartesian.acceleration,
+                );
 
-                let expected_px = s.cartesian.position.x + s.cartesian.velocity.vx * dt_val;
-                let expected_py = s.cartesian.position.y + s.cartesian.velocity.vy * dt_val;
+                let expected_px = p.x + v.vx * dt_val + a.ax * half_dt2;
+                let expected_py = p.y + v.vy * dt_val + a.ay * half_dt2;
 
                 assert!(
-                    (s_next.cartesian.position.x - expected_px).abs() < 0.05,
+                    (s_next.cartesian.position.x - expected_px).abs() < 1e-9,
                     "px mismatch at t={}: {} vs expected {}",
                     t + 1,
                     s_next.cartesian.position.x,
                     expected_px
                 );
                 assert!(
-                    (s_next.cartesian.position.y - expected_py).abs() < 0.05,
+                    (s_next.cartesian.position.y - expected_py).abs() < 1e-9,
                     "py mismatch at t={}: {} vs expected {}",
                     t + 1,
                     s_next.cartesian.position.y,
                     expected_py
+                );
+                assert!(
+                    (s_next.cartesian.velocity.vx - (v.vx + a.ax * dt_val)).abs() < 1e-9,
+                    "vx mismatch at t={}: {} vs expected {}",
+                    t + 1,
+                    s_next.cartesian.velocity.vx,
+                    v.vx + a.ax * dt_val
+                );
+                assert!(
+                    (s_next.cartesian.velocity.vy - (v.vy + a.ay * dt_val)).abs() < 1e-9,
+                    "vy mismatch at t={}: {} vs expected {}",
+                    t + 1,
+                    s_next.cartesian.velocity.vy,
+                    v.vy + a.ay * dt_val
                 );
             }
 

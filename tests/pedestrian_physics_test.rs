@@ -30,7 +30,9 @@
 mod common;
 
 use common::Invariant;
-use scenario_weaver::dsl::types::{PEDESTRIAN_RUN_MAX_SPEED, PEDESTRIAN_WALK_MAX_SPEED};
+use scenario_weaver::dsl::types::{
+    BicycleConfig, CoordinateSystem, PEDESTRIAN_RUN_MAX_SPEED, PEDESTRIAN_WALK_MAX_SPEED,
+};
 use scenario_weaver::scenario::model::Scenario;
 
 /// Generate an example and hand back the spec it came from, so bounds are
@@ -283,6 +285,111 @@ fn test_ego_stays_in_lane_during_pedestrian_crossing() {
             "Ego makes no lane change here, so vy must be 0 at t={:.2}s: got {:.9}",
             state.time,
             state.velocity().vy
+        );
+    }
+}
+
+// ─── Pedestrians under `coordinate_system: bicycle` (SW-09 / finding C3) ───
+
+/// `pedestrian_crossing.yaml` re-solved in the bicycle coordinate system.
+fn pedestrian_crossing_bicycle() -> (Scenario, scenario_weaver::dsl::types::ScenarioSpec) {
+    let mut spec = common::parse_example("pedestrian_crossing.yaml");
+    spec.coordinate_system = CoordinateSystem::Bicycle;
+    // The bicycle encoder needs wheelbase/steering parameters for its vehicles.
+    spec.bicycle_config = Some(BicycleConfig {
+        default_wheelbase: 2.7,
+        default_max_steering_angle: 0.6,
+        default_max_steering_rate: 0.5,
+    });
+    let scenario = common::generate_spec_or_fail(spec.clone());
+    (scenario, spec)
+}
+
+/// A pedestrian under `coordinate_system: bicycle` obeys the same kinematics
+/// as one under `cartesian`.
+///
+/// Before SW-09 `encoders/bicycle.rs` `continue`d past every pedestrian: no
+/// `px`, `py` or `v` update was ever asserted, so a pedestrian's position at
+/// `t > 0` was entirely unconstrained and Z3 was free to teleport them to
+/// wherever the safety propositions were cheapest to satisfy. Nothing in
+/// `ScenarioSpec::validate` rejected the combination, so it was reachable from
+/// user YAML. They now go through the same point-mass helpers the Cartesian
+/// encoder uses.
+#[test]
+fn test_pedestrian_under_bicycle_has_constrained_kinematics() {
+    let (scenario, spec) = pedestrian_crossing_bicycle();
+    common::assert_invariant(&scenario, &spec, Invariant::Kinematics);
+
+    let ped = scenario.get_actor("pedestrian").expect("pedestrian actor");
+    let dt = scenario.time_step;
+
+    // Explicitly: consecutive positions integrate the reported velocities, so
+    // no step is a teleport. The bound is generous on purpose — the point is
+    // that a bound exists at all, where before any jump was admissible.
+    for w in ped.states.windows(2) {
+        let (s, next) = (&w[0], &w[1]);
+        let step = (next.position().x - s.position().x).hypot(next.position().y - s.position().y);
+        let max_step = PEDESTRIAN_WALK_MAX_SPEED * dt * std::f64::consts::SQRT_2 + common::TOL;
+        assert!(
+            step <= max_step,
+            "pedestrian moved {step:.6} m in one {dt}s step at t={:.2}s, above the \
+             {max_step:.6} m the speed box allows",
+            next.time
+        );
+    }
+}
+
+/// The pedestrian's lateral acceleration in the bicycle system is a real solver
+/// variable, not the hard-coded `ay = 0.0` extraction used to report.
+#[test]
+fn test_pedestrian_under_bicycle_reports_a_real_lateral_acceleration() {
+    let (scenario, _) = pedestrian_crossing_bicycle();
+    let ped = scenario.get_actor("pedestrian").expect("pedestrian actor");
+    let dt = scenario.time_step;
+
+    for w in ped.states.windows(2) {
+        let (s, next) = (&w[0], &w[1]);
+        let expected = s.velocity().vy + s.acceleration().ay * dt;
+        assert!(
+            (next.velocity().vy - expected).abs() <= common::TOL,
+            "vy[t={:.2}s] = {:.9} but vy + ay·dt = {expected:.9}",
+            next.time,
+            next.velocity().vy
+        );
+    }
+}
+
+// ─── Separation (SW-09, note from SW-03) ───
+
+/// A pedestrian scenario must not resolve to zero separation.
+///
+/// `examples/pedestrian_crossing.yaml` declares both `min_ttc` and
+/// `min_distance` as `ignore`, so nothing in the encoding forbids a collision;
+/// what forbids it is that the two actors now have kinematics that cannot put
+/// them in the same place. Recorded because SW-03 observed this same input
+/// under a `MinimizeDistance` objective resolving to `min_distance = 0.00`
+/// while reporting `all_constraints_satisfied = false`.
+#[test]
+fn test_pedestrian_scenarios_keep_a_nonzero_separation() {
+    for (name, ped_id) in [
+        ("pedestrian_crossing.yaml", "pedestrian"),
+        ("pedestrian_running.yaml", "runner"),
+        ("pedestrian_wide_road.yaml", "ped"),
+    ] {
+        let (scenario, _) = generate_from_file(name);
+        let ped = scenario.get_actor(ped_id).expect("pedestrian actor");
+        let ego = scenario.get_actor("ego").expect("ego actor");
+
+        let closest = ped
+            .states
+            .iter()
+            .zip(&ego.states)
+            .map(|(p, e)| (p.position().x - e.position().x).hypot(p.position().y - e.position().y))
+            .fold(f64::INFINITY, f64::min);
+
+        assert!(
+            closest > common::TOL,
+            "{name}: pedestrian and ego coincide (closest approach {closest:.9} m)"
         );
     }
 }
