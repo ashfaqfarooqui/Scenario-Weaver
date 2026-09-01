@@ -126,10 +126,14 @@ impl std::fmt::Display for Violation {
 pub const KNOWN_BROKEN_INVARIANTS: &[(Invariant, &str)] = &[
     (
         Invariant::Kinematics,
-        "SW-08: the position update is forward Euler (p + v*dt) while the velocity update \
-         keeps the full a*dt, so p and v are integrated under different assumptions. \
-         Observed on every example: the residual against p + v*dt + a*dt^2/2 is exactly \
-         a*dt^2/2 and the forward-Euler residual is 0.",
+        "SW-09 (was SW-08 + SW-09): SW-08 fixed the longitudinal half — px and vx now \
+         satisfy p + v*dt + a*dt^2/2 and v + a*dt exactly on all 21 examples, and the \
+         three pedestrian examples satisfy the invariant outright. What is left is C2: \
+         for vehicles the vy[t+1] = vy[t] + ay[t]*dt assertion sits inside a \
+         `if role == Pedestrian` branch, so ay is a free variable and vy jumps with \
+         ay = 0 reported beside it. 54 breaches over 18 examples, every one of them on \
+         the lateral axis (48 on vy, 6 on py where Z3 happened to pick a non-zero ay); \
+         zero on px or vx.",
     ),
     (
         Invariant::ConstraintModes,
@@ -140,9 +144,11 @@ pub const KNOWN_BROKEN_INVARIANTS: &[(Invariant, &str)] = &[
     ),
     (
         Invariant::Containment,
-        "SW-10/SW-08: the lane variable is pinned on a schedule while py is pinned only at \
+        "SW-10: the lane variable is pinned on a schedule while py is pinned only at \
          the endpoints of a lane change, so mid-manoeuvre an actor is recorded in a lane it \
-         is not in (observed |py - lane*w - w/2| up to 2.75 m against a half-width of 1.75).",
+         is not in (observed |py - lane*w - w/2| up to 2.75 m against a half-width of 1.75). \
+         The SW-08 half of this — cartesian lane centres 5 cm short — is fixed; the centres \
+         are exactly 1.75 / 5.25 now and cartesian agrees with bicycle.",
     ),
     (
         Invariant::ForwardProgress,

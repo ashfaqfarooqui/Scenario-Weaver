@@ -356,22 +356,30 @@ fn test_extraction_agreement_across_the_corpus() {
 /// `p[i+1] = p[i] + v[i]·dt + ½·a[i]·dt²` and `v[i+1] = v[i] + a[i]·dt`, on both
 /// axes, at 1e-6.
 ///
-/// Fails on all 21 solvable examples, for two distinct reasons:
+/// Failed on all 21 solvable examples when this was written, for two distinct
+/// reasons. One is fixed:
 ///
-/// - **H1 / SW-08.** The position update is forward Euler. The residual against
-///   the constant-acceleration form is exactly `½·a·dt²` and the forward-Euler
-///   residual is 0.0 to the last bit, on every example — this is not a numerical
-///   artefact, the term is simply absent. `cut_in_left_adversarial_all`:
-///   `px[t=0.50] = 57.5` where `p + v·dt + ½·a·dt² = 57.875`, a 0.375 m error
-///   per step against a `min_distance` threshold of 5 m.
-/// - **C2 / SW-09.** For vehicles, `ay` is never connected to `vy`: the
+/// - **H1 / SW-08 — fixed.** The position update was forward Euler; the
+///   residual against the constant-acceleration form was exactly `½·a·dt²` and
+///   the forward-Euler residual 0.0 to the last bit, on every example
+///   (`cut_in_left_adversarial_all`: `px[t=0.50] = 57.5` where
+///   `p + v·dt + ½·a·dt² = 57.875`, 0.375 m per step against a `min_distance`
+///   threshold of 5 m). The update is now written trapezoidally,
+///   `p[t+1] = p[t] + (v[t] + v[t+1])·dt/2`, which is the same constraint given
+///   the velocity update and keeps position coupled only to the velocity chain.
+///   Zero `px` and zero `vx` breaches remain corpus-wide, and the three
+///   pedestrian examples satisfy the whole invariant.
+/// - **C2 / SW-09 — open, and now the only reason this fails.** For vehicles,
+///   `ay` is never connected to `vy`: the
 ///   `vy[t+1] = vy[t] + ay[t]·dt` assertion sits inside a
 ///   `if role == Pedestrian` branch. `cut_in_left`'s npc steps
 ///   `vy = 0 → -2.0 → +2.0` with `ay = 0.0` throughout, and later
 ///   `+1.64 → -1.685`. The `ay` in the JSON and the `.xosc` is fiction, and
 ///   `max_lateral_acceleration` bounds a variable that constrains nothing.
 #[test]
-#[ignore = "SW-08 (position update drops the a*dt^2/2 term) and SW-09 (lateral acceleration is a free variable for vehicles)"]
+#[ignore = "SW-09: lateral acceleration is a free variable for vehicles, so vy jumps with ay = 0. \
+            The SW-08 half is fixed: 0 px and 0 vx breaches remain, and all three pedestrian \
+            examples now satisfy the invariant outright"]
 fn test_kinematic_consistency_across_the_corpus() {
     assert_corpus_invariant(Invariant::Kinematics);
 }
@@ -407,7 +415,9 @@ fn test_constraint_mode_semantics_across_the_corpus() {
 /// `compute_effective_dist`, `compute_validation_metrics` — treats the actors
 /// as separated during exactly the window a cut-in scenario is about.
 #[test]
-#[ignore = "SW-10: the lane variable lags lateral position through a lane change (H2); SW-08 also shifts lane centres by 5 cm (C1)"]
+#[ignore = "SW-10: the lane variable lags lateral position through a lane change (H2). \
+            The SW-08 half (C1, lane centres 5 cm short) is fixed — the centres are exactly \
+            1.75 / 5.25 now"]
 fn test_lane_road_containment_across_the_corpus() {
     assert_corpus_invariant(Invariant::Containment);
 }
@@ -436,7 +446,9 @@ fn test_forward_progress_across_the_corpus() {
 /// prefer the four per-invariant tests above when you want the failure
 /// attributed to one issue.
 #[test]
-#[ignore = "SW-08/SW-09 (kinematics), SW-10 (containment), SW-12 (constraint modes, forward progress) — the union of the four per-invariant tests above"]
+#[ignore = "SW-09 (kinematics, lateral only since SW-08), SW-10 (containment), \
+            SW-12 (constraint modes, forward progress) — the union of the four \
+            per-invariant tests above"]
 fn test_every_scenario_satisfies_every_invariant() {
     for (name, spec) in common::solvable_examples() {
         let scenario = common::generate_example(name);

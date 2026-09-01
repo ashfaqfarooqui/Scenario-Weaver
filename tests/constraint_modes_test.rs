@@ -278,14 +278,25 @@ fn test_violate_mode_negates_constraint() {
 /// this test fails, rather than passing vacuously on a sentinel that satisfies
 /// any `>=` threshold.
 ///
-/// The fixture is `overtake_with_opposite.yaml` rather than `short_cut_in_left`
-/// because the latter never produces a same-lane approaching pair, so its TTC is
-/// genuinely never evaluated (the lane variable lags the lateral position —
-/// SW-10) and the guard would reject it.
+/// The fixture is `unsafe_following.yaml`: it declares both modes as `enforce`
+/// and is one of the examples whose solution actually contains a same-lane
+/// approaching pair, so both metrics are measured (TTC 3.78 s against a 3.0 s
+/// threshold, distance 27.8 m against 5.0 m).
+///
+/// It replaced `overtake_with_opposite.yaml`, which stopped producing a
+/// measured TTC when SW-08 corrected the lane centres and the position
+/// integration and Z3 landed on a different (equally valid) model — its npc is
+/// now never *approaching* the ego while sharing a lane. Which examples happen
+/// to evaluate a TTC at all is the SW-10 defect (the lane variable lags the
+/// lateral position), and until that lands any single-fixture version of this
+/// test is choosing from whatever the solver happens to produce; the
+/// corpus-wide version is `examples_smoke_test::
+/// test_enforce_min_ttc_examples_meet_their_threshold`, already `#[ignore]`d
+/// against SW-10.
 #[test]
 fn test_enforce_mode_respects_constraint() {
     // Declares `min_ttc: enforce` and `min_distance: enforce`.
-    let spec = common::parse_example("overtake_with_opposite.yaml");
+    let spec = common::parse_example("unsafe_following.yaml");
     assert_eq!(spec.constraint_modes.min_ttc(), ConstraintMode::Enforce);
     assert_eq!(
         spec.constraint_modes.min_distance(),

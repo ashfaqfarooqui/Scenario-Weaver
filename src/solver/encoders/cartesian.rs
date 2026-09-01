@@ -20,7 +20,21 @@ use crate::scenario::model::{
 };
 use crate::solver::backend::Z3Backend;
 use crate::solver::coordinate_encoder::CoordinateEncoder;
-use crate::solver::encoder_utils::{collect_lane_change_data, extract_int, extract_real};
+use crate::solver::encoder_utils::{
+    collect_lane_change_data, extract_int, extract_real, real_from_f64,
+};
+
+/// Maximum speed the box velocity constraint allows a pedestrian, chosen by
+/// the actor's `walking_mode` behaviour key.
+fn pedestrian_max_speed(actor: &crate::dsl::types::ActorSpec) -> f64 {
+    actor
+        .behavior
+        .get("walking_mode")
+        .map_or(PEDESTRIAN_WALK_MAX_SPEED, |mode| match mode.as_str() {
+            Some("run") => PEDESTRIAN_RUN_MAX_SPEED,
+            _ => PEDESTRIAN_WALK_MAX_SPEED,
+        })
+}
 
 /// Cartesian coordinate system encoder
 ///
@@ -86,8 +100,8 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         let py_var = &self.positions_y[actor_id][t];
 
         let lane_width = self.spec.get_lane_width();
-        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
-        let half_width = Real::from_rational((lane_width * 5.0) as i64, 10_i64);
+        let lane_width_real = real_from_f64(lane_width);
+        let half_width = real_from_f64(lane_width / 2.0);
 
         // py = lane * lane_width + lane_width/2
         let lane_real = lane_var.to_real();
@@ -118,12 +132,12 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         let px_var = &self.positions_x[actor_id][0];
         if (pos_min - pos_max).abs() < 1e-6 {
             // Fixed value
-            let pos_val = Real::from_rational((pos_min * 10.0) as i64, 10_i64);
+            let pos_val = real_from_f64(pos_min);
             self.backend.assert(&px_var.eq(&pos_val));
         } else {
             // Range
-            let min_val = Real::from_rational((pos_min * 10.0) as i64, 10_i64);
-            let max_val = Real::from_rational((pos_max * 10.0) as i64, 10_i64);
+            let min_val = real_from_f64(pos_min);
+            let max_val = real_from_f64(pos_max);
             self.backend.assert(&px_var.ge(&min_val));
             self.backend.assert(&px_var.le(&max_val));
         }
@@ -139,20 +153,20 @@ impl<B: Z3Backend> CartesianEncoder<B> {
             } else {
                 -speed_min
             };
-            let speed_val = Real::from_rational((speed * 10.0) as i64, 10_i64);
+            let speed_val = real_from_f64(speed);
             self.backend.assert(&vx_var.eq(&speed_val));
         } else {
             // Range
             if direction == 1 {
                 // Forward: vx in [speed_min, speed_max]
-                let min_val = Real::from_rational((speed_min * 10.0) as i64, 10_i64);
-                let max_val = Real::from_rational((speed_max * 10.0) as i64, 10_i64);
+                let min_val = real_from_f64(speed_min);
+                let max_val = real_from_f64(speed_max);
                 self.backend.assert(&vx_var.ge(&min_val));
                 self.backend.assert(&vx_var.le(&max_val));
             } else {
                 // Backward: vx in [-speed_max, -speed_min]
-                let min_val = Real::from_rational((-speed_max * 10.0) as i64, 10_i64);
-                let max_val = Real::from_rational((-speed_min * 10.0) as i64, 10_i64);
+                let min_val = real_from_f64(-speed_max);
+                let max_val = real_from_f64(-speed_min);
                 self.backend.assert(&vx_var.ge(&min_val));
                 self.backend.assert(&vx_var.le(&max_val));
             }
@@ -171,12 +185,12 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         let ax_var = &self.accelerations_x[actor_id][0];
         if (accel_min - accel_max).abs() < 1e-6 {
             // Fixed acceleration
-            let accel_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
+            let accel_val = real_from_f64(accel_min);
             self.backend.assert(&ax_var.eq(&accel_val));
         } else {
             // Acceleration range
-            let min_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
-            let max_val = Real::from_rational((accel_max * 10.0) as i64, 10_i64);
+            let min_val = real_from_f64(accel_min);
+            let max_val = real_from_f64(accel_max);
             self.backend.assert(&ax_var.ge(&min_val));
             self.backend.assert(&ax_var.le(&max_val));
         }
@@ -210,7 +224,7 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         }
 
         let lane_width = self.spec.get_lane_width();
-        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+        let lane_width_real = real_from_f64(lane_width);
 
         // Get source lane from step before transition starts
         let source_lane = &self.lanes[actor_id][start_step.saturating_sub(1)];
@@ -232,7 +246,7 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         let target_lane_int = source_lane.add(&Int::from_i64(lane_delta));
 
         // Get source and target lane centers
-        let half_width = Real::from_rational((lane_width * 5.0) as i64, 10_i64);
+        let half_width = real_from_f64(lane_width / 2.0);
         let source_center = source_lane.to_real() * &lane_width_real + &half_width;
         let target_center = target_lane_int.to_real() * &lane_width_real + &half_width;
 
@@ -273,7 +287,16 @@ impl<B: Z3Backend> CartesianEncoder<B> {
             .find(|a| a.id == actor_id)
             .expect("Actor must exist");
 
-        for t in start_step..=end_step.min(self.horizon) {
+        // From start_step - 1, not start_step: py is pinned to the lane centre
+        // for every t < start_step, and py[start_step] = py[start_step-1] +
+        // vy[start_step-1]*dt, so vy[start_step-1] is the first lateral
+        // velocity that is free to be non-zero. Bounding only from start_step
+        // left that one step covered by nothing but the |vy| <= 2 m/s cap; Z3
+        // used to pick 0 there and the ratio tests passed by luck, until the
+        // corrected lane centres moved the solution and it picked -2.0
+        // (vy/vx = 0.41 against a 0.15 limit) on cut_in_left.
+        let ratio_start = start_step.saturating_sub(1);
+        for t in ratio_start..=end_step.min(self.horizon) {
             let vx_t = &self.velocities_x[actor_id][t];
             let vy_t = &self.velocities_y[actor_id][t];
 
@@ -318,7 +341,7 @@ impl<B: Z3Backend> CartesianEncoder<B> {
     ) {
         // Use configurable max lateral acceleration from spec
         let max_ay_value = self.spec.max_lateral_acceleration;
-        let max_ay = Real::from_rational((max_ay_value * 10.0) as i64, 10_i64);
+        let max_ay = real_from_f64(max_ay_value);
 
         for t in start_step..=end_step.min(self.horizon) {
             let ay_t = &self.accelerations_y[actor_id][t];
@@ -363,7 +386,9 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
     }
 
     fn encode_kinematics(&mut self, dt: f64) {
-        let dt_real = Real::from_rational((dt * 10.0) as i64, 10_i64);
+        let dt_real = real_from_f64(dt);
+        // Half of dt, for the trapezoidal position update below.
+        let half_dt = real_from_f64(dt / 2.0);
         let zero = Real::from_rational(0_i64, 1_i64);
 
         for actor in &self.spec.actors {
@@ -381,8 +406,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
             } else {
                 (actor.acceleration.min(), actor.acceleration.max())
             };
-            let ax_min_real = Real::from_rational((ax_min * 10.0) as i64, 10_i64);
-            let ax_max_real = Real::from_rational((ax_max * 10.0) as i64, 10_i64);
+            let ax_min_real = real_from_f64(ax_min);
+            let ax_max_real = real_from_f64(ax_max);
 
             for t in 0..self.horizon {
                 // ========== LONGITUDINAL DYNAMICS ==========
@@ -398,10 +423,29 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                 let expected_vx = vx_t + &(ax_t * &dt_real);
                 self.backend.assert(&vx_t1.eq(&expected_vx));
 
-                // Position update: px[t+1] = px[t] + vx[t] * dt
+                // Position update, exact for piecewise-constant acceleration:
+                //   px[t+1] = px[t] + vx[t]*dt + 0.5*ax[t]*dt^2
+                // written in the equivalent trapezoidal form
+                //   px[t+1] = px[t] + (vx[t] + vx[t+1]) * dt/2
+                // Substituting the velocity update asserted immediately above,
+                // (vx[t] + vx[t+1])/2 = vx[t] + 0.5*ax[t]*dt, so the two forms
+                // are the same constraint and admit exactly the same solution
+                // set. Still QF_LRA either way: dt/2 is a constant.
+                //
+                // The trapezoidal form is preferred because it leaves px
+                // coupled only to the velocity chain, where writing ax[t]
+                // straight into the px update couples px[t+1] to ax[t] as well.
+                // Both were measured on the full corpus. The explicit form is
+                // not catastrophic — the >120 s blowup reported before this
+                // work does not reproduce once the exact rationals and the
+                // corrected lane centres are in — but it is consistently
+                // slower: cut_in_left 0.84 s -> 2.05 s, simple_bidirectional
+                // 0.038 -> 0.124, overtake_with_opposite 0.030 -> 0.130, with
+                // no example faster. Since the two are logically identical,
+                // the cheaper one wins.
                 let px_t = &self.positions_x[actor_id][t];
                 let px_t1 = &self.positions_x[actor_id][t + 1];
-                let expected_px = px_t + &(vx_t * &dt_real);
+                let expected_px = px_t + &((vx_t + vx_t1) * &half_dt);
                 self.backend.assert(&px_t1.eq(&expected_px));
 
                 // ========== LATERAL DYNAMICS ==========
@@ -419,11 +463,33 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                     self.backend.assert(&vy_t1.eq(&expected_vy));
                 }
 
-                // Lateral position update: py[t+1] = py[t] + vy[t] * dt
+                // Lateral position update.
+                //
+                // Second-order (trapezoidal) *only* for pedestrians, because
+                // they are the only actors whose vy is chained to ay by the
+                // update just above. For them this is exactly
+                // py + vy*dt + 0.5*ay*dt^2 and it fixes the same H1 defect as
+                // the longitudinal update.
+                //
+                // Vehicles keep forward Euler, deliberately. Their ay is a free
+                // variable that constrains nothing (C2, owned by SW-09), so
+                // there is no second-order term to recover — and the
+                // trapezoidal form has a null space that a missing velocity
+                // chain makes reachable: py[t+1] = py[t] holds for any
+                // vy[t+1] = -vy[t], so a vehicle parked on its lane centre can
+                // sawtooth vy between +2 and -2 m/s at no cost. Forward Euler
+                // pins vy = 0 there instead. This should become trapezoidal
+                // for every actor the moment SW-09 asserts vy[t+1] = vy[t] +
+                // ay[t]*dt for vehicles.
                 let py_t = &self.positions_y[actor_id][t];
                 let py_t1 = &self.positions_y[actor_id][t + 1];
                 let vy_t = &self.velocities_y[actor_id][t];
-                let expected_py = py_t + &(vy_t * &dt_real);
+                let expected_py = if actor.role == ActorRole::Pedestrian {
+                    let vy_t1 = &self.velocities_y[actor_id][t + 1];
+                    py_t + &((vy_t + vy_t1) * &half_dt)
+                } else {
+                    py_t + &(vy_t * &dt_real)
+                };
                 self.backend.assert(&py_t1.eq(&expected_py));
 
                 // Ego without lane changes never changes lanes (vy = 0)
@@ -443,18 +509,9 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                 // Performance: Eliminates QF_NRA (nonlinear) solver requirement, keeps Z3 in
                 // QF_LRA (linear) theory for 10-20x speedup. Multi-solve now works reliably.
                 if actor.role == ActorRole::Pedestrian {
-                    let max_speed = actor.behavior.get("walking_mode").map_or(
-                        PEDESTRIAN_WALK_MAX_SPEED,
-                        |mode| match mode.as_str() {
-                            Some("run") => PEDESTRIAN_RUN_MAX_SPEED,
-                            _ => PEDESTRIAN_WALK_MAX_SPEED,
-                        },
-                    );
-
-                    let max_speed_real = Real::from_rational((max_speed * 10.0) as i64, 10_i64);
-                    let neg_max_speed = -max_speed;
-                    let neg_max_speed_real =
-                        Real::from_rational((neg_max_speed * 10.0) as i64, 10_i64);
+                    let max_speed = pedestrian_max_speed(actor);
+                    let max_speed_real = real_from_f64(max_speed);
+                    let neg_max_speed_real = real_from_f64(-max_speed);
 
                     // Linear box constraint: |vx| <= max_speed AND |vy| <= max_speed
                     // vx >= -max_speed AND vx <= max_speed
@@ -465,6 +522,37 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                     self.backend.assert(&vy_t.ge(&neg_max_speed_real));
                     self.backend.assert(&vy_t.le(&max_speed_real));
                 }
+            }
+
+            // Velocity bounds at the final step.
+            //
+            // The trapezoidal position update above reads v[t+1], so
+            // v[horizon] now appears in a constraint; under the old
+            // forward-Euler update it appeared in none and Z3 was free to
+            // pick anything for it. Without this block the solver pays for
+            // the last position step with an arbitrary final velocity —
+            // observed on cut_in_left as the ego jumping a full lane width
+            // laterally in the last step with vy[10.0s] = -70 m/s. It applies
+            // to pedestrians, whose lateral update is trapezoidal too; for
+            // vehicles vy[horizon] is once again unused, and pinning the ego's
+            // to zero simply keeps the extracted value from being arbitrary.
+            // The bounds repeated here are exactly the ones the loop applies
+            // at every other step; nothing new is asserted.
+            let t = self.horizon;
+            if actor.role == ActorRole::Ego && actor.lane_changes.is_empty() {
+                let vy_t = &self.velocities_y[actor_id][t];
+                self.backend.assert(&vy_t.eq(&zero));
+            }
+            if actor.role == ActorRole::Pedestrian {
+                let max_speed = pedestrian_max_speed(actor);
+                let max_speed_real = real_from_f64(max_speed);
+                let neg_max_speed_real = real_from_f64(-max_speed);
+                let vx_t = &self.velocities_x[actor_id][t];
+                let vy_t = &self.velocities_y[actor_id][t];
+                self.backend.assert(&vx_t.ge(&neg_max_speed_real));
+                self.backend.assert(&vx_t.le(&max_speed_real));
+                self.backend.assert(&vy_t.ge(&neg_max_speed_real));
+                self.backend.assert(&vy_t.le(&max_speed_real));
             }
         }
 
@@ -594,7 +682,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         let vx1 = &self.velocities_x[actor1][time];
         let vx2 = &self.velocities_x[actor2][time];
 
-        let min_ttc_val = Real::from_rational((min_ttc * 10.0) as i64, 10_i64);
+        let min_ttc_val = real_from_f64(min_ttc);
         let epsilon = Real::from_rational(1_i64, 100_i64); // 0.01 m/s to avoid division by zero
 
         // Enhanced "same lane" condition: discrete lane match OR y-position proximity
@@ -605,7 +693,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         // Y-position proximity: |py1 - py2| < lane_width catches actors whose y-positions
         // overlap within one lane width (covers mid-transition and laterally-aligned actors).
         let lane_width = self.spec.get_lane_width();
-        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+        let lane_width_real = real_from_f64(lane_width);
         let py_diff_pos = py1 - py2;
         let py_diff_neg = py2 - py1;
         let y_proximity = Bool::and(&[
@@ -668,7 +756,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         let py1 = &self.positions_y[actor1][time];
         let py2 = &self.positions_y[actor2][time];
 
-        let min_dist_val = Real::from_rational((min_dist * 10.0) as i64, 10_i64);
+        let min_dist_val = real_from_f64(min_dist);
 
         // Enhanced "same lane" condition: discrete lane match OR y-position proximity
         // This handles lane change transitions and head-on / opposite-direction actors
@@ -678,7 +766,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         // Y-position proximity: |py1 - py2| < lane_width catches actors whose y-positions
         // overlap within one lane width (covers mid-transition and laterally-aligned actors).
         let lane_width = self.spec.get_lane_width();
-        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+        let lane_width_real = real_from_f64(lane_width);
         let py_diff_pos = py1 - py2;
         let py_diff_neg = py2 - py1;
         let y_proximity = Bool::and(&[
@@ -822,8 +910,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         // For 3.5m lane change over 3s with dt=0.1s: vy ≈ 1.17 m/s (realistic)
         // Setting max to 2.0 m/s allows for smooth lane changes
         let max_vy = 2.0; // m/s
-        let max_vy_real = Real::from_rational((max_vy * 10.0) as i64, 10_i64);
-        let neg_max_vy_real = Real::from_rational((-max_vy * 10.0) as i64, 10_i64);
+        let max_vy_real = real_from_f64(max_vy);
+        let neg_max_vy_real = real_from_f64(-max_vy);
 
         for actor in &self.spec.actors {
             if actor.role != ActorRole::Ego || !actor.lane_changes.is_empty() {
@@ -1031,29 +1119,49 @@ mod tests {
             assert_eq!(encoder.backend.check(), SatResult::Sat);
             let model = encoder.backend.get_model().unwrap();
 
+            let dt = 0.5;
             let px0 = eval_real(&model, &encoder.positions_x["ego"][0]);
             let px1 = eval_real(&model, &encoder.positions_x["ego"][1]);
             let vx0 = eval_real(&model, &encoder.velocities_x["ego"][0]);
+            let vx1 = eval_real(&model, &encoder.velocities_x["ego"][1]);
+            let ax0 = eval_real(&model, &encoder.accelerations_x["ego"][0]);
 
-            // px[1] = px[0] + vx[0] * dt
-            let expected_px1 = px0 + vx0 * 0.5;
+            // Velocity is exact: vx[1] = vx[0] + ax[0]*dt.
             assert!(
-                approx_eq(px1, expected_px1, 0.01),
-                "px1={} expected={}",
-                px1,
-                expected_px1
+                approx_eq(vx1, vx0 + ax0 * dt, 1e-9),
+                "vx1={vx1} expected={}",
+                vx0 + ax0 * dt
             );
 
+            // Position carries the second-order term:
+            //   px[1] = px[0] + vx[0]*dt + 0.5*ax[0]*dt^2
+            // This test previously asserted the forward-Euler form
+            // `px0 + vx0*dt` at a 0.01 tolerance, which is what the encoder
+            // used to assert (SW-08/H1). The two differ by 0.5*ax*dt^2 —
+            // 0.375 m per step at ax = 3, dt = 0.5 — so the old assertion
+            // fails against the corrected update and the 1e-9 tolerance here
+            // is the exactness Z3's rationals actually give.
+            let expected_px1 = px0 + vx0 * dt + 0.5 * ax0 * dt * dt;
+            assert!(
+                approx_eq(px1, expected_px1, 1e-9),
+                "px1={px1} expected={expected_px1} (px0={px0}, vx0={vx0}, ax0={ax0})"
+            );
+            // Equivalently, the trapezoidal form the encoder asserts.
+            assert!(
+                approx_eq(px1, px0 + (vx0 + vx1) * dt / 2.0, 1e-9),
+                "px1={px1} disagrees with the trapezoidal form"
+            );
+
+            // The ego is a vehicle, so its lateral update stays forward Euler
+            // until SW-09 chains vy to ay — see encode_kinematics.
             let py0 = eval_real(&model, &encoder.positions_y["ego"][0]);
             let py1 = eval_real(&model, &encoder.positions_y["ego"][1]);
             let vy0 = eval_real(&model, &encoder.velocities_y["ego"][0]);
 
-            let expected_py1 = py0 + vy0 * 0.5;
+            let expected_py1 = py0 + vy0 * dt;
             assert!(
-                approx_eq(py1, expected_py1, 0.01),
-                "py1={} expected={}",
-                py1,
-                expected_py1
+                approx_eq(py1, expected_py1, 1e-9),
+                "py1={py1} expected={expected_py1}"
             );
         });
     }

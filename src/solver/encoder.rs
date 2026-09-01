@@ -6,6 +6,7 @@ use z3::SatResult;
 use crate::dsl::types::{CoordinateSystem, ScenarioSpec};
 use crate::solver::backend::{OptimizationTarget, OptimizerBackend, SolverBackend, Z3Backend};
 use crate::solver::coordinate_encoder::CoordinateEncoder;
+use crate::solver::encoder_utils::real_from_f64;
 use crate::solver::encoders::bicycle::BicycleEncoder;
 use crate::solver::encoders::cartesian::CartesianEncoder;
 
@@ -391,7 +392,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             } => {
                 let px1 = self.get_longitudinal_pos(actor1, time);
                 let px2 = self.get_longitudinal_pos(actor2, time);
-                let dist_val = Real::from_rational((*distance * 10.0) as i64, 10_i64);
+                let dist_val = real_from_f64(*distance);
 
                 // |px1 - px2| > d is equivalent to: (px1 - px2 > d) OR (px2 - px1 > d)
                 let diff_pos = px1 - px2;
@@ -418,7 +419,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 let lane_width = self.spec.get_lane_width();
                 let num_lanes = self.spec.get_num_lanes();
                 let road_width = lane_width * num_lanes as f64;
-                let road_width_real = Real::from_rational((road_width * 10.0) as i64, 10_i64);
+                let road_width_real = real_from_f64(road_width);
 
                 if side == "left" {
                     py.lt(&zero)
@@ -435,7 +436,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 let lane_width = self.spec.get_lane_width();
                 let num_lanes = self.spec.get_num_lanes();
                 let road_width = lane_width * num_lanes as f64;
-                let road_width_real = Real::from_rational((road_width * 10.0) as i64, 10_i64);
+                let road_width_real = real_from_f64(road_width);
 
                 let on_road_start = py.ge(&zero);
                 let on_road_end = py.le(&road_width_real);
@@ -458,8 +459,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 let dx = px1 - px2;
                 let dy = py1 - py2;
                 let dist_sq = &(&dx * &dx) + &(&dy * &dy);
-                let threshold_sq =
-                    Real::from_rational((distance * distance * 100.0) as i64, 100_i64);
+                let threshold_sq = real_from_f64(distance * distance);
                 dist_sq.gt(&threshold_sq)
             }
 
@@ -478,7 +478,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
 
                 let dx = px1 - px2;
                 let dy = py1 - py2;
-                let threshold_real = Real::from_rational((distance * 10.0) as i64, 10_i64);
+                let threshold_real = real_from_f64(*distance);
                 let zero = Real::from_rational(0_i64, 1_i64);
 
                 // Manhattan distance: |dx| + |dy| > threshold
@@ -512,18 +512,18 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
 
                 let dx = px1 - px2;
                 let dy = py1 - py2;
-                let threshold_x_real = Real::from_rational((threshold_x * 10.0) as i64, 10_i64);
-                let threshold_y_real = Real::from_rational((threshold_y * 10.0) as i64, 10_i64);
+                let threshold_x_real = real_from_f64(*threshold_x);
+                let threshold_y_real = real_from_f64(*threshold_y);
 
                 // |dx| > threshold_x: dx > threshold_x OR dx < -threshold_x
                 let dx_positive = dx.gt(&threshold_x_real);
-                let neg_threshold_x = Real::from_rational((-threshold_x * 10.0) as i64, 10_i64);
+                let neg_threshold_x = real_from_f64(-threshold_x);
                 let dx_negative = dx.lt(&neg_threshold_x);
                 let dx_outside = z3::ast::Bool::or(&[&dx_positive, &dx_negative]);
 
                 // |dy| > threshold_y: dy > threshold_y OR dy < -threshold_y
                 let dy_positive = dy.gt(&threshold_y_real);
-                let neg_threshold_y = Real::from_rational((-threshold_y * 10.0) as i64, 10_i64);
+                let neg_threshold_y = real_from_f64(-threshold_y);
                 let dy_negative = dy.lt(&neg_threshold_y);
                 let dy_outside = z3::ast::Bool::or(&[&dy_positive, &dy_negative]);
 
@@ -545,7 +545,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 let lane_width = self.spec.get_lane_width();
                 let num_lanes = self.spec.get_num_lanes();
                 let road_width = lane_width * num_lanes as f64;
-                let road_width_real = Real::from_rational((road_width * 10.0) as i64, 10_i64);
+                let road_width_real = real_from_f64(road_width);
                 let zero = Real::from_rational(0_i64, 1_i64);
 
                 // Pedestrian on road: 0 <= py <= road_width
@@ -560,7 +560,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 // TTC = (ped_px - ego_px) / ego_vx
                 // Safe if: (ped_px - ego_px) > ttc * ego_vx
                 let distance = ped_px - ego_px;
-                let ttc_val = Real::from_rational((ttc * 10.0) as i64, 10_i64);
+                let ttc_val = real_from_f64(*ttc);
                 let ttc_safe = distance.gt(&(&ttc_val * ego_vx));
 
                 // Overall: NOT (ped_on_road AND approaching) OR ttc_safe
@@ -572,11 +572,11 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             // Z3 encoding: (vx > threshold) OR (vx < -threshold)
             Proposition::VelocityGT { actor, velocity } => {
                 let vx = self.get_longitudinal_vel(actor, time);
-                let threshold_val = Real::from_rational((velocity * 10.0) as i64, 10_i64);
+                let threshold_val = real_from_f64(*velocity);
 
                 // |vx| > threshold is equivalent to: (vx > threshold) OR (vx < -threshold)
                 let pos_case = vx.gt(&threshold_val);
-                let neg_threshold = Real::from_rational((-velocity * 10.0) as i64, 10_i64);
+                let neg_threshold = real_from_f64(-velocity);
                 let neg_case = vx.lt(&neg_threshold);
 
                 z3::ast::Bool::or(&[&pos_case, &neg_case])
@@ -587,8 +587,8 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             // Z3 encoding: (vx < threshold) AND (vx > -threshold)
             Proposition::VelocityLT { actor, velocity } => {
                 let vx = self.get_longitudinal_vel(actor, time);
-                let threshold_val = Real::from_rational((velocity * 10.0) as i64, 10_i64);
-                let neg_threshold = Real::from_rational((-velocity * 10.0) as i64, 10_i64);
+                let threshold_val = real_from_f64(*velocity);
+                let neg_threshold = real_from_f64(-velocity);
 
                 // |vx| < threshold is equivalent to: -threshold < vx < threshold
                 let upper_bound = vx.lt(&threshold_val);
@@ -606,7 +606,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             } => {
                 let py1 = self.get_lateral_pos(actor1, time);
                 let py2 = self.get_lateral_pos(actor2, time);
-                let dist_val = Real::from_rational((*distance * 10.0) as i64, 10_i64);
+                let dist_val = real_from_f64(*distance);
 
                 // |py1 - py2| > d is equivalent to: (py1 - py2 > d) OR (py2 - py1 > d)
                 let diff_pos = py1 - py2;
@@ -643,7 +643,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             } => {
                 let vx1 = self.get_longitudinal_vel(actor1, time);
                 let vx2 = self.get_longitudinal_vel(actor2, time);
-                let vel_val = Real::from_rational((*velocity * 10.0) as i64, 10_i64);
+                let vel_val = real_from_f64(*velocity);
 
                 // |vx1 - vx2| > v is equivalent to: (vx1 - vx2 > v) OR (vx2 - vx1 > v)
                 let diff_pos = vx1 - vx2;
@@ -683,7 +683,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         let vx1 = self.get_longitudinal_vel(actor1, time);
         let vx2 = self.get_longitudinal_vel(actor2, time);
 
-        let min_ttc_val = Real::from_rational((min_ttc * 10.0) as i64, 10_i64);
+        let min_ttc_val = real_from_f64(min_ttc);
         let epsilon = Real::from_rational(1_i64, 100_i64); // 0.01 m/s to avoid division by zero
 
         // "Same lane" condition for TTC.
@@ -710,7 +710,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             let py1 = self.get_lateral_pos(actor1, time);
             let py2 = self.get_lateral_pos(actor2, time);
             let lane_width = self.spec.get_lane_width();
-            let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+            let lane_width_real = real_from_f64(lane_width);
             let py_diff_pos = py1 - py2;
             let py_diff_neg = py2 - py1;
             let y_proximity = z3::ast::Bool::and(&[
@@ -1056,9 +1056,11 @@ impl GenericEncoder<OptimizerBackend> {
         let obj = Real::new_const("ttc_obj");
         let big_val = Real::from_rational(9999, 1);
         let neg_big = Real::from_rational(-9999, 1);
-        // Weight = dt (time_step), expressed as rational to avoid floating-point
-        let dt_millis = (self.spec.time_step * 1000.0) as i64;
-        let weight = Real::from_rational(dt_millis, 1000);
+        // Weight = dt (time_step), as an exact rational. Was
+        // `(time_step * 1000.0) as i64 / 1000`, the same truncating idiom as
+        // the rest of SW-08 in a different shape: it silently zeroed the whole
+        // closing-speed term for any `time_step` below 0.001.
+        let weight = real_from_f64(self.spec.time_step);
 
         // obj can be negative (when closing speed term dominates)
         self.coord_encoder.backend_mut().assert(&obj.ge(&neg_big));
@@ -1403,14 +1405,19 @@ mod tests {
             let ego_py_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_py_0.to_string());
             let npc_py_f64: f64 = crate::solver::backend::parse_z3_real_pub(&npc_py_0.to_string());
 
+            // Exact lane centres: lane*width + width/2 with width = 3.5.
+            // The tolerance used to be 0.5 m, which was wide enough to accept
+            // the 1.70 / 5.20 the encoder actually produced when half_width was
+            // built as `(lane_width * 5.0) as i64 / 10` and 17.5 truncated to
+            // 17 (SW-08/C1). 1e-9 is the exactness Z3's rationals give.
             assert!(
-                (ego_py_f64 - 5.25).abs() < 0.5,
-                "ego_py should be ~5.25, got {}",
+                (ego_py_f64 - 5.25).abs() < 1e-9,
+                "ego_py should be exactly 5.25, got {}",
                 ego_py_f64
             );
             assert!(
-                (npc_py_f64 - 1.75).abs() < 0.5,
-                "npc_py should be ~1.75, got {}",
+                (npc_py_f64 - 1.75).abs() < 1e-9,
+                "npc_py should be exactly 1.75, got {}",
                 npc_py_f64
             );
         });
@@ -1447,18 +1454,27 @@ mod tests {
             println!("Ego px[1]: {:?}", ego_px_1);
             println!("Ego vx[0]: {:?}", ego_vx_0);
 
-            // px[1] should be px[0] + vx[0] * 0.5
-            // 50.0 + 15.0 * 0.5 = 57.5
+            // px[1] = px[0] + vx[0]*dt + 0.5*ax[0]*dt^2 with dt = 0.5.
+            // The forward-Euler form this used to assert (px0 + vx0*0.5, at a
+            // 0.1 tolerance) is short by 0.5*ax*dt^2 — 1.0 m per step at the
+            // ax = -8 the solver picks here, ten times the old tolerance. See
+            // SW-08/H1.
+            let ego_vx_1 = model
+                .eval(encoder.get_longitudinal_vel("ego", 1), true)
+                .unwrap();
             let px0_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_px_0.to_string());
             let px1_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_px_1.to_string());
             let vx0_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_vx_0.to_string());
+            let vx1_f64: f64 = crate::solver::backend::parse_z3_real_pub(&ego_vx_1.to_string());
 
+            // ax[0] = (vx[1] - vx[0]) / dt, since the velocity update is exact.
+            let dt = 0.5;
+            let ax0_f64 = (vx1_f64 - vx0_f64) / dt;
+            let expected = px0_f64 + vx0_f64 * dt + 0.5 * ax0_f64 * dt * dt;
             assert!(
-                (px1_f64 - (px0_f64 + vx0_f64 * 0.5)).abs() < 0.1,
-                "kinematic relation violated: px1={}, px0={}, vx0={}",
-                px1_f64,
-                px0_f64,
-                vx0_f64
+                (px1_f64 - expected).abs() < 1e-9,
+                "kinematic relation violated: px1={px1_f64}, expected {expected} \
+                 (px0={px0_f64}, vx0={vx0_f64}, ax0={ax0_f64})"
             );
         });
     }

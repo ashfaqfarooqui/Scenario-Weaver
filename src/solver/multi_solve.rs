@@ -8,6 +8,7 @@ use crate::dsl::types::{ActorRole, ScenarioSpec};
 use crate::error::{Result, ScenarioGenError};
 use crate::ltl::formula::LTLFormula;
 use crate::scenario::model::Scenario;
+use crate::solver::encoder_utils::real_from_f64;
 use crate::solver::Z3Encoder;
 use z3::ast::{Bool, Real};
 use z3::{Config, SatResult};
@@ -144,8 +145,8 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Resu
             let actor_px0 = encoder.get_position_x(&actor.id, 0);
             let actor_vx0 = encoder.get_velocity_x(&actor.id, 0);
 
-            let prev_px0_z3 = Real::from_rational((prev_px0 * 10.0) as i64, 10_i64);
-            let prev_vx0_z3 = Real::from_rational((prev_vx0 * 10.0) as i64, 10_i64);
+            let prev_px0_z3 = real_from_f64(prev_px0);
+            let prev_vx0_z3 = real_from_f64(prev_vx0);
 
             // Tolerance bands for diversity (block near-duplicates)
             let pos_tolerance = Real::from_rational(5_i64, 10_i64); // 0.5m
@@ -169,8 +170,8 @@ fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Resu
                 let actor_py0 = encoder.get_position_y(&actor.id, 0);
                 let actor_vy0 = encoder.get_velocity_y(&actor.id, 0);
 
-                let prev_py0_z3 = Real::from_rational((prev_py0 * 10.0) as i64, 10_i64);
-                let prev_vy0_z3 = Real::from_rational((prev_vy0 * 10.0) as i64, 10_i64);
+                let prev_py0_z3 = real_from_f64(prev_py0);
+                let prev_vy0_z3 = real_from_f64(prev_vy0);
 
                 let py_close = Bool::and(&[
                     &actor_py0.ge(&(&prev_py0_z3 - &pos_tolerance)),

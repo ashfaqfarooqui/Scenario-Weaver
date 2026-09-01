@@ -27,7 +27,9 @@ use crate::scenario::model::{
 };
 use crate::solver::backend::Z3Backend;
 use crate::solver::coordinate_encoder::CoordinateEncoder;
-use crate::solver::encoder_utils::{collect_lane_change_data, extract_int, extract_real};
+use crate::solver::encoder_utils::{
+    collect_lane_change_data, extract_int, extract_real, real_from_f64,
+};
 
 /// Bicycle model coordinate system encoder
 ///
@@ -130,12 +132,12 @@ impl<B: Z3Backend> BicycleEncoder<B> {
         let px_var = &self.positions_x[actor_id][0];
         if (pos_min - pos_max).abs() < 1e-6 {
             // Fixed value
-            let pos_val = Real::from_rational((pos_min * 10.0) as i64, 10_i64);
+            let pos_val = real_from_f64(pos_min);
             self.backend.assert(&px_var.eq(&pos_val));
         } else {
             // Range
-            let min_val = Real::from_rational((pos_min * 10.0) as i64, 10_i64);
-            let max_val = Real::from_rational((pos_max * 10.0) as i64, 10_i64);
+            let min_val = real_from_f64(pos_min);
+            let max_val = real_from_f64(pos_max);
             self.backend.assert(&px_var.ge(&min_val));
             self.backend.assert(&px_var.le(&max_val));
         }
@@ -144,19 +146,19 @@ impl<B: Z3Backend> BicycleEncoder<B> {
         let py_var = &self.positions_y[actor_id][0];
         let lane_width = self.spec.get_lane_width();
         let py_initial = lane as f64 * lane_width + lane_width / 2.0;
-        let py_val = Real::from_rational((py_initial * 100.0).round() as i64, 100_i64);
+        let py_val = real_from_f64(py_initial);
         self.backend.assert(&py_var.eq(&py_val));
 
         // Speed at t=0 (always positive)
         let v_var = &self.speed_v[actor_id][0];
         if (speed_min - speed_max).abs() < 1e-6 {
             // Fixed value
-            let speed_val = Real::from_rational((speed_min * 10.0) as i64, 10_i64);
+            let speed_val = real_from_f64(speed_min);
             self.backend.assert(&v_var.eq(&speed_val));
         } else {
             // Range
-            let min_val = Real::from_rational((speed_min * 10.0) as i64, 10_i64);
-            let max_val = Real::from_rational((speed_max * 10.0) as i64, 10_i64);
+            let min_val = real_from_f64(speed_min);
+            let max_val = real_from_f64(speed_max);
             self.backend.assert(&v_var.ge(&min_val));
             self.backend.assert(&v_var.le(&max_val));
         }
@@ -178,12 +180,12 @@ impl<B: Z3Backend> BicycleEncoder<B> {
         let a_var = &self.accelerations[actor_id][0];
         if (accel_min - accel_max).abs() < 1e-6 {
             // Fixed value
-            let accel_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
+            let accel_val = real_from_f64(accel_min);
             self.backend.assert(&a_var.eq(&accel_val));
         } else {
             // Range
-            let min_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
-            let max_val = Real::from_rational((accel_max * 10.0) as i64, 10_i64);
+            let min_val = real_from_f64(accel_min);
+            let max_val = real_from_f64(accel_max);
             self.backend.assert(&a_var.ge(&min_val));
             self.backend.assert(&a_var.le(&max_val));
         }
@@ -207,8 +209,8 @@ impl<B: Z3Backend> BicycleEncoder<B> {
                 };
 
             // Steering angle bounds: -δ_max <= δ <= δ_max
-            let delta_max_val = Real::from_rational((max_steering_angle * 100.0) as i64, 100_i64);
-            let delta_min_val = Real::from_rational((-max_steering_angle * 100.0) as i64, 100_i64);
+            let delta_max_val = real_from_f64(max_steering_angle);
+            let delta_min_val = real_from_f64(-max_steering_angle);
 
             for t in 0..=self.horizon {
                 let delta_var = &self.steering_delta[actor_id][t];
@@ -218,8 +220,8 @@ impl<B: Z3Backend> BicycleEncoder<B> {
                 // Heading angle bounds: -π/6 <= θ <= π/6 (±30° for small angle validity)
                 let theta_var = &self.heading_theta[actor_id][t];
                 let theta_max = std::f64::consts::PI / 6.0; // 30 degrees
-                let theta_max_val = Real::from_rational((theta_max * 100.0) as i64, 100_i64);
-                let theta_min_val = Real::from_rational((-theta_max * 100.0) as i64, 100_i64);
+                let theta_max_val = real_from_f64(theta_max);
+                let theta_min_val = real_from_f64(-theta_max);
                 self.backend.assert(&theta_var.ge(&theta_min_val));
                 self.backend.assert(&theta_var.le(&theta_max_val));
 
@@ -232,7 +234,7 @@ impl<B: Z3Backend> BicycleEncoder<B> {
             // Steering rate constraint: |δ[t+1] - δ[t]| <= max_steering_rate * dt
             let dt = self.spec.time_step;
             let max_delta_change = max_steering_rate * dt;
-            let max_change_val = Real::from_rational((max_delta_change * 100.0) as i64, 100_i64);
+            let max_change_val = real_from_f64(max_delta_change);
 
             for t in 0..self.horizon {
                 let delta_t = &self.steering_delta[actor_id][t];
@@ -241,8 +243,7 @@ impl<B: Z3Backend> BicycleEncoder<B> {
 
                 // |delta_diff| <= max_change
                 // Encoded as: -max_change <= delta_diff <= max_change
-                let neg_max_change_val =
-                    Real::from_rational((-max_delta_change * 100.0) as i64, 100_i64);
+                let neg_max_change_val = real_from_f64(-max_delta_change);
                 self.backend.assert(&delta_diff.ge(&neg_max_change_val));
                 self.backend.assert(&delta_diff.le(&max_change_val));
             }
@@ -337,7 +338,7 @@ impl<B: Z3Backend> BicycleEncoder<B> {
 
         // Pin to lane center (consistent with cartesian encoder's lane coupling)
         let center_py = lane as f64 * lane_width + lane_width / 2.0;
-        let center_val = Real::from_rational((center_py * 100.0).round() as i64, 100_i64);
+        let center_val = real_from_f64(center_py);
         self.backend.assert(&py_var.eq(&center_val));
 
         // Also tie the discrete lane variable to this concrete lane
@@ -366,8 +367,8 @@ impl<B: Z3Backend> BicycleEncoder<B> {
         let source_center = source_lane as f64 * lane_width + lane_width / 2.0;
         let target_center = target_lane as f64 * lane_width + lane_width / 2.0;
 
-        let source_center_val = Real::from_rational((source_center * 100.0) as i64, 100_i64);
-        let target_center_val = Real::from_rational((target_center * 100.0) as i64, 100_i64);
+        let source_center_val = real_from_f64(source_center);
+        let target_center_val = real_from_f64(target_center);
         let tolerance = Real::from_rational(5_i64, 10_i64); // 0.5m
 
         // Constrain py near source center at start
@@ -416,7 +417,7 @@ impl<B: Z3Backend> BicycleEncoder<B> {
         // Road bounds during transition
         let num_lanes = self.spec.get_num_lanes();
         let road_min = Real::from_rational(0, 1);
-        let road_max = Real::from_rational((num_lanes as f64 * lane_width * 100.0) as i64, 100_i64);
+        let road_max = real_from_f64(num_lanes as f64 * lane_width);
         for t in start_step..=end_clamped {
             let py_t = &self.positions_y[actor_id][t];
             self.backend.assert(&py_t.ge(&road_min));
@@ -464,7 +465,9 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
     }
 
     fn encode_kinematics(&mut self, dt: f64) {
-        let dt_val = Real::from_rational((dt * 100.0) as i64, 100_i64);
+        let dt_val = real_from_f64(dt);
+        // Half of dt, for the trapezoidal position updates below.
+        let half_dt = real_from_f64(dt / 2.0);
         let zero = Real::from_rational(0, 1);
 
         // Collect lane change data to determine stable vs transition phases
@@ -493,10 +496,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             // Compute max heading rate as a constant: v_max * delta_max / L
             let max_heading_rate = speed_max * max_steering_angle / wheelbase;
             let max_theta_change = max_heading_rate * dt;
-            let max_theta_change_val =
-                Real::from_rational((max_theta_change * 1000.0) as i64, 1000_i64);
-            let neg_max_theta_change_val =
-                Real::from_rational((-max_theta_change * 1000.0) as i64, 1000_i64);
+            let max_theta_change_val = real_from_f64(max_theta_change);
+            let neg_max_theta_change_val = real_from_f64(-max_theta_change);
 
             // Determine which time steps are in a lane change
             let changes = lane_changes_data.get(actor_id.as_str());
@@ -522,16 +523,29 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
                 let py_t1 = &self.positions_y[actor_id][t + 1];
                 let v_t1 = &self.speed_v[actor_id][t + 1];
 
-                // Longitudinal: px[t+1] = px[t] ± v[t] * dt
+                // Longitudinal, exact for piecewise-constant acceleration:
+                //   px[t+1] = px[t] ± (v[t]*dt + 0.5*a[t]*dt^2)
+                // written in the equivalent trapezoidal form
+                //   px[t+1] = px[t] ± (v[t] + v[t+1]) * dt/2,
+                // which is the same constraint given the speed update asserted
+                // below and keeps px coupled only to the speed chain (see the
+                // matching comment in cartesian.rs). Still QF_LRA.
                 // Direction handled here (not via heading angle)
+                let px_step = (v_t + v_t1) * &half_dt;
                 let px_next = if *direction == 1 {
-                    px_t + &(v_t * &dt_val)
+                    px_t + &px_step
                 } else {
-                    px_t - &(v_t * &dt_val)
+                    px_t - &px_step
                 };
                 self.backend.assert(&px_t1.eq(&px_next));
 
-                // Lateral: py[t+1] = py[t] + vy[t] * dt (vy is independent, linear)
+                // Lateral: py[t+1] = py[t] + vy[t] * dt, forward Euler, kept.
+                // vy here is an independent variable with no acceleration
+                // behind it at all (H6/SW-11: theta and delta are never
+                // related to vy), so there is no second-order term to add.
+                // The trapezoidal form would only add a null space —
+                // vy[t+1] = -vy[t] leaves py unchanged — which is what it did
+                // to the cartesian vehicles; see the comment there.
                 let py_next = py_t + &(vy_t * &dt_val);
                 self.backend.assert(&py_t1.eq(&py_next));
 
@@ -622,7 +636,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         for actor in &self.spec.actors {
             let actor_id = &actor.id;
             let speed_max = actor.speed.max();
-            let speed_max_val = Real::from_rational((speed_max * 10.0) as i64, 10_i64);
+            let speed_max_val = real_from_f64(speed_max);
 
             for t in 0..=self.horizon {
                 let v_var = &self.speed_v[actor_id][t];
@@ -637,8 +651,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             let accel_min = actor.acceleration.min();
             let accel_max = actor.acceleration.max();
 
-            let accel_min_val = Real::from_rational((accel_min * 10.0) as i64, 10_i64);
-            let accel_max_val = Real::from_rational((accel_max * 10.0) as i64, 10_i64);
+            let accel_min_val = real_from_f64(accel_min);
+            let accel_max_val = real_from_f64(accel_max);
 
             for t in 0..=self.horizon {
                 let a_var = &self.accelerations[actor_id][t];
@@ -683,7 +697,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             -raw_v2
         };
 
-        let min_ttc_val = Real::from_rational((min_ttc * 10.0) as i64, 10_i64);
+        let min_ttc_val = real_from_f64(min_ttc);
         let epsilon = Real::from_rational(1_i64, 100_i64); // 0.01 m/s to avoid division by zero
 
         // Enhanced "same lane" condition: discrete lane match OR y-position proximity
@@ -696,7 +710,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         // Using OR would be incorrect: if py1-py2 = 5.0 and lane_width = 3.5,
         // py2-py1 = -5.0 < 3.5 is TRUE, so OR would incorrectly return TRUE
         let lane_width = self.spec.get_lane_width();
-        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+        let lane_width_real = real_from_f64(lane_width);
         let py_diff_pos = py1 - py2;
         let py_diff_neg = py2 - py1;
         let y_proximity = Bool::and(&[
@@ -761,7 +775,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         let py1 = &self.positions_y[actor1][time];
         let py2 = &self.positions_y[actor2][time];
 
-        let min_dist_val = Real::from_rational((min_dist * 10.0) as i64, 10_i64);
+        let min_dist_val = real_from_f64(min_dist);
 
         // Enhanced "same lane" condition: discrete lane match OR y-position proximity
         // This handles lane change transitions where discrete lane != smooth y-position
@@ -773,7 +787,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         // Using OR would be incorrect: if py1-py2 = 5.0 and lane_width = 3.5,
         // py2-py1 = -5.0 < 3.5 is TRUE, so OR would incorrectly return TRUE
         let lane_width = self.spec.get_lane_width();
-        let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+        let lane_width_real = real_from_f64(lane_width);
         let py_diff_pos = py1 - py2;
         let py_diff_neg = py2 - py1;
         let y_proximity = Bool::and(&[
@@ -1110,17 +1124,34 @@ mod tests {
             assert_eq!(encoder.backend.check(), SatResult::Sat);
             let model = encoder.backend.get_model().unwrap();
 
+            let dt = 0.5;
             let px0 = eval_real(&model, &encoder.positions_x["ego"][0]);
             let px1 = eval_real(&model, &encoder.positions_x["ego"][1]);
             let v0 = eval_real(&model, &encoder.speed_v["ego"][0]);
+            let v1 = eval_real(&model, &encoder.speed_v["ego"][1]);
+            let a0 = eval_real(&model, &encoder.accelerations["ego"][0]);
 
-            // px[1] = px[0] + v[0] * dt (direction=1)
-            let expected_px1 = px0 + v0 * 0.5;
+            // v[1] = v[0] + a[0]*dt, exactly.
             assert!(
-                approx_eq(px1, expected_px1, 0.1),
-                "px1={} expected={}",
-                px1,
-                expected_px1
+                approx_eq(v1, v0 + a0 * dt, 1e-9),
+                "v1={v1} expected={}",
+                v0 + a0 * dt
+            );
+
+            // px[1] = px[0] + v[0]*dt + 0.5*a[0]*dt^2 (direction = 1).
+            // This test previously asserted the forward-Euler `px0 + v0*dt` at
+            // a 0.1 tolerance, which is what the encoder used to assert
+            // (SW-08/H1); the two differ by 0.5*a*dt^2, 1.0 m per step here at
+            // a = -8, dt = 0.5, so the old form is not merely imprecise.
+            let expected_px1 = px0 + v0 * dt + 0.5 * a0 * dt * dt;
+            assert!(
+                approx_eq(px1, expected_px1, 1e-9),
+                "px1={px1} expected={expected_px1} (px0={px0}, v0={v0}, a0={a0})"
+            );
+            // Equivalently, the trapezoidal form the encoder asserts.
+            assert!(
+                approx_eq(px1, px0 + (v0 + v1) * dt / 2.0, 1e-9),
+                "px1={px1} disagrees with the trapezoidal form"
             );
         });
     }

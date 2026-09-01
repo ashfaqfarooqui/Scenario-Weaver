@@ -20,8 +20,12 @@
 //!   same module the encoder does, and the vehicle bounds off the spec.
 //!
 //! The Euler-integration checks survive as `Invariant::Kinematics`, generalised
-//! to both axes, to velocity as well as position, and to every actor. They now
-//! fail: see the `#[ignore]` reasons.
+//! to both axes, to velocity as well as position, and to every actor. They
+//! failed when this file was written and pass since SW-08 corrected the
+//! position update: on these three examples the pedestrian's `vy` is chained to
+//! its `ay`, so the second-order term applies on both axes and the invariant
+//! holds at 1e-6. The two tests still `#[ignore]`d here are SW-10's and
+//! SW-12's, not kinematics.
 
 mod common;
 
@@ -51,13 +55,11 @@ fn test_pedestrian_crossing_generates_successfully() {
 
 /// Position and velocity must integrate the accelerations reported beside them.
 ///
-/// Fails on the pedestrian as well as the ego: the position update is forward
-/// Euler (`p + v·dt`) while the velocity update keeps the full `a·dt`, so the
-/// residual against `p + v·dt + ½·a·dt²` is exactly `½·a·dt²` and the
-/// forward-Euler residual is 0.0. At the old `0.1` tolerance and this example's
-/// `dt`, the error hid; at 1e-6 it does not.
+/// Holds since SW-08: the position update carries the `½·a·dt²` term on both
+/// axes for pedestrians, whose `vy` is chained to `ay`, so the residual against
+/// `p + v·dt + ½·a·dt²` is zero instead of being exactly `½·a·dt²`. It used
+/// to fail at 1e-6 and pass only at the old `0.1` tolerance.
 #[test]
-#[ignore = "SW-08: the position update drops the a*dt^2/2 term while the velocity update keeps a*dt, so p and v are integrated under different assumptions"]
 fn test_pedestrian_crossing_kinematics_consistency() {
     let (scenario, spec) = generate_from_file("pedestrian_crossing.yaml");
     common::assert_invariant(&scenario, &spec, Invariant::Kinematics);
@@ -65,10 +67,12 @@ fn test_pedestrian_crossing_kinematics_consistency() {
 
 /// Same invariant, stated for the scenario as a whole: `Invariant::Kinematics`
 /// covers `v[i+1] = v[i] + a[i]·dt` on both axes for every actor, which is
-/// where C2 shows up — a vehicle's `vy` stepping `0 → -2.0 → +2.0` with
-/// `ay = 0.0` throughout.
+/// where C2 would show up — a vehicle's `vy` stepping `0 → -2.0 → +2.0` with
+/// `ay = 0.0` throughout. The only vehicle in this example never changes lane,
+/// so its `vy` is pinned to zero and C2 has nothing to corrupt here. The corpus
+/// version, `examples_smoke_test::test_kinematic_consistency_across_the_corpus`,
+/// is where C2 still bites; it stays `#[ignore]`d against SW-09.
 #[test]
-#[ignore = "SW-08 (position) and SW-09 (lateral acceleration is a free variable for vehicles, so vy jumps with ay = 0)"]
 fn test_pedestrian_crossing_velocity_consistency() {
     let (scenario, spec) = generate_from_file("pedestrian_crossing.yaml");
     common::assert_invariant(&scenario, &spec, Invariant::Kinematics);
@@ -160,7 +164,6 @@ fn test_pedestrian_running_speed_bounds() {
 }
 
 #[test]
-#[ignore = "SW-08: the position update drops the a*dt^2/2 term while the velocity update keeps a*dt"]
 fn test_pedestrian_running_kinematics_consistency() {
     let (scenario, spec) = generate_from_file("pedestrian_running.yaml");
     common::assert_invariant(&scenario, &spec, Invariant::Kinematics);
@@ -184,7 +187,6 @@ fn test_pedestrian_wide_road_generates_successfully() {
 }
 
 #[test]
-#[ignore = "SW-08: the position update drops the a*dt^2/2 term while the velocity update keeps a*dt"]
 fn test_pedestrian_wide_road_kinematics_consistency() {
     let (scenario, spec) = generate_from_file("pedestrian_wide_road.yaml");
     common::assert_invariant(&scenario, &spec, Invariant::Kinematics);

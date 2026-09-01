@@ -21,24 +21,163 @@ pub struct LaneChangeSteps {
     pub end_step: usize,
 }
 
+/// Maximum number of digits kept after the decimal point by
+/// [`rational_from_f64`].
+///
+/// Twelve is chosen to be wider than any literal a user writes in a
+/// `ScenarioSpec` (positions, speeds and thresholds are quoted to one or two
+/// decimals) while staying far inside `i64`: the largest denominator this can
+/// produce is `10^12`, so any value up to ~9.2e6 in magnitude is always
+/// representable at full precision, and gcd reduction means "nice" values
+/// never get near that bound.
+pub const MAX_DECIMAL_DIGITS: usize = 12;
+
+/// Convert an `f64` to an exact `(numerator, denominator)` rational.
+///
+/// # Precision
+///
+/// The value is rendered with Rust's **shortest round-trip decimal**
+/// representation and that decimal is converted exactly, then reduced by its
+/// gcd. So `3.5` becomes `7/2`, `2.55` becomes `51/20` and `0.1` becomes
+/// `1/10` — the number the user wrote, not a truncation of it.
+///
+/// This is deliberately *not* the exact binary value of the double. `2.55` as
+/// an IEEE double is `2.549999999999999822...`, whose exact rational has a
+/// 51-bit numerator over a power of two; feeding rationals of that size into
+/// Z3 for every constant in the encoding costs solver time to represent an
+/// artefact of binary floating point rather than anything the specification
+/// says. The shortest round-trip decimal is the unique shortest decimal that
+/// parses back to the same double, which is precisely "what the user typed".
+///
+/// Values that need more than [`MAX_DECIMAL_DIGITS`] digits after the point —
+/// only ever intermediate results computed inside the encoder, never spec
+/// literals — are **rounded** (not truncated) to that many digits, and the
+/// precision is dropped further if the result would not fit in `i64`.
+/// Non-finite inputs yield `(0, 1)`; `ScenarioSpec::validate` rejects them
+/// upstream.
+///
+/// Replaces the previous `(x * 10.0) as i64 / 10` idiom, which truncated
+/// *toward zero* — silently turning `min_ttc: 2.55` into 2.5 and, for negative
+/// bounds, tightening rather than loosening them (`-2.75` into `-2.7`).
+#[must_use]
+pub fn rational_from_f64(value: f64) -> (i64, i64) {
+    if !value.is_finite() {
+        return (0, 1);
+    }
+
+    // Shortest round-trip decimal. `f64`'s `Display` never uses exponent
+    // notation, but fall back to a fixed-precision rendering if that ever
+    // changes so the digit-string parse below stays correct.
+    let shortest = format!("{value}");
+    let shortest = if shortest.contains(['e', 'E']) {
+        format!("{:.*}", MAX_DECIMAL_DIGITS, value)
+    } else {
+        shortest
+    };
+    let frac_len = shortest.find('.').map_or(0, |dot| shortest.len() - dot - 1);
+    let start = frac_len.min(MAX_DECIMAL_DIGITS);
+
+    // Try the most precise rendering that fits in i64, giving up decimals one
+    // at a time. Terminates: at zero decimals the numerator is the integer
+    // part, and a finite f64 too large for i64 falls through to the clamp.
+    for digits in (0..=start).rev() {
+        // The shortest rendering is used as-is only when it is already within
+        // the precision cap; otherwise it is re-rendered (and so rounded).
+        let rendered = if digits == frac_len {
+            shortest.clone()
+        } else {
+            format!("{:.*}", digits, value)
+        };
+        if let Some(pair) = parse_decimal_exact(&rendered) {
+            return pair;
+        }
+    }
+
+    // |value| exceeds i64::MAX; nothing sane reaches here.
+    (value.clamp(i64::MIN as f64, i64::MAX as f64) as i64, 1)
+}
+
+/// Parse a plain decimal string into a gcd-reduced `(num, den)`, or `None` if
+/// either part overflows `i64`.
+fn parse_decimal_exact(s: &str) -> Option<(i64, i64)> {
+    let negative = s.starts_with('-');
+    let unsigned = s.trim_start_matches(['-', '+']);
+    let (int_part, frac_part) = unsigned.split_once('.').unwrap_or((unsigned, ""));
+
+    let mut digits = String::with_capacity(int_part.len() + frac_part.len());
+    digits.push_str(int_part);
+    digits.push_str(frac_part);
+    let mut num: i128 = digits.parse().ok()?;
+    let mut den: i128 = 10_i128.checked_pow(u32::try_from(frac_part.len()).ok()?)?;
+
+    let divisor = gcd_i128(num, den);
+    num /= divisor;
+    den /= divisor;
+    if negative {
+        num = -num;
+    }
+
+    Some((i64::try_from(num).ok()?, i64::try_from(den).ok()?))
+}
+
+/// Greatest common divisor of two non-negative-after-abs `i128`s.
+fn gcd_i128(a: i128, b: i128) -> i128 {
+    let (mut a, mut b) = (a.abs(), b.abs());
+    while b != 0 {
+        let t = b;
+        b = a % b;
+        a = t;
+    }
+    if a == 0 {
+        1
+    } else {
+        a
+    }
+}
+
+/// Convert an `f64` into a Z3 `Real` exactly, via [`rational_from_f64`].
+///
+/// This is the single conversion point for every numeric constant that enters
+/// the encoding. See [`rational_from_f64`] for the precision contract.
+#[must_use]
+pub fn real_from_f64(value: f64) -> Real {
+    let (num, den) = rational_from_f64(value);
+    // NOT `Real::from_rational`: despite its `i64` parameters that constructor
+    // casts both to C `int` on the way to `Z3_mk_real`, so anything outside
+    // i32 wraps silently. `pi/6` at full precision is 261799387799/500000000000
+    // and came back out of Z3 as a wrapped-around number, turning
+    // `bicycle_lane_change` UNSAT. `from_rational_str` goes through
+    // `Z3_mk_numeral`, which parses the literal at arbitrary precision.
+    Real::from_rational_str(&num.to_string(), &den.to_string()).unwrap_or_else(|| {
+        // Unreachable: `Z3_mk_numeral` only rejects a malformed literal, and
+        // "<i64> / <i64>" never is. The i32-clamped constructor is exact for
+        // every value that fits it, which is the whole realistic range.
+        Real::from_rational(num, den)
+    })
+}
+
 /// Extract a real value from Z3 model
 ///
-/// Handles rationals and complex expressions with fallback to decimal approximation.
-/// This is the more robust version from BicycleEncoder that handles edge cases.
+/// Handles rationals, with a fallback to Z3's decimal approximation for
+/// values `Z3_get_numeral_small` cannot express in two `i64`s (an irrational
+/// algebraic number, or a rational whose numerator or denominator overflows).
+///
+/// There used to be a second `if let Some((num, denom)) = ast.as_real()` branch
+/// between the two below, repeating the same division. It was dead code:
+/// `Real::as_real` is `#[deprecated]` and its body in z3 0.19.7 is exactly
+/// `self.as_rational()`, so it re-called the function that had just returned
+/// `None` one line above and could never itself return `Some`. That is why the
+/// wave-1 mutation baseline found this function's division surviving mutation
+/// to both `*` and `%` despite 26 live callers — the surviving mutants were in
+/// the unreachable copy, and no test could have killed them. The reachable
+/// division is pinned by `test_extract_real_division_not_product_or_remainder`.
 pub fn extract_real(model: &Model, var: &Real) -> Result<f64> {
     let ast = model.eval(var, true).ok_or_else(|| {
         ScenarioGenError::Z3ModelParsing("Failed to evaluate real variable".to_string())
     })?;
 
-    // First try to extract as rational directly
-    if let Some(rational) = ast.as_rational() {
-        let (num, denom) = rational;
-        return Ok(num as f64 / denom as f64);
-    }
-
-    // If not a simple rational, try as_real() which handles more complex expressions
-    #[allow(deprecated)]
-    if let Some((num, denom)) = ast.as_real() {
+    // Z3 hands back exact rationals for everything this encoder builds.
+    if let Some((num, denom)) = ast.as_rational() {
         return Ok(num as f64 / denom as f64);
     }
 
@@ -145,7 +284,7 @@ pub fn collect_lane_change_data(
 /// - Both conditions must be true
 /// - This correctly requires the actual distance to be less than lane_width
 pub fn encode_y_proximity_constraint(py1: &Real, py2: &Real, lane_width: f64) -> Bool {
-    let lane_width_real = Real::from_rational((lane_width * 10.0) as i64, 10_i64);
+    let lane_width_real = real_from_f64(lane_width);
     let py_diff_pos = py1 - py2;
     let py_diff_neg = py2 - py1;
 
@@ -186,6 +325,281 @@ mod tests {
         ActorRole, ActorSpec, ConstraintModes, LaneChangeConfig, LaneChangeDirection,
         OptimizationTarget, ScenarioSpec, ScenarioType, ValueOrRange,
     };
+
+    // -----------------------------------------------------------------
+    // rational_from_f64 / real_from_f64 (SW-08)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn test_rational_exact_for_spec_literals() {
+        // Every one of these is a value the old `(x * 10.0) as i64 / 10`
+        // idiom got wrong or represented at an inconsistent precision.
+        for (value, expected) in [
+            (3.5_f64, (7_i64, 2_i64)), // lane_width
+            (1.75, (7, 4)),            // lane_width / 2 — was 1.7
+            (3.25, (13, 4)),           // was 3.2
+            (2.55, (51, 20)),          // min_ttc — was 2.5
+            (60.07, (6007, 100)),      // position — was 60.0
+            (0.1, (1, 10)),            // time_step
+            (0.05, (1, 20)),           // time_step / 2
+            (16.0, (16, 1)),
+            (0.0, (0, 1)),
+            (-0.0, (0, 1)),
+        ] {
+            assert_eq!(
+                rational_from_f64(value),
+                expected,
+                "rational_from_f64({value})"
+            );
+        }
+    }
+
+    #[test]
+    fn test_rational_negative_bounds_are_not_tightened() {
+        // The old truncation moved negative bounds *inward*: -2.75 became
+        // -2.7, a constraint tighter than the user asked for.
+        assert_eq!(rational_from_f64(-2.75), (-11, 4));
+        assert_eq!(rational_from_f64(-8.0), (-8, 1));
+        assert_eq!(rational_from_f64(-0.15), (-3, 20));
+        let (num, den) = rational_from_f64(-2.75);
+        assert!((num as f64 / den as f64) <= -2.75, "bound must not tighten");
+    }
+
+    #[test]
+    fn test_rational_round_trips_to_the_same_double() {
+        for value in [
+            3.5,
+            3.25,
+            2.55,
+            -2.75,
+            0.1,
+            0.3,
+            60.07,
+            1e-6,
+            1234.5678,
+            -0.000_000_5,
+        ] {
+            let (num, den) = rational_from_f64(value);
+            assert!(
+                ((num as f64 / den as f64) - value).abs() <= value.abs() * 1e-12 + 1e-12,
+                "{value} round-tripped as {num}/{den}"
+            );
+        }
+    }
+
+    /// Pins the fractional-digit count in `rational_from_f64`.
+    ///
+    /// Most values cannot detect an error there: when the count is at most
+    /// `MAX_DECIMAL_DIGITS` the loop's first iteration reuses the shortest
+    /// rendering verbatim, so any miscount is masked. This value is chosen so
+    /// it cannot be: its shortest representation has 13 fractional digits, one
+    /// past the cap, so the reuse shortcut cannot fire on the first iteration
+    /// and the digit count actually selects the rendering precision. A count
+    /// computed as `len / dot` instead of `len - dot` yields 3 here rather
+    /// than 13, i.e. `1234.568` — off by 1.1e-4, far outside the tolerance.
+    #[test]
+    fn test_rational_digit_count_selects_the_rendering_precision() {
+        let value = 1234.567_890_123_456_7_f64;
+        assert_eq!(
+            format!("{value}").split('.').nth(1).map(str::len),
+            Some(13),
+            "this test only bites while the value has one more fractional digit than the cap"
+        );
+
+        let (num, den) = rational_from_f64(value);
+        let got = num as f64 / den as f64;
+        assert!(
+            (got - value).abs() < 1e-11,
+            "{value} came back as {num}/{den} = {got}"
+        );
+        assert!(
+            den > 1,
+            "a fractional value must not be rounded to a whole number ({num}/{den})"
+        );
+    }
+
+    #[test]
+    fn test_rational_is_reduced() {
+        // gcd reduction keeps the rationals handed to Z3 small.
+        assert_eq!(rational_from_f64(2.5), (5, 2));
+        assert_eq!(rational_from_f64(100.0), (100, 1));
+        assert_eq!(rational_from_f64(0.125), (1, 8));
+    }
+
+    #[test]
+    fn test_rational_beyond_max_decimals_is_rounded_not_truncated() {
+        // 1/3 needs more digits than MAX_DECIMAL_DIGITS; the result is the
+        // rounded 12-digit value, and rounding (not truncation) means the
+        // error is at most half an ulp of the last kept digit.
+        let (num, den) = rational_from_f64(1.0 / 3.0);
+        assert!(den <= 10_i64.pow(MAX_DECIMAL_DIGITS as u32));
+        assert!(((num as f64 / den as f64) - 1.0 / 3.0).abs() < 5e-13);
+
+        // Rounding up, where truncation would have gone the other way.
+        let (num, den) = rational_from_f64(0.999_999_999_999_9);
+        assert!((num as f64 / den as f64 - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_rational_handles_non_finite_and_huge() {
+        assert_eq!(rational_from_f64(f64::NAN), (0, 1));
+        assert_eq!(rational_from_f64(f64::INFINITY), (0, 1));
+        assert_eq!(rational_from_f64(f64::NEG_INFINITY), (0, 1));
+        // Larger than i64 can hold at any precision: falls through to the
+        // clamp rather than panicking or wrapping.
+        let (_, den) = rational_from_f64(1e30);
+        assert_eq!(den, 1);
+    }
+
+    #[test]
+    fn test_real_from_f64_matches_the_rational_in_z3() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let solver = Solver::new();
+            let x = Real::new_const("x");
+            solver.assert(&x._eq(&real_from_f64(2.55)));
+            // 2.55 exactly, not the 2.5 the old truncation produced.
+            solver.assert(&x._eq(&Real::from_rational(51, 20)));
+            assert_eq!(solver.check(), SatResult::Sat);
+            let model = solver.get_model().unwrap();
+            assert!((extract_real(&model, &x).unwrap() - 2.55).abs() < 1e-12);
+        });
+    }
+
+    #[test]
+    fn test_real_from_f64_lane_centres_are_exact() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let solver = Solver::new();
+            // py = lane * lane_width + lane_width / 2, the cartesian encoder's
+            // lane-position coupling, for lane_width = 3.5 and lane_width = 3.25.
+            for (lane_width, lane, centre) in
+                [(3.5_f64, 0_i64, 1.75_f64), (3.5, 1, 5.25), (3.25, 1, 4.875)]
+            {
+                let py = Real::new_const(format!("py_{lane_width}_{lane}"));
+                let expected = Real::from_int(&Int::from_i64(lane)) * real_from_f64(lane_width)
+                    + real_from_f64(lane_width / 2.0);
+                solver.assert(&py._eq(&expected));
+                assert_eq!(solver.check(), SatResult::Sat);
+                let model = solver.get_model().unwrap();
+                let got = extract_real(&model, &py).unwrap();
+                assert!(
+                    (got - centre).abs() < 1e-12,
+                    "lane {lane} of width {lane_width}: got {got}, want {centre}"
+                );
+            }
+        });
+    }
+
+    /// `Real::from_rational` takes `i64` but casts both arguments to C `int`
+    /// on the way to `Z3_mk_real`, so a rational outside i32 wraps silently.
+    /// `real_from_f64` must not do that: `pi/6` reduces to
+    /// 261799387799/500000000000, and building it with `from_rational` turned
+    /// `bicycle_lane_change` UNSAT because the heading bound came back as a
+    /// wrapped-around number.
+    #[test]
+    fn test_real_from_f64_survives_denominators_beyond_i32() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            for value in [
+                std::f64::consts::PI / 6.0, // 261799387799/500000000000
+                1.0 / 3.0,
+                15.0 * 0.6 / 2.7 * 0.1, // bicycle max heading change per step
+                20.0 * 0.6 / 2.7 * 0.1,
+            ] {
+                let (num, den) = rational_from_f64(value);
+                assert!(
+                    den > i64::from(i32::MAX) || num.abs() > i64::from(i32::MAX),
+                    "{value} = {num}/{den} does not exercise the i32 boundary"
+                );
+                let solver = Solver::new();
+                let x = Real::new_const("x");
+                solver.assert(&x._eq(&real_from_f64(value)));
+                assert_eq!(solver.check(), SatResult::Sat);
+                let model = solver.get_model().unwrap();
+                let got = extract_real(&model, &x).unwrap();
+                assert!(
+                    (got - value).abs() < 1e-11,
+                    "{value} came back from Z3 as {got}"
+                );
+            }
+        });
+    }
+
+    // -----------------------------------------------------------------
+    // extract_real (SW-08: pinned before the conversion was touched)
+    // -----------------------------------------------------------------
+
+    /// `extract_real` divides numerator by denominator. The wave-1 mutation
+    /// baseline found that division surviving mutation to both `*` and `%`
+    /// despite 26 live callers, because every existing test used a value
+    /// where the three operators are hard to tell apart or the branch was
+    /// never reached. These cases separate them: for 7/3, `/` gives 2.333…,
+    /// `*` gives 21 and `%` gives 1.
+    #[test]
+    fn test_extract_real_division_not_product_or_remainder() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            for (num, den, expected) in [
+                (7_i32, 3_i32, 7.0 / 3.0),
+                (1, 8, 0.125),
+                (-51, 20, -2.55),
+                (0, 7, 0.0),
+                (5, 1, 5.0),
+            ] {
+                let solver = Solver::new();
+                let x = Real::new_const("x");
+                solver.assert(&x._eq(&Real::from_rational(num.into(), den.into())));
+                assert_eq!(solver.check(), SatResult::Sat);
+                let model = solver.get_model().unwrap();
+                let got = extract_real(&model, &x).unwrap();
+                assert!(
+                    (got - expected).abs() < 1e-12,
+                    "{num}/{den}: got {got}, want {expected}"
+                );
+            }
+        });
+    }
+
+    /// `extract_real` on a value the solver derives rather than one asserted
+    /// verbatim, so the model holds a computed rational.
+    #[test]
+    fn test_extract_real_derived_rational() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let solver = Solver::new();
+            let x = Real::new_const("x");
+            let y = Real::new_const("y");
+            // 3x = 1  and  y = x + 1/4  =>  x = 1/3, y = 7/12
+            solver.assert(&(&x * Real::from_rational(3, 1))._eq(&Real::from_rational(1, 1)));
+            solver.assert(&y._eq(&(&x + Real::from_rational(1, 4))));
+            assert_eq!(solver.check(), SatResult::Sat);
+            let model = solver.get_model().unwrap();
+            assert!((extract_real(&model, &x).unwrap() - 1.0 / 3.0).abs() < 1e-12);
+            assert!((extract_real(&model, &y).unwrap() - 7.0 / 12.0).abs() < 1e-12);
+        });
+    }
+
+    /// Round-trip: an `f64` through [`real_from_f64`] and back out through
+    /// [`extract_real`] is the same number.
+    #[test]
+    fn test_real_from_f64_extract_real_round_trip() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            for value in [3.5_f64, 1.75, 3.25, 2.55, -2.75, 0.1, 60.07, -0.15, 0.0] {
+                let solver = Solver::new();
+                let x = Real::new_const("x");
+                solver.assert(&x._eq(&real_from_f64(value)));
+                assert_eq!(solver.check(), SatResult::Sat);
+                let model = solver.get_model().unwrap();
+                let got = extract_real(&model, &x).unwrap();
+                assert!(
+                    (got - value).abs() < 1e-12,
+                    "{value} round-tripped as {got}"
+                );
+            }
+        });
+    }
 
     #[test]
     fn test_lane_change_steps_struct() {
@@ -421,6 +835,51 @@ mod tests {
             solver.assert(&py2._eq(&Real::from_rational(20, 10)));
             solver.assert(&encode_y_proximity_constraint(&py1, &py2, 3.5));
             assert_eq!(solver.check(), SatResult::Sat);
+        });
+    }
+
+    /// The function's contract is `|py1 - py2| < lane_width`, and the two
+    /// subtractions are what implement it. The sat/unsat pair below does not
+    /// pin them: at `py1 = 1.0, py2 = 2.0` the sum (3.0) is also under a 3.5 m
+    /// lane width, so mutating either `-` to `+` still passes. `py1 = 4.0,
+    /// py2 = 1.0` separates them — the difference is 3.0 (same lane) while the
+    /// sum is 5.0 and the quotient 4.0, both outside the lane width, so this
+    /// case is SAT only for the real operator.
+    #[test]
+    fn test_y_proximity_pins_the_difference_not_the_sum_or_quotient() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let solver = Solver::new();
+            let py1 = Real::new_const("py1");
+            let py2 = Real::new_const("py2");
+            solver.assert(&py1.eq(&real_from_f64(4.0)));
+            solver.assert(&py2.eq(&real_from_f64(1.0)));
+            solver.assert(&encode_y_proximity_constraint(&py1, &py2, 3.5));
+            assert_eq!(
+                solver.check(),
+                SatResult::Sat,
+                "|4.0 - 1.0| = 3.0 is inside a 3.5 m lane width"
+            );
+        });
+    }
+
+    /// The mirror image: the difference is outside the lane width while the
+    /// quotient is inside it, so this is UNSAT only for the real operator.
+    #[test]
+    fn test_y_proximity_unsat_when_difference_is_wide_but_quotient_is_not() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let solver = Solver::new();
+            let py1 = Real::new_const("py1");
+            let py2 = Real::new_const("py2");
+            solver.assert(&py1.eq(&real_from_f64(8.0)));
+            solver.assert(&py2.eq(&real_from_f64(4.0)));
+            solver.assert(&encode_y_proximity_constraint(&py1, &py2, 3.5));
+            assert_eq!(
+                solver.check(),
+                SatResult::Unsat,
+                "|8.0 - 4.0| = 4.0 is outside a 3.5 m lane width, though 8/4 = 2 is not"
+            );
         });
     }
 
