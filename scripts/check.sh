@@ -79,6 +79,16 @@ if [[ "$FAST" -eq 0 ]]; then
   # When you legitimately reduce the count, lower the baseline in the same commit.
   LIB_BINS_BASELINE=62
 
+  # Cargo fingerprints a clippy unit like any other build unit: on a warm cache
+  # it reports "Finished" and re-emits NOTHING. Both clippy steps below then
+  # count 0 findings. For the ratchet that is not a harmless nuisance — 0 is
+  # BELOW the baseline, so the step passes and advises lowering the baseline to
+  # 0, which would retire the ratchet permanently. A gate that checks nothing is
+  # exactly the failure this project exists to remove, so force re-emission by
+  # invalidating this crate's own artifacts (deps are untouched, so the cost is
+  # recompiling scenario-weaver alone).
+  cargo clean -p scenario-weaver >/dev/null 2>&1 || true
+
   echo
   echo "==> cargo clippy --lib --bins (ratchet, baseline ${LIB_BINS_BASELINE})"
   lib_bins_output="$(cargo clippy --lib --bins 2>&1)"
@@ -86,7 +96,13 @@ if [[ "$FAST" -eq 0 ]]; then
   # count findings, dropping the trailing "... generated N warnings" summary lines
   lib_bins_count="$(grep -E '^warning: ' <<<"$lib_bins_output" | grep -vc 'generated .* warning' || true)"
 
-  if [[ "$lib_bins_count" -gt "$LIB_BINS_BASELINE" ]]; then
+  # A zero count means clippy re-emitted nothing, not that the lib became clean:
+  # the crate has never been at zero. Treat it as a broken measurement and fail,
+  # rather than silently passing and inviting the baseline down to 0.
+  if [[ "$lib_bins_count" -eq 0 && "$LIB_BINS_BASELINE" -gt 0 ]]; then
+    RESULTS+=("cargo clippy --lib --bins|fail|1|clippy emitted 0 findings against a baseline of ${LIB_BINS_BASELINE} — stale cache, measurement is not trustworthy; run 'cargo clean -p scenario-weaver' and retry")
+    OVERALL_FAIL=1
+  elif [[ "$lib_bins_count" -gt "$LIB_BINS_BASELINE" ]]; then
     RESULTS+=("cargo clippy --lib --bins|fail|1|${lib_bins_count} warnings, ABOVE baseline ${LIB_BINS_BASELINE} — your change added $((lib_bins_count - LIB_BINS_BASELINE))")
     OVERALL_FAIL=1
   elif [[ "$lib_bins_count" -lt "$LIB_BINS_BASELINE" ]]; then
@@ -98,6 +114,7 @@ if [[ "$FAST" -eq 0 ]]; then
   # 3. cargo clippy --all-targets (reporting only, never gating)
   echo
   echo "==> cargo clippy --all-targets (reporting only, not gating)"
+  cargo clean -p scenario-weaver >/dev/null 2>&1 || true
   all_targets_output="$(cargo clippy --all-targets 2>&1)"
   echo "$all_targets_output"
   all_targets_warn_count="$(grep -c '^warning:' <<<"$all_targets_output" || true)"
