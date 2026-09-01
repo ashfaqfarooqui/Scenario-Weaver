@@ -66,14 +66,17 @@ actors:
         start_time: [7.0, 8.0]    # Return to original lane between 7-8s
         duration: [1.5, 2.0]      # Lane change takes 1.5-2 seconds
 
-# Lateral comfort envelope.
+# Lateral envelope.
 #
-# A 3.5 m lane change in 1.5-2.0 s needs about 3 m/s2 of lateral acceleration;
-# the 2.0 m/s2 default is a comfort figure for a leisurely change. Until SW-09
-# this file was solvable at the default only because `ay` was a free variable
-# that no equation read, so the bound constrained nothing. It is now the
-# acceleration that drives `vy`, and the manoeuvre this scenario asks for has
-# to declare the envelope it actually needs.
+# Until SW-09 `ay` was a free variable that no equation read, so this bound
+# constrained nothing and the file solved at the 2.0 m/s2 default. Now that `ay`
+# drives `vy`, it is measurably infeasible at 2.0 and 2.5 and feasible at 3.0.
+#
+# The 3.0 figure is empirical, not derived. It is NOT simply "what a 3.5 m
+# change in 1.5-2.0 s costs": the solver currently spreads the lateral motion
+# over ~7.5 s because the `lane` variable follows its declared schedule while
+# `py` moves independently of it (SW-10). Once SW-10 makes the declared
+# `duration` actually bind, re-derive this number rather than assuming it holds.
 max_lateral_acceleration: 3.0
 
 # Safety constraints
