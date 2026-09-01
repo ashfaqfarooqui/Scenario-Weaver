@@ -96,6 +96,30 @@ fn generate_with_solver(
     })
 }
 
+/// Map a DSL optimization target to the solver-backend's target.
+///
+/// Shared by the single-scenario optimizer path ([`generate_with_optimizer`]) and the
+/// multi-scenario optimizer path ([`solver::multi_solve::generate_scenarios`]) so the
+/// two paths cannot silently diverge on what `--optimize` / `optimization_target:`
+/// means (see SW-13/D4: before this, `--optimize` was honoured for `num_scenarios == 1`
+/// only and silently ignored otherwise).
+pub(crate) fn dsl_target_to_backend_target(
+    target: dsl::types::OptimizationTarget,
+) -> Result<solver::backend::OptimizationTarget> {
+    use dsl::types::OptimizationTarget as Dsl;
+    use solver::backend::OptimizationTarget as Backend;
+
+    match target {
+        Dsl::MinimizeTtc => Ok(Backend::MinimizeTtc),
+        Dsl::MinimizeDistance => Ok(Backend::MinimizeDistance),
+        Dsl::MinimizeSeverity => Ok(Backend::MinimizeSeverity),
+        Dsl::MaximizeTtc => Ok(Backend::MaximizeTtc),
+        Dsl::None => Err(ScenarioGenError::InvalidSpec(
+            "OptimizationTarget::None passed to optimizer path".to_string(),
+        )),
+    }
+}
+
 /// Generate scenario using Z3 Optimize (objective optimization)
 fn generate_with_optimizer(
     spec: dsl::types::ScenarioSpec,
@@ -103,19 +127,9 @@ fn generate_with_optimizer(
     target: dsl::types::OptimizationTarget,
     scenario_model: &dyn scenarios::ScenarioModel,
 ) -> Result<Scenario> {
-    use solver::backend::{OptimizationTarget as BackendTarget, OptimizerBackend};
+    use solver::backend::OptimizerBackend;
 
-    let backend_target = match target {
-        dsl::types::OptimizationTarget::MinimizeTtc => BackendTarget::MinimizeTtc,
-        dsl::types::OptimizationTarget::MinimizeDistance => BackendTarget::MinimizeDistance,
-        dsl::types::OptimizationTarget::MinimizeSeverity => BackendTarget::MinimizeSeverity,
-        dsl::types::OptimizationTarget::MaximizeTtc => BackendTarget::MaximizeTtc,
-        dsl::types::OptimizationTarget::None => {
-            return Err(ScenarioGenError::InvalidSpec(
-                "OptimizationTarget::None passed to optimizer path".to_string(),
-            ));
-        }
-    };
+    let backend_target = dsl_target_to_backend_target(target)?;
 
     let cfg = z3::Config::new();
     z3::with_z3_config(&cfg, || {

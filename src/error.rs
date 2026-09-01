@@ -72,6 +72,23 @@ pub enum ScenarioGenError {
     /// An actor ID referenced in a constraint or query does not exist in the spec.
     #[error("Actor not found: {0}")]
     ActorNotFound(String),
+
+    /// Writing generated scenario output files (JSON/XOSC/XODR/SVG/GIF/OpenLabel) failed.
+    /// Kept distinct from `ExtractionFailed` so a full disk or permissions error is
+    /// reported as what it is, not laundered through "Scenario extraction failed".
+    #[error("Failed to write scenario output: {0}")]
+    OutputWrite(String),
+
+    /// The Z3 solver returned UNKNOWN (timeout or incompleteness), not a proof that no
+    /// scenario exists. Distinct from `Unsatisfiable` so callers can tell "we proved
+    /// there is no solution" apart from "we could not decide" — the encoding is meant
+    /// to stay in decidable linear arithmetic, and this variant is the signal that it
+    /// drifted out of that fragment (or that Z3 timed out).
+    #[error(
+        "Z3 solver returned UNKNOWN (timeout or incompleteness) - unable to determine \
+         whether a valid scenario exists; this does not mean none exists"
+    )]
+    SolverUnknown,
 }
 
 /// Convenience alias used throughout the crate.
@@ -155,6 +172,23 @@ mod tests {
     }
 
     #[test]
+    fn display_output_write() {
+        let e = ScenarioGenError::OutputWrite("disk full".into());
+        assert!(e.to_string().contains("disk full"));
+    }
+
+    #[test]
+    fn display_solver_unknown() {
+        let e = ScenarioGenError::SolverUnknown;
+        let msg = e.to_string().to_lowercase();
+        assert!(msg.contains("unknown"), "got: {msg}");
+        assert!(
+            !msg.contains("unsat"),
+            "SolverUnknown must not read as a proof of unsatisfiability, got: {msg}"
+        );
+    }
+
+    #[test]
     fn from_io_error() {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
         let e: ScenarioGenError = io_err.into();
@@ -189,6 +223,8 @@ mod tests {
             ScenarioGenError::FontLoading("x".into()),
             ScenarioGenError::YamlStructure("x".into()),
             ScenarioGenError::ActorNotFound("x".into()),
+            ScenarioGenError::OutputWrite("x".into()),
+            ScenarioGenError::SolverUnknown,
         ];
         let names = [
             "Unsatisfiable",
@@ -204,6 +240,8 @@ mod tests {
             "FontLoading",
             "YamlStructure",
             "ActorNotFound",
+            "OutputWrite",
+            "SolverUnknown",
         ];
         assert_eq!(
             variants.len(),

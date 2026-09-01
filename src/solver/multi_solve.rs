@@ -4,19 +4,134 @@
 //! blocking clauses to prevent duplicate solutions. Diversity is enforced on
 //! NPC initial position and velocity.
 
-use crate::dsl::types::{ActorRole, ScenarioSpec};
+use crate::dsl::types::{ActorRole, OptimizationTarget as DslOptimizationTarget, ScenarioSpec};
 use crate::error::{Result, ScenarioGenError};
 use crate::ltl::formula::LTLFormula;
-use crate::scenario::model::Scenario;
+use crate::scenario::model::{OptimizationInfo, Scenario};
+use crate::scenarios::ScenarioModel;
+use crate::solver::backend::{
+    OptimizationTarget as BackendOptimizationTarget, OptimizerBackend, Z3Backend,
+};
 use crate::solver::encoder_utils::real_from_f64;
-use crate::solver::Z3Encoder;
+use crate::solver::{GenericEncoder, Z3Encoder};
 use z3::ast::{Bool, Real};
 use z3::{Config, SatResult};
+
+/// Outcome of a single Z3 solve attempt, kept distinguishable all the way out to the
+/// caller. Folding `Unknown` into `Unsat` here is exactly the bug SW-13/H9 fixes: a
+/// solver timeout or incompleteness result is not a proof that no scenario exists.
+enum SolveOutcome {
+    Sat(Box<Scenario>),
+    Unsat,
+    Unknown,
+}
+
+/// Standard constraint-encoding pipeline shared by every solve attempt (both the SAT
+/// and optimizer backends, single- and multi-scenario). Centralised so the two
+/// backends cannot silently diverge in which constraints they encode.
+fn encode_standard_pipeline<B: Z3Backend + 'static>(
+    encoder: &mut GenericEncoder<B>,
+    ltl_formula: &LTLFormula,
+    scenario_model: &dyn ScenarioModel,
+) -> Result<()> {
+    encoder.create_variables();
+    encoder.encode_initial_conditions();
+    encoder.encode_kinematics();
+    encoder.encode_velocity_constraints();
+    encoder.encode_acceleration_constraints();
+    encoder.encode_lane_velocity_constraints();
+    encoder.encode_lateral_velocity_bounds();
+    encoder.encode_ltl(ltl_formula);
+    encoder.encode_scenario_specific_constraints(scenario_model)?;
+    // Safety constraints are encoded via LTL propositions inside encode_ltl().
+    Ok(())
+}
+
+/// Drive the generate-N-diverse-scenarios loop, given a closure that runs one solve
+/// attempt (already including blocking clauses against everything generated so far).
+///
+/// Behaviour, made explicit (previously undocumented, see SW-13/H9):
+/// - `Unsat` on any iteration stops the loop — "no more unique scenarios exist" is a
+///   legitimate, successful terminal state, so a partial result (e.g. `-n 10` yielding
+///   3) is returned as `Ok` with only a `warn!`.
+/// - `Unknown` on any iteration also stops the loop, but is NOT treated as equivalent
+///   to `Unsat`: if it happens before anything was generated, the caller gets
+///   `ScenarioGenError::SolverUnknown`, not `Unsatisfiable` — the two are different
+///   diagnoses (timeout/incompleteness vs. a proof of no solution). If some scenarios
+///   were already generated, they are still returned as a (loudly logged) partial
+///   success, on the same reasoning as the `Unsat` case.
+fn drive_generation<F>(
+    num_scenarios: usize,
+    mut callback: Option<F>,
+    mut solve_one: impl FnMut(&[Scenario]) -> Result<SolveOutcome>,
+    unknown_label: &str,
+) -> Result<Vec<Scenario>>
+where
+    F: FnMut(usize, &Scenario) -> Result<()>,
+{
+    let mut scenarios = Vec::new();
+    let mut saw_unknown = false;
+
+    for i in 0..num_scenarios {
+        let scenario = match solve_one(&scenarios)? {
+            SolveOutcome::Sat(scenario) => *scenario,
+            SolveOutcome::Unsat => {
+                tracing::warn!(
+                    "No more unique scenarios found after {} scenarios",
+                    scenarios.len()
+                );
+                break;
+            }
+            SolveOutcome::Unknown => {
+                tracing::error!(
+                    "Z3 {} returned UNKNOWN for scenario {}",
+                    unknown_label,
+                    i + 1
+                );
+                saw_unknown = true;
+                break;
+            }
+        };
+
+        tracing::info!("Generated scenario {}/{}", i + 1, num_scenarios);
+
+        // Call callback if provided (after Z3 context is released)
+        if let Some(ref mut cb) = callback {
+            cb(i, &scenario)?;
+        }
+
+        scenarios.push(scenario);
+    }
+
+    if scenarios.is_empty() {
+        return Err(if saw_unknown {
+            ScenarioGenError::SolverUnknown
+        } else {
+            ScenarioGenError::Unsatisfiable
+        });
+    }
+
+    if saw_unknown {
+        tracing::warn!(
+            "Returning {} scenario(s): Z3 returned UNKNOWN partway through generation. \
+             This is a timeout/incompleteness signal, not proof that no further unique \
+             scenarios exist.",
+            scenarios.len()
+        );
+    }
+
+    Ok(scenarios)
+}
 
 /// Generate multiple diverse scenarios from the same specification
 ///
 /// Uses blocking clauses to ensure each generated scenario is different.
 /// Specifically, we block based on NPC initial conditions (position and velocity).
+///
+/// Honours `spec.optimization_target` (SW-13/D4): previously this always went through
+/// the plain SAT solver, so `--optimize` set on the CLI was silently dropped whenever
+/// `num_scenarios > 1`. It now runs each of the N solves through the Z3 optimizer
+/// backend instead, with the same blocking clauses enforcing diversity between them.
 ///
 /// # Arguments
 /// * `spec` - Scenario specification
@@ -28,85 +143,115 @@ use z3::{Config, SatResult};
 /// A vector of unique scenarios
 ///
 /// # Errors
-/// Returns error if specification is invalid or initial setup fails
+/// Returns error if specification is invalid, initial setup fails, or (for an
+/// unrecognised optimization target) the target cannot be mapped to a backend target.
 pub fn generate_scenarios<F>(
     spec: &ScenarioSpec,
     ltl_formula: &LTLFormula,
     num_scenarios: usize,
-    mut callback: Option<F>,
+    callback: Option<F>,
 ) -> Result<Vec<Scenario>>
 where
     F: FnMut(usize, &Scenario) -> Result<()>,
 {
-    let mut scenarios = Vec::new();
-
-    for i in 0..num_scenarios {
-        let scenario_model = spec.scenario_type.get_model();
-
-        let cfg = Config::new();
-        let result = z3::with_z3_config(&cfg, || {
-            let mut encoder = Z3Encoder::new(spec.clone());
-
-            encoder.create_variables();
-            encoder.encode_initial_conditions();
-            encoder.encode_kinematics();
-            encoder.encode_velocity_constraints();
-            encoder.encode_acceleration_constraints();
-            encoder.encode_lane_velocity_constraints();
-            encoder.encode_lateral_velocity_bounds();
-            encoder.encode_ltl(ltl_formula);
-            encoder.encode_scenario_specific_constraints(&*scenario_model)?;
-            // Safety constraints are encoded via LTL propositions inside encode_ltl().
-
-            // Add blocking clauses for all previous scenarios
-            for prev_scenario in &scenarios {
-                let blocking_clause = create_blocking_clause(&encoder, prev_scenario)?;
-                encoder.assert_constraint(&blocking_clause);
-            }
-
-            // Solve
-            match encoder.check() {
-                SatResult::Sat => {
-                    let model = encoder.get_model().ok_or_else(|| {
-                        ScenarioGenError::ExtractionFailed("Failed to get Z3 model".to_string())
-                    })?;
-                    let scenario = encoder.extract_scenario(&model)?;
-                    scenarios.push(scenario);
-                    tracing::info!("Generated scenario {}/{}", i + 1, num_scenarios);
-                    Ok::<(), ScenarioGenError>(())
-                }
-                SatResult::Unsat => {
-                    tracing::warn!(
-                        "No more unique scenarios found after {} scenarios",
-                        scenarios.len()
-                    );
-                    Ok::<(), ScenarioGenError>(()) // No more solutions exist
-                }
-                SatResult::Unknown => {
-                    tracing::error!("Z3 returned UNKNOWN for scenario {}", i + 1);
-                    Ok::<(), ScenarioGenError>(())
-                }
-            }
-        });
-
-        result?;
-
-        // Break if no more unique scenarios found
-        if scenarios.len() < i + 1 {
-            break;
-        }
-
-        // Call callback if provided (after Z3 context is released)
-        if let Some(ref mut cb) = callback {
-            cb(i, &scenarios[i])?;
+    match spec.optimization_target {
+        DslOptimizationTarget::None => drive_generation(
+            num_scenarios,
+            callback,
+            |prev_scenarios| solve_one_sat(spec, ltl_formula, prev_scenarios),
+            "solver",
+        ),
+        target => {
+            let backend_target = crate::dsl_target_to_backend_target(target)?;
+            drive_generation(
+                num_scenarios,
+                callback,
+                |prev_scenarios| {
+                    solve_one_optimized(spec, ltl_formula, backend_target, target, prev_scenarios)
+                },
+                "optimizer",
+            )
         }
     }
+}
 
-    if scenarios.is_empty() {
-        Err(ScenarioGenError::Unsatisfiable)
-    } else {
-        Ok(scenarios)
-    }
+/// Run one SAT-backend solve attempt (blocking clauses against `prev_scenarios` already
+/// generated), classified into a [`SolveOutcome`].
+fn solve_one_sat(
+    spec: &ScenarioSpec,
+    ltl_formula: &LTLFormula,
+    prev_scenarios: &[Scenario],
+) -> Result<SolveOutcome> {
+    let scenario_model = spec.scenario_type.get_model();
+    let cfg = Config::new();
+    z3::with_z3_config(&cfg, || {
+        let mut encoder = Z3Encoder::new(spec.clone());
+        encode_standard_pipeline(&mut encoder, ltl_formula, &*scenario_model)?;
+
+        for prev_scenario in prev_scenarios {
+            let blocking_clause = create_blocking_clause(&encoder, prev_scenario)?;
+            encoder.assert_constraint(&blocking_clause);
+        }
+
+        match encoder.check() {
+            SatResult::Sat => {
+                let model = encoder.get_model().ok_or_else(|| {
+                    ScenarioGenError::ExtractionFailed("Failed to get Z3 model".to_string())
+                })?;
+                let scenario = encoder.extract_scenario(&model)?;
+                Ok(SolveOutcome::Sat(Box::new(scenario)))
+            }
+            SatResult::Unsat => Ok(SolveOutcome::Unsat),
+            SatResult::Unknown => Ok(SolveOutcome::Unknown),
+        }
+    })
+}
+
+/// Run one optimizer-backend solve attempt (blocking clauses against `prev_scenarios`
+/// already generated, plus the objective for `backend_target`), classified into a
+/// [`SolveOutcome`]. On `Sat`, the scenario's `optimization` field is populated exactly
+/// as the single-scenario optimizer path (`generate_with_optimizer` in `lib.rs`) does.
+fn solve_one_optimized(
+    spec: &ScenarioSpec,
+    ltl_formula: &LTLFormula,
+    backend_target: BackendOptimizationTarget,
+    dsl_target: DslOptimizationTarget,
+    prev_scenarios: &[Scenario],
+) -> Result<SolveOutcome> {
+    let scenario_model = spec.scenario_type.get_model();
+    let cfg = Config::new();
+    z3::with_z3_config(&cfg, || {
+        let mut encoder =
+            GenericEncoder::with_backend(spec.clone(), OptimizerBackend::new(backend_target));
+        encode_standard_pipeline(&mut encoder, ltl_formula, &*scenario_model)?;
+
+        for prev_scenario in prev_scenarios {
+            let blocking_clause = create_blocking_clause(&encoder, prev_scenario)?;
+            encoder.assert_constraint(&blocking_clause);
+        }
+
+        encoder.encode_objective();
+
+        match encoder.check() {
+            SatResult::Sat => {
+                let model = encoder.get_model().ok_or_else(|| {
+                    ScenarioGenError::ExtractionFailed("Failed to get Z3 model".to_string())
+                })?;
+                encoder.extract_optimal_value(&model);
+                let opt_val = encoder.get_optimal_value();
+
+                let mut scenario = encoder.extract_scenario(&model)?;
+                scenario.optimization = Some(OptimizationInfo {
+                    target: format!("{:?}", dsl_target),
+                    optimal_value: opt_val,
+                });
+
+                Ok(SolveOutcome::Sat(Box::new(scenario)))
+            }
+            SatResult::Unsat => Ok(SolveOutcome::Unsat),
+            SatResult::Unknown => Ok(SolveOutcome::Unknown),
+        }
+    })
 }
 
 /// Create a blocking clause to prevent generating the same scenario
@@ -119,7 +264,10 @@ where
 /// The blocking clause is: !(actor1_equal AND actor2_equal AND ...)
 /// Which is equivalent to: (actor1_differs OR actor2_differs OR ...)
 /// At least one non-ego actor must have different initial conditions from previous scenarios.
-fn create_blocking_clause(encoder: &Z3Encoder, prev_scenario: &Scenario) -> Result<Bool> {
+fn create_blocking_clause<B: Z3Backend + 'static>(
+    encoder: &GenericEncoder<B>,
+    prev_scenario: &Scenario,
+) -> Result<Bool> {
     let mut all_blocking_clauses = Vec::new();
 
     // Get all non-ego actors from the spec
@@ -218,6 +366,99 @@ mod tests {
     };
     use crate::ltl::generator::LTLGenerator;
     use std::collections::HashMap;
+
+    /// SW-13/H9: `SatResult::Unknown` must never be reported to the caller as
+    /// `Unsatisfiable` — a solver timeout/incompleteness is a different diagnosis
+    /// from a proof that no scenario exists. Exercised at the `drive_generation`
+    /// level with a stubbed solve result, since forcing a real Z3 `unknown` would
+    /// require deliberately leaving the decidable linear-arithmetic fragment
+    /// (SW-11's territory), which this issue does not touch.
+    #[test]
+    fn unknown_on_first_attempt_reports_solver_unknown_not_unsatisfiable() {
+        let result: Result<Vec<Scenario>> = drive_generation(
+            1,
+            None::<fn(usize, &Scenario) -> Result<()>>,
+            |_prev_scenarios| Ok(SolveOutcome::Unknown),
+            "solver",
+        );
+
+        match result {
+            Err(ScenarioGenError::SolverUnknown) => {}
+            other => panic!("expected Err(SolverUnknown), got {other:?}"),
+        }
+    }
+
+    /// Unsat, by contrast, is a legitimate proof there is no (further) solution and
+    /// must still map to `Unsatisfiable` when nothing was generated.
+    #[test]
+    fn unsat_on_first_attempt_still_reports_unsatisfiable() {
+        let result: Result<Vec<Scenario>> = drive_generation(
+            1,
+            None::<fn(usize, &Scenario) -> Result<()>>,
+            |_prev_scenarios| Ok(SolveOutcome::Unsat),
+            "solver",
+        );
+
+        assert!(
+            matches!(result, Err(ScenarioGenError::Unsatisfiable)),
+            "expected Err(Unsatisfiable), got {result:?}"
+        );
+    }
+
+    /// Minimal placeholder `Scenario` for `SolveOutcome::Sat` stubs — its contents are
+    /// irrelevant to the `drive_generation` control-flow tests, only its presence.
+    fn dummy_scenario() -> Scenario {
+        Scenario {
+            scenario_id: "test".to_string(),
+            scenario_type: "cut_in_left".to_string(),
+            time_step: 0.5,
+            duration: 1.0,
+            road: RoadSpec {
+                num_lanes: 1,
+                lane_width: 3.5,
+                lane_directions: vec![1],
+                road_length: None,
+            },
+            actors: vec![],
+            validation: crate::scenario::model::ValidationInfo {
+                min_ttc: None,
+                min_distance: None,
+                all_constraints_satisfied: true,
+                safety_violations: vec![],
+                max_acceleration: 0.0,
+                max_deceleration: 0.0,
+                acceleration_violations: vec![],
+            },
+            optimization: None,
+        }
+    }
+
+    /// A partial result (some scenarios generated, then Unknown) is still returned
+    /// as `Ok` — documented behaviour, see `drive_generation`'s doc comment — but the
+    /// caller has no way to tell from the `Ok` alone that generation was cut short by
+    /// an UNKNOWN rather than by genuinely running out of unique solutions. This test
+    /// pins the current decision (partial success) so a future change to it is
+    /// deliberate, not silent.
+    #[test]
+    fn unknown_after_partial_success_returns_scenarios_generated_so_far() {
+        let mut attempt = 0;
+        let result: Result<Vec<Scenario>> = drive_generation(
+            3,
+            None::<fn(usize, &Scenario) -> Result<()>>,
+            |_prev_scenarios| {
+                attempt += 1;
+                if attempt == 1 {
+                    Ok(SolveOutcome::Sat(Box::new(dummy_scenario())))
+                } else {
+                    Ok(SolveOutcome::Unknown)
+                }
+            },
+            "solver",
+        );
+
+        let scenarios = result.expect("partial success should be Ok, not Err");
+        assert_eq!(scenarios.len(), 1);
+    }
 
     fn create_test_spec() -> ScenarioSpec {
         ScenarioSpec {

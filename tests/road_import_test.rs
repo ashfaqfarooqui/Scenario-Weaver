@@ -7,28 +7,39 @@ use std::path::PathBuf;
 use common::project_root;
 use scenario_weaver::dsl::parse_yaml_file;
 
-/// Create a temp YAML file at the project root so relative imports resolve correctly.
+/// Directory used for temp copies of `with_import.yaml`, below.
 ///
-/// This copy is a **workaround**, not the intended usage: `with_import.yaml`
-/// declares `imports: roads/...`, which `parse_yaml_file` resolves relative to
-/// the YAML's own directory, while `roads/` lives at the repo root. See
-/// `examples_smoke_test::test_with_import_example_loads_from_its_own_directory`
-/// (ignored, SW-21) for the behaviour that is actually wanted.
+/// Deliberately **not** `examples/`: `tests/common::example_paths()` globs every
+/// `examples/*.yaml` for the corpus-wide smoke tests, so dropping scratch files in
+/// there would pull them into that corpus. It also is not the project root: since
+/// SW-13, `with_import.yaml` declares `imports: ../roads/4_lane_bidirectional.yaml`,
+/// resolved relative to the YAML's own directory (as `examples/with_import.yaml`
+/// really is), so the copy needs to sit exactly one directory below the repo root,
+/// the same depth as `examples/`, for `../roads/...` to land on `roads/` at the root.
+fn tmp_import_dir() -> PathBuf {
+    let dir = project_root().join("_test_tmp_imports");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// Create a temp copy of `with_import.yaml` at [`tmp_import_dir`] so its
+/// `imports: ../roads/...` resolves exactly as it does for the real
+/// `examples/with_import.yaml`.
 ///
 /// Uses a unique suffix to avoid race conditions between parallel tests.
-fn write_import_yaml_at_root(suffix: &str) -> PathBuf {
-    let path = project_root().join(format!("_test_import_tmp_{}.yaml", suffix));
+fn write_import_yaml_at_matching_depth(suffix: &str) -> PathBuf {
+    let path = tmp_import_dir().join(format!("with_import_{}.yaml", suffix));
     std::fs::write(&path, common::load_example("with_import.yaml")).unwrap();
     path
 }
 
 fn cleanup_tmp(suffix: &str) {
-    let _ = std::fs::remove_file(project_root().join(format!("_test_import_tmp_{}.yaml", suffix)));
+    let _ = std::fs::remove_file(tmp_import_dir().join(format!("with_import_{}.yaml", suffix)));
 }
 
 #[test]
 fn test_with_import_yaml_parses() {
-    let path = write_import_yaml_at_root("parses");
+    let path = write_import_yaml_at_matching_depth("parses");
     let result = parse_yaml_file(&path);
     cleanup_tmp("parses");
     let spec = result.expect("should parse with_import.yaml");
@@ -41,7 +52,7 @@ fn test_with_import_yaml_parses() {
 
 #[test]
 fn test_with_import_generates_scenario() {
-    let path = write_import_yaml_at_root("generates");
+    let path = write_import_yaml_at_matching_depth("generates");
     let result = parse_yaml_file(&path);
     cleanup_tmp("generates");
     let spec = result.expect("should parse");
@@ -119,7 +130,7 @@ actors:
 
 #[test]
 fn test_road_spec_from_import_has_lanes() {
-    let path = write_import_yaml_at_root("has_lanes");
+    let path = write_import_yaml_at_matching_depth("has_lanes");
     let result = parse_yaml_file(&path);
     cleanup_tmp("has_lanes");
     let spec = result.expect("should parse");
@@ -138,7 +149,7 @@ fn test_imported_road_matches_file_content() {
     let road_direct: scenario_weaver::dsl::types::RoadSpec =
         serde_yml::from_str(&road_content).unwrap();
 
-    let path = write_import_yaml_at_root("matches");
+    let path = write_import_yaml_at_matching_depth("matches");
     let result = parse_yaml_file(&path);
     cleanup_tmp("matches");
     let spec = result.expect("should parse");

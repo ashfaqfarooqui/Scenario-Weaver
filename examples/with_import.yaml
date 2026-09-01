@@ -11,9 +11,9 @@
 # Duration: 10.0s at 0.5s time steps
 #
 # Key Features:
-#   - Imports road definition from roads/4_lane_bidirectional.yaml
-#   - Inline road spec serves as fallback if import fails
-#   - Demonstrates road library import functionality
+#   - Imports road definition from ../roads/4_lane_bidirectional.yaml
+#   - Demonstrates road library import functionality end to end through the CLI
+#     (imports: is resolved relative to this file's own directory, hence "../roads/...")
 #
 # Safety Constraints:
 #   - min TTC: 3.0s (enforced)
@@ -23,19 +23,13 @@
 #   cargo run --release -- -i examples/with_import.yaml -o output/
 #
 imports:
-  - roads/4_lane_bidirectional.yaml
+  - ../roads/4_lane_bidirectional.yaml
 
 scenario_type: cut_in_left
 
 # Time configuration
 time_step: 0.5
 duration: 10.0
-
-# Road specification (fallback if imports don't work)
-road:
-  num_lanes: 4
-  lane_width: 3.5
-  lane_directions: [1, 1, -1, -1]  # 2 forward, 2 backward
 
 # Actors
 actors:

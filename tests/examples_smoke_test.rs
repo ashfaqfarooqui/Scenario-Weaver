@@ -149,14 +149,12 @@ fn test_solvable_examples_have_populated_trajectories() {
 }
 
 /// `examples/with_import.yaml` documents `cargo run -- -i examples/with_import.yaml`,
-/// but `imports: roads/4_lane_bidirectional.yaml` is resolved relative to the
-/// YAML's own directory while `roads/` lives at the repo root. The example is
-/// therefore unloadable from the path it advertises.
-///
-/// `tests/road_import_test.rs` works around this by copying the file to the repo
-/// root before parsing; this test asserts the behaviour that is actually wanted.
+/// and `imports:` is resolved relative to the YAML's own directory
+/// (`examples/`), not the repo root. SW-13 fixed the example to declare
+/// `imports: ../roads/4_lane_bidirectional.yaml` accordingly (and wired
+/// `main.rs` through `parse_yaml_file`, which is what actually resolves
+/// `imports:` — see `src/main.rs`), so this now exercises the real path.
 #[test]
-#[ignore = "SW-21: examples/with_import.yaml import path resolves relative to examples/, but roads/ is at the repo root"]
 fn test_with_import_example_loads_from_its_own_directory() {
     let path = common::example_path("with_import.yaml");
     let spec = scenario_weaver::dsl::parse_yaml_file(&path)

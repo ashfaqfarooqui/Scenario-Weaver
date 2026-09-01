@@ -1,6 +1,6 @@
 //! CLI for ScenarioWeaver
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use std::path::PathBuf;
 use tracing::Level;
@@ -66,11 +66,11 @@ fn main() -> Result<()> {
     tracing::info!("ScenarioWeaver");
     tracing::info!("Loading specification from: {:?}", cli.input);
 
-    // Read YAML file
-    let yaml_content = std::fs::read_to_string(&cli.input)?;
-
-    // Parse specification
-    let mut spec = scenario_weaver::dsl::parser::parse_yaml(&yaml_content)?;
+    // Parse specification, resolving `imports:` relative to the input file's
+    // own directory (parse_yaml_file, not the import-blind parse_yaml + read_to_string
+    // that used to live here — see SW-13/D3).
+    let mut spec = scenario_weaver::dsl::parser::parse_yaml_file(&cli.input)
+        .with_context(|| format!("Failed to load specification from {}", cli.input.display()))?;
 
     // Apply CLI override for adversarial mode
     if cli.adversarial {
@@ -104,9 +104,8 @@ fn main() -> Result<()> {
         let callback = |i: usize,
                         scenario: &scenario_weaver::scenario::model::Scenario|
          -> scenario_weaver::error::Result<()> {
-            write_scenario(scenario, &output_dir, i, num_scenarios).map_err(|e| {
-                scenario_weaver::error::ScenarioGenError::ExtractionFailed(e.to_string())
-            })
+            write_scenario(scenario, &output_dir, i, num_scenarios)
+                .map_err(|e| scenario_weaver::error::ScenarioGenError::OutputWrite(e.to_string()))
         };
         scenario_weaver::generate_multiple_scenarios_from_spec(spec, num_scenarios, Some(callback))?
     };
