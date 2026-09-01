@@ -2,3 +2,7 @@
 .vscode
 .claude
 /output/
+
+# cargo-mutants run artifacts (SW-07)
+mutants.out/
+mutants.out.old/
