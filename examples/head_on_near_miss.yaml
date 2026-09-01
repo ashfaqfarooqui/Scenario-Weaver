@@ -79,13 +79,28 @@ actors:
 #
 # Until SW-09 `ay` was a free variable that no equation read, so this bound
 # constrained nothing and the file solved at the 2.0 m/s2 default. Now that `ay`
-# drives `vy`, it is measurably infeasible at 2.0 and 2.5 and feasible at 3.0.
+# drives `vy`, the bound bites.
 #
-# The 3.0 figure is empirical, not derived. It is NOT simply "what a 3.5 m
-# change in 1.5-2.0 s costs": the solver currently spreads the lateral motion
-# over ~7.5 s because the `lane` variable follows its declared schedule while
-# `py` moves independently of it (SW-10). Once SW-10 makes the declared
-# `duration` actually bind, re-derive this number rather than assuming it holds.
+# SW-10 re-derived this number from scratch, as the SW-09 comment asked. The old
+# note guessed it was "what a 3.5 m change in 1.5-2.0 s costs" and warned the
+# figure might not survive. It does survive, but for a different reason: 3.0 is
+# not an empirical fit, it is the exact minimum the discretisation admits.
+#
+#   `py` is pinned to a lane centre, with `vy = 0`, at the last step before the
+#   change window and the first step after it. With time_step 0.5 s and the
+#   window this file declares, those two pinned steps are 2.5 s apart -- five
+#   intervals, four interior steps with a free `vy`.
+#   Trapezoidal integration over those five intervals gives a lateral
+#   displacement of 0.5 * (vy1 + vy2 + vy3 + vy4), which must equal one lane
+#   width, 3.5 m, so vy1 + vy2 + vy3 + vy4 = 7.0.
+#   The cartesian encoder caps |vy| at 2.0 m/s, so the two interior peaks
+#   contribute at most 4.0 and the two ramp steps must supply the remaining 3.0
+#   between them -- 1.5 m/s each, reached from vy = 0 in one 0.5 s step.
+#   That is |ay| = 1.5 / 0.5 = 3.0 m/s2, and no profile does better.
+#
+# Bisected against the solver to confirm: UNSAT at 2.0, 2.5, 2.9 and 2.99,
+# SAT at 3.0. The solved trajectory rides the bound exactly, with
+# vy = 0, 1.5, 2.0, 2.0, 1.5, 0 across the window.
 max_lateral_acceleration: 3.0
 
 # Safety constraints - ENFORCE to maintain safety for all pairs

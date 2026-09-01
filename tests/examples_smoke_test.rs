@@ -179,19 +179,31 @@ fn test_with_import_example_loads_from_its_own_directory() {
 /// absent from the JSON), but honest and correct are different things: nothing
 /// alerts on it, which is what this test is for.
 ///
-/// Observed failures, all with `all_constraints_satisfied: true` and an empty
-/// violation list: `bicycle_lane_change`, `cut_in_left`,
-/// `cut_in_left_optimize_min_severity`, `cut_in_right`, `multi_lane_safety`,
-/// `simple_bidirectional`, `speed_limit_violation`.
+/// Before SW-10 this failed on 8 of the 15 candidates, and the cause was the
+/// lane lag: `compute_validation_metrics` gated TTC on
+/// `state1.lane() == state2.lane()`, and the `lane` variable was pinned on a
+/// schedule, so during a lane change no same-lane step existed at all.
+/// That half is fixed — `lane` is derived from `py` now, and the gate is the
+/// same `encode_same_lane_constraint` predicate the encoder asserts.
+/// `bicycle_lane_change`, `simple_bidirectional` and `unsafe_following` began
+/// reporting a measured TTC as a direct result.
 ///
-/// Cause (SW-10): the `lane` variable lags the lateral position, so during a
-/// lane change the two actors are never recorded in the same lane at a step
-/// where they are also approaching. `compute_validation_metrics` gates TTC on
-/// `state1.lane() == state2.lane()`, so it never evaluates. In `cut_in_left` the
-/// npc reaches lane 1's centre (`y=4.70`) at t=4.0 s while `lane` still reads 0,
-/// and by the time `lane` flips at t=5.0 s both actors have `vx=0.00`.
+/// The 7 that remain fail for a different reason, and it is not a measurement
+/// bug: in the solution Z3 returns, no actor ever approaches another *in its
+/// own lane*, so TTC is genuinely undefined. Nothing in the encoding forces a
+/// conflict — `Always(TTCGT(...))` is an implication, vacuously true when
+/// nobody is closing — and on `cut_in_left` both vehicles simply brake to a
+/// standstill 98 m apart (`Invariant::ForwardProgress`, SW-12) while the npc's
+/// cut-in is executed perfectly and 63 m ahead. Making the declared conflict
+/// actually happen is SW-12's forward-progress work, not a same-lane test.
 #[test]
-#[ignore = "SW-10: lane variable lags lateral position, so same-lane TTC is never evaluated for 7 enforce-mode examples"]
+#[ignore = "SW-12: nothing forces a closing conflict, so Z3 answers with a scenario in \
+            which no actor ever approaches another in its own lane and TTC is genuinely \
+            undefined — on cut_in_left both vehicles brake to a standstill. The SW-10 half \
+            (lane lagging lateral position, so no same-lane step existed at all) is fixed: \
+            cut_in_left now spends 54 of 101 steps with both actors in lane 1 and reports a \
+            min_distance of 63.49 m measured over that window, where before the fix it \
+            reported 170.92 m measured over the handful of steps the lag left behind"]
 fn test_enforce_min_ttc_examples_produce_a_measured_ttc() {
     let mut failures: Vec<String> = Vec::new();
 
@@ -227,19 +239,40 @@ fn test_enforce_min_ttc_examples_produce_a_measured_ttc() {
     );
 }
 
+/// Examples whose `min_distance: enforce` declaration the encoder does not
+/// actually assert, each with the issue that owns the fix.
+///
+/// A ratchet in the same shape as `KNOWN_BROKEN_INVARIANTS`: an entry that
+/// stops failing must be deleted, and
+/// `test_enforce_min_distance_examples_meet_their_threshold` below fails if it
+/// is not. Never add an entry to silence a new failure.
+const MIN_DISTANCE_NOT_ASSERTED: &[(&str, &str)] = &[(
+    "head_on_near_miss.yaml",
+    "SW-12 (owns src/scenarios/head_on.rs): `HeadOnModel::generate_safety` builds TTC and \
+     distance constraints for the ego <-> oncoming pair *only* — see the `// Only ego <-> \
+     oncoming gets the requested constraint mode` comment — while \
+     `compute_validation_metrics` measures every pair. The breach reported here is \
+     ego <-> slow_npc, a pair the encoder never constrained at all, so no change inside \
+     the encoder can satisfy it.",
+)];
+
 /// An example that declares `min_distance: enforce` must end up satisfying its
 /// own threshold, with the metric actually measured.
 ///
-/// This passes today across the whole corpus. It exists because SW-04 briefly
-/// believed `overtake_left.yaml` violated it — the metric reads
-/// `min_distance = 4.0826` with `all_constraints_satisfied: true`, which looks
-/// like a breach until you notice that example declares `min_distance: 4.0`, not
-/// the corpus-typical 5.0. The invariant was never actually broken, but nothing
-/// in the suite was checking it either, so the question could only be settled by
-/// hand. Now it is checked, against each example's own declared threshold.
+/// It exists because SW-04 briefly believed `overtake_left.yaml` violated it —
+/// the metric reads `min_distance = 4.0826` with
+/// `all_constraints_satisfied: true`, which looks like a breach until you
+/// notice that example declares `min_distance: 4.0`, not the corpus-typical
+/// 5.0. The invariant was never actually broken, but nothing in the suite was
+/// checking it either, so the question could only be settled by hand. Now it is
+/// checked, against each example's own declared threshold.
+///
+/// `MIN_DISTANCE_NOT_ASSERTED` carries the one example the encoder does not
+/// assert the constraint for, and is checked both ways.
 #[test]
 fn test_enforce_min_distance_examples_meet_their_threshold() {
     let mut failures: Vec<String> = Vec::new();
+    let mut fixed: Vec<String> = Vec::new();
 
     let candidates = examples_declaring(
         |spec| spec.constraint_modes.min_distance(),
@@ -253,18 +286,43 @@ fn test_enforce_min_distance_examples_meet_their_threshold() {
     for (name, spec) in &candidates {
         let scenario = common::generate_example(name);
         let threshold = spec.min_distance;
-        match scenario.validation.min_distance {
-            Some(d) if d >= threshold => println!("{name}: min_distance={d:.4} >= {threshold}"),
-            Some(d) => failures.push(format!(
-                "{name}: declares min_distance: enforce (threshold {threshold}) but measured \
-                 {d:.4}; all_constraints_satisfied={}, safety_violations={:?}",
-                scenario.validation.all_constraints_satisfied,
-                scenario.validation.safety_violations
-            )),
-            None => failures.push(format!(
-                "{name}: declares min_distance: enforce (threshold {threshold}) but \
-                 min_distance was never evaluated"
-            )),
+        let excused = MIN_DISTANCE_NOT_ASSERTED
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, why)| *why);
+
+        let met = match scenario.validation.min_distance {
+            Some(d) if d >= threshold => {
+                println!("{name}: min_distance={d:.4} >= {threshold}");
+                true
+            }
+            Some(d) => {
+                if excused.is_none() {
+                    failures.push(format!(
+                        "{name}: declares min_distance: enforce (threshold {threshold}) but \
+                         measured {d:.4}; all_constraints_satisfied={}, \
+                         safety_violations={:?}",
+                        scenario.validation.all_constraints_satisfied,
+                        scenario.validation.safety_violations
+                    ));
+                }
+                false
+            }
+            None => {
+                if excused.is_none() {
+                    failures.push(format!(
+                        "{name}: declares min_distance: enforce (threshold {threshold}) but \
+                         min_distance was never evaluated"
+                    ));
+                }
+                false
+            }
+        };
+
+        if met {
+            if let Some(why) = excused {
+                fixed.push(format!("{name} — listed as: {why}"));
+            }
         }
     }
 
@@ -274,6 +332,13 @@ fn test_enforce_min_distance_examples_meet_their_threshold() {
         failures.len(),
         candidates.len(),
         failures.join("\n  ")
+    );
+    assert!(
+        fixed.is_empty(),
+        "{} entr(ies) in MIN_DISTANCE_NOT_ASSERTED now satisfy their threshold — delete \
+         them rather than leaving the list to rot:\n  {}",
+        fixed.len(),
+        fixed.join("\n  ")
     );
 }
 
@@ -406,18 +471,23 @@ fn test_constraint_mode_semantics_across_the_corpus() {
 
 /// Lateral position on the road surface, and `lane` consistent with `y`.
 ///
-/// H2 / SW-10: `lane` is pinned on a schedule while `py` is pinned only at the
-/// two endpoints of a lane change, so mid-manoeuvre the two disagree —
-/// `cut_in_left_optimize_min_ttc`'s npc is recorded in lane 0 (centre 1.75)
-/// with `py = 4.5`, a 2.75 m error against a 1.75 m half-width, i.e. it is
-/// physically in the next lane but a full lane-width outside the one it is
-/// recorded in. Every consumer keyed on `lane` — the same-lane TTC test,
-/// `compute_effective_dist`, `compute_validation_metrics` — treats the actors
-/// as separated during exactly the window a cut-in scenario is about.
+/// The SW-10 half is fixed. `lane` is no longer pinned on a schedule: it is
+/// derived from `py` at every step of a lane change
+/// (`|py - lane*w - w/2| <= w/2`), so the two can no longer disagree. Every
+/// one of the 19 vehicle examples passes this invariant now; before the fix
+/// `cut_in_left` alone breached it at 16 of 101 steps with a worst error of
+/// 3.46 m against a 1.75 m half-width.
+///
+/// What is left is pedestrians, and it is a different defect: E3 / SW-16
+/// encodes `OnSidewalk` as the unbounded half-plane
+/// `py > lane_width * num_lanes`, so a crossing pedestrian ends up parked
+/// outside the road surface entirely (`pedestrian_crossing`: `py = 7.85` on a
+/// road of `[0, 7]`) with its `lane` still reading the lane it set off from.
+/// No amount of lane-vs-`py` coupling fixes a `py` that is off the road.
 #[test]
-#[ignore = "SW-10: the lane variable lags lateral position through a lane change (H2). \
-            The SW-08 half (C1, lane centres 5 cm short) is fixed — the centres are exactly \
-            1.75 / 5.25 now"]
+#[ignore = "SW-16 (E3): pedestrians park outside the road surface, so `lane` cannot agree \
+            with `py` for them. The SW-10 half — lane lagging lateral position through a \
+            lane change — is fixed and all 19 vehicle examples pass"]
 fn test_lane_road_containment_across_the_corpus() {
     assert_corpus_invariant(Invariant::Containment);
 }

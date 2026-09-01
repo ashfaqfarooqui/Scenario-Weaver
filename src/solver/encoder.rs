@@ -6,7 +6,7 @@ use z3::SatResult;
 use crate::dsl::types::{CoordinateSystem, ScenarioSpec};
 use crate::solver::backend::{OptimizationTarget, OptimizerBackend, SolverBackend, Z3Backend};
 use crate::solver::coordinate_encoder::CoordinateEncoder;
-use crate::solver::encoder_utils::real_from_f64;
+use crate::solver::encoder_utils::{encode_same_lane_constraint, real_from_f64};
 use crate::solver::encoders::bicycle::BicycleEncoder;
 use crate::solver::encoders::cartesian::CartesianEncoder;
 
@@ -384,7 +384,23 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 }
             }
 
-            // DistanceGT(actor1, actor2, d): |px1[t] - px2[t]| > d
+            // DistanceGT(actor1, actor2, d): same_lane ⟹ |px1[t] - px2[t]| > d
+            //
+            // SW-10/H7. This used to be a bare `|px1 - px2| > d` with no lane
+            // guard, so two vehicles in physically different lanes still had
+            // to keep `min_distance` apart longitudinally — over-constraining
+            // every multi-lane spec, and disagreeing with
+            // `compute_validation_metrics`, which has always gated the metric
+            // on the actors sharing a lane. The guarded form is the one the
+            // docs describe and the one the validator checks; it is also what
+            // the (previously dead) `encode_distance_constraint` in both
+            // coordinate encoders already implemented.
+            //
+            // The guard matters just as much in `Violate` mode: the negation
+            // `¬(same_lane ⟹ safe)` is `same_lane ∧ ¬safe`, i.e. "get close
+            // *in the same lane*", which is the adversarial event the feature
+            // is for. The unguarded negation was satisfiable by two cars
+            // passing in adjacent lanes.
             Proposition::DistanceGT {
                 actor1,
                 actor2,
@@ -400,8 +416,17 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
 
                 let pos_case = diff_pos.gt(&dist_val);
                 let neg_case = diff_neg.gt(&dist_val);
+                let distance_safe = z3::ast::Bool::or(&[&pos_case, &neg_case]);
 
-                z3::ast::Bool::or(&[&pos_case, &neg_case])
+                let same_lane = encode_same_lane_constraint(
+                    self.get_lane_var(actor1, time),
+                    self.get_lane_var(actor2, time),
+                    self.get_lateral_pos(actor1, time),
+                    self.get_lateral_pos(actor2, time),
+                    self.spec.get_lane_width(),
+                );
+
+                same_lane.implies(&distance_safe)
             }
 
             // TTCGT(actor1, actor2, ttc): TTC > ttc (if collision possible)
@@ -686,42 +711,33 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         let min_ttc_val = real_from_f64(min_ttc);
         let epsilon = Real::from_rational(1_i64, 100_i64); // 0.01 m/s to avoid division by zero
 
-        // "Same lane" condition for TTC.
-        // For same-direction actors: use discrete lane match only.
-        // For opposite-direction actors: also use y-position proximity since they approach
-        // from different lanes and TTC is still relevant when they're laterally overlapping.
-        let actor1_dir = self
-            .spec
-            .actors
-            .iter()
-            .find(|a| a.id == actor1)
-            .map_or(1, |a| a.direction);
-        let actor2_dir = self
-            .spec
-            .actors
-            .iter()
-            .find(|a| a.id == actor2)
-            .map_or(1, |a| a.direction);
-
-        let same_lane = if actor1_dir != actor2_dir {
-            // Opposite-direction: use y-proximity in addition to discrete lane match.
-            // During a lane change transition, the NPC's y-position passes through the
-            // ego's lane space, making head-on TTC relevant.
-            let py1 = self.get_lateral_pos(actor1, time);
-            let py2 = self.get_lateral_pos(actor2, time);
-            let lane_width = self.spec.get_lane_width();
-            let lane_width_real = real_from_f64(lane_width);
-            let py_diff_pos = py1 - py2;
-            let py_diff_neg = py2 - py1;
-            let y_proximity = z3::ast::Bool::and(&[
-                &py_diff_pos.lt(&lane_width_real),
-                &py_diff_neg.lt(&lane_width_real),
-            ]);
-            z3::ast::Bool::or(&[&lane1.eq(lane2), &y_proximity])
-        } else {
-            // Same-direction: only discrete lane match (original behavior).
-            lane1.eq(lane2)
-        };
+        // "Same lane" condition for TTC — one predicate, shared with the
+        // `DistanceGT` lowering and with `compute_validation_metrics`
+        // (SW-10/H7): `lane1 == lane2 OR |py1 - py2| < lane_width`.
+        //
+        // This used to special-case direction: y-proximity for
+        // opposite-direction pairs, bare discrete lane match for
+        // same-direction pairs. That split existed because `lane` could not be
+        // trusted — it was pinned on a schedule (H2) — so widening it for
+        // same-direction pairs would have fired on actors that were not
+        // really overlapping. With `lane` now derived from `py` the disjunct
+        // means something precise for every pair: either the two occupy the
+        // same lane strip, or one of them is mid-manoeuvre and they are
+        // laterally within a lane width of each other. Both are conflicts.
+        //
+        // Keeping the split would have left the validator stricter than the
+        // encoder: with the widened validator predicate, `overtake_left`
+        // reported `TTC 0.28 s < 2.00 s` at t=7.5 on a spec that declares
+        // min_ttc *enforce* — a violation the encoder had never asserted
+        // against, because the merge happens with the discrete lanes still
+        // differing.
+        let same_lane = encode_same_lane_constraint(
+            lane1,
+            lane2,
+            self.get_lateral_pos(actor1, time),
+            self.get_lateral_pos(actor2, time),
+            self.spec.get_lane_width(),
+        );
 
         // Determine who is ahead and who is behind
         // If px1 > px2, then actor1 is ahead (lead), actor2 is behind (follow)
@@ -832,6 +848,18 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         let mut min_distance: Option<f64> = None;
         let mut violations = Vec::new();
 
+        // SW-10/H7: the validator's "same lane" test must be the *same*
+        // predicate the encoder asserts, or the tool enforces one thing and
+        // reports another. `encode_same_lane_constraint` (and the TTC /
+        // distance propositions built on it) is
+        //     lane1 == lane2  OR  |py1 - py2| < lane_width
+        // — the discrete match alone misses actors that are laterally
+        // overlapping mid-manoeuvre or travelling in opposite directions.
+        let lane_width = self.spec.get_lane_width();
+        let same_lane = |s1: &crate::scenario::model::State, s2: &crate::scenario::model::State| {
+            s1.lane() == s2.lane() || (s1.position().y - s2.position().y).abs() < lane_width
+        };
+
         // Compute pairwise metrics for all actor combinations
         for (i, id1) in self.spec.actors.iter().map(|a| a.id.clone()).enumerate() {
             for id2 in self.spec.actors.iter().skip(i + 1).map(|a| a.id.clone()) {
@@ -850,7 +878,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                     let distance = (state1.position().x - state2.position().x).abs();
 
                     // Only consider distance when in same lane
-                    if state1.lane() == state2.lane() {
+                    if same_lane(state1, state2) {
                         min_distance =
                             Some(min_distance.map_or(distance, |m: f64| m.min(distance)));
 
@@ -867,9 +895,31 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                         }
                     }
 
+                    // Lateral separation (SW-10, note from SW-03). The encoder
+                    // lowers `min_lateral_distance` to
+                    // `Proposition::LateralDistanceGT` — an unguarded
+                    // |py1 - py2| > d at every step — but the validator never
+                    // looked at it, so `multi_lane_safety` could report
+                    // `all_constraints_satisfied: true` with 0.000 m of
+                    // lateral separation. Check exactly what the encoder
+                    // asserts: unguarded, at every step.
+                    if let Some(min_lat) = self.spec.min_lateral_distance {
+                        let lateral = (state1.position().y - state2.position().y).abs();
+                        if lateral < min_lat {
+                            violations.push(format!(
+                                "Lateral distance violation at t={:.1}s: {}-{}: {:.2}m < {:.2}m",
+                                t as f64 * self.spec.time_step,
+                                id1,
+                                id2,
+                                lateral,
+                                min_lat
+                            ));
+                        }
+                    }
+
                     // Compute TTC (only when in same lane and approaching)
                     // Use directed velocity matching Z3 encoding logic
-                    if state1.lane() == state2.lane() {
+                    if same_lane(state1, state2) {
                         let epsilon = 0.01; // m/s threshold to avoid division by zero
 
                         // Case 1: state1 ahead, state2 behind, state2 faster (catching up)

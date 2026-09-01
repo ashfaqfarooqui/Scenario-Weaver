@@ -278,28 +278,32 @@ fn test_violate_mode_negates_constraint() {
 /// this test fails, rather than passing vacuously on a sentinel that satisfies
 /// any `>=` threshold.
 ///
-/// The fixture is `speed_limit_violation.yaml`: it declares both modes as
-/// `enforce` and is one of the examples whose solution actually contains a
-/// same-lane approaching pair, so both metrics are measured (TTC 3.13 s against
-/// a 3.0 s threshold, distance 10.06 m against 5.0 m).
+/// The fixture is `simple_bidirectional.yaml`: it declares both modes as
+/// `enforce` and both metrics are measured (TTC 3.99 s against a 3.0 s
+/// threshold, distance 39.08 m against 5.0 m).
 ///
-/// It is the *second* fixture this test has had to move to. It replaced
-/// `unsafe_following.yaml`, which stopped producing a measured TTC when SW-09
-/// chained `vy` to `ay`; that had replaced `overtake_with_opposite.yaml`, which
-/// stopped producing one when SW-08 corrected the lane centres and the position
-/// integration. In both cases Z3 landed on a different, equally valid model in
-/// which the npc is never *approaching* the ego while sharing a lane.
+/// It is the *third* fixture this test has had to move to.
+/// `speed_limit_violation.yaml` stopped producing a measured TTC when SW-10
+/// reconciled the encoder's and the validator's same-lane predicates and Z3
+/// moved to a different, equally valid model; that had replaced
+/// `unsafe_following.yaml`, which stopped when SW-09 chained `vy` to `ay`; and
+/// that had replaced `overtake_with_opposite.yaml`, which stopped when SW-08
+/// corrected the lane centres and the position integration. Every time, the
+/// mechanism is the same: nothing in the encoding *requires* the two actors to
+/// be closing on each other, so whether a TTC exists to measure is decided by
+/// which satisfying model Z3 happens to return.
 ///
-/// Which examples happen to evaluate a TTC at all is the SW-10 defect (the lane
-/// variable lags the lateral position), and until that lands any single-fixture
-/// version of this test is choosing from whatever the solver happens to
-/// produce — expect to move it again. The corpus-wide version is
-/// `examples_smoke_test::test_enforce_min_ttc_examples_meet_their_threshold`,
-/// already `#[ignore]`d against SW-10.
+/// `simple_bidirectional` should be steadier than its predecessors, because its
+/// closing pair is structural rather than incidental — the two actors travel in
+/// opposite directions down the same road, so they approach each other in every
+/// model. Forcing a conflict in the same-direction examples is SW-12's
+/// forward-progress work; the corpus-wide version of this test,
+/// `examples_smoke_test::test_enforce_min_ttc_examples_produce_a_measured_ttc`,
+/// is `#[ignore]`d against it.
 #[test]
 fn test_enforce_mode_respects_constraint() {
     // Declares `min_ttc: enforce` and `min_distance: enforce`.
-    let spec = common::parse_example("speed_limit_violation.yaml");
+    let spec = common::parse_example("simple_bidirectional.yaml");
     assert_eq!(spec.constraint_modes.min_ttc(), ConstraintMode::Enforce);
     assert_eq!(
         spec.constraint_modes.min_distance(),
@@ -326,5 +330,101 @@ fn test_enforce_mode_respects_constraint() {
     assert!(
         min_distance >= min_dist_threshold,
         "enforced min_distance should be >= {min_dist_threshold:.1}, got {min_distance:.4}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// min_distance is lane-guarded (SW-10 / H7)
+// ---------------------------------------------------------------------------
+
+/// `min_distance` applies to actors sharing a lane, not to every pair on the
+/// road.
+///
+/// The two actors here start side by side — both at `x` in `[0, 5]`, so
+/// `|px_ego - px_npc| <= 5` at t=0, far inside the declared 40 m threshold —
+/// but in *different* lanes, and the npc only merges into the ego's lane at
+/// t=14 s, by which time it is far ahead.
+///
+/// Before SW-10, `Proposition::DistanceGT` lowered to a bare
+/// `|px1 - px2| > d` with no lane guard, so two cars in different lanes still
+/// had to be 40 m apart longitudinally and this spec was UNSAT (verified
+/// against the pre-SW-10 binary). `compute_validation_metrics` meanwhile has
+/// always gated `min_distance` on the pair sharing a lane, so the encoder was
+/// enforcing a constraint the validator would never have checked, and
+/// over-constraining every multi-lane spec in the process.
+///
+/// Both sides now use `encoder_utils::encode_same_lane_constraint`.
+#[test]
+fn test_min_distance_is_lane_guarded() {
+    let yaml = r#"
+    scenario_type: cut_in_left
+    time_step: 0.5
+    duration: 20.0
+    num_scenarios: 1
+
+    actors:
+      - id: ego
+        role: ego
+        lane: 1
+        position: [0.0, 5.0]
+        speed: [15.0, 16.0]
+        direction: 1
+        acceleration: [-0.5, 0.5]
+
+      - id: npc
+        role: npc
+        lane: 0
+        position: [0.0, 5.0]
+        speed: [20.0, 22.0]
+        direction: 1
+        acceleration: [-0.5, 0.5]
+        lane_changes:
+          - direction: right
+            start_time: [14.0, 14.0]
+            duration: [2.0, 2.0]
+
+    road:
+      num_lanes: 2
+      lane_width: 3.5
+      lane_directions: [1, 1]
+
+    min_ttc: 3.0
+    min_distance: 40.0
+
+    constraint_modes:
+      min_ttc: enforce
+      min_distance: enforce
+
+    max_lateral_acceleration: 3.0"#;
+
+    let (scenario, spec) = common::generate_yaml_with_spec(yaml);
+
+    // The pair really is closer than min_distance while in different lanes:
+    // the guard is doing work, not passing vacuously.
+    let ego = scenario.get_actor("ego").expect("ego");
+    let npc = scenario.get_actor("npc").expect("npc");
+    let gap_at_start = (ego.states[0].position().x - npc.states[0].position().x).abs();
+    assert!(
+        gap_at_start < spec.min_distance,
+        "the fixture is meant to start the pair inside min_distance ({} m) in \
+         different lanes; measured {gap_at_start:.4} m",
+        spec.min_distance
+    );
+    assert_ne!(
+        ego.states[0].lane(),
+        npc.states[0].lane(),
+        "the fixture is meant to start the pair in different lanes"
+    );
+
+    // And the metric the validator reports still honours the threshold, because
+    // it is measured over the same-lane steps only.
+    let measured = scenario
+        .validation
+        .min_distance
+        .expect("min_distance must be measured: the pair does share a lane after the merge");
+    assert!(
+        measured >= spec.min_distance,
+        "same-lane min_distance should be >= {:.1}, got {measured:.4}",
+        spec.min_distance
     );
 }

@@ -13,13 +13,26 @@ fn near_miss() -> Scenario {
 }
 
 /// A *near miss* is by definition a scenario in which the safety constraints
-/// hold. The solver currently returns one in which they do not:
-/// `all_constraints_satisfied: false`, with TTC violations of 1.67 s and 1.05 s
-/// against a 2.0 s threshold, because the discrete `lane` variable lags the
-/// actual lateral position through the ego's lane change (SW-10). The old test
-/// printed that boolean instead of asserting it.
+/// hold. The solver still returns one in which they do not, but SW-10
+/// re-diagnosed why. It is not the lane lag: `lane` now tracks `py` exactly,
+/// and the ego's overtake reads correctly (lane 0 -> 1 at the step `py` crosses
+/// 3.5, and back).
+///
+/// Every violation reported here is on the **ego <-> slow_npc** pair, and
+/// `HeadOnModel::generate_safety` (`src/scenarios/head_on.rs`) never constrains
+/// that pair — it builds TTC and distance constraints for ego <-> oncoming
+/// only, as its own `// Only ego <-> oncoming gets the requested constraint
+/// mode` comment says. Meanwhile `compute_validation_metrics` measures every
+/// pair. So the encoder asserts one pair's safety and the validator grades
+/// three, which no change inside the encoder can reconcile.
+///
+/// `src/scenarios/head_on.rs` belongs to SW-12; the assertion below is the one
+/// SW-10 was asked to add, left armed for SW-12 to turn green.
 #[test]
-#[ignore = "SW-10: head_on_near_miss reports all_constraints_satisfied=false (TTC 1.05s < 2.0s) because the lane variable lags lateral position"]
+#[ignore = "SW-12 (owns src/scenarios/head_on.rs): HeadOnModel::generate_safety constrains \
+            only the ego <-> oncoming pair, while the validator measures every pair, so the \
+            unconstrained ego <-> slow_npc pair violates min_distance (0.29 m against 5.0 m). \
+            The SW-10 half — the lane variable lagging lateral position — is fixed"]
 fn test_head_on_near_miss_generation() {
     let scenario = near_miss();
 

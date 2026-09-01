@@ -217,11 +217,18 @@ fn test_pedestrian_wide_road_crosses_multiple_lanes() {
 /// A pedestrian must stay on the road surface, and the lane it is recorded in
 /// must be the lane its `y` puts it in.
 ///
-/// Fails: the pedestrian's `py` runs a full lane width outside the lane the
-/// extractor records for it, and on the wide-road example it leaves the road
-/// surface entirely (finding E3).
+/// Fails on `py` leaving the road surface (finding E3): `OnSidewalk` is encoded
+/// as the unbounded half-plane `py > lane_width * num_lanes`, so the pedestrian
+/// parks up to 6.1 m off the road (`pedestrian_crossing`: `py = 7.85` on a road
+/// of `[0, 7]`) with `lane` still reading the lane it started in. A `py` that is
+/// off the road cannot agree with any lane index.
+///
+/// This is no longer the SW-10 lane lag. `lane` is derived from `py` at every
+/// step now, and all 19 vehicle examples satisfy this invariant.
 #[test]
-#[ignore = "SW-10: the lane variable lags lateral position, so a crossing pedestrian is recorded in a lane it is not in"]
+#[ignore = "SW-16 (E3): pedestrians are steered outside the road surface, so no lane index \
+            can agree with their py. The SW-10 half — the lane variable lagging lateral \
+            position — is fixed"]
 fn test_pedestrian_stays_on_the_road_and_in_its_recorded_lane() {
     for name in [
         "pedestrian_crossing.yaml",

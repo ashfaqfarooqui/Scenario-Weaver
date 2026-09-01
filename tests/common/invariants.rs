@@ -133,11 +133,15 @@ pub const KNOWN_BROKEN_INVARIANTS: &[(Invariant, &str)] = &[
     ),
     (
         Invariant::Containment,
-        "SW-10: the lane variable is pinned on a schedule while py is pinned only at \
-         the endpoints of a lane change, so mid-manoeuvre an actor is recorded in a lane it \
-         is not in (observed |py - lane*w - w/2| up to 2.75 m against a half-width of 1.75). \
-         The SW-08 half of this — cartesian lane centres 5 cm short — is fixed; the centres \
-         are exactly 1.75 / 5.25 now and cartesian agrees with bicycle.",
+        "SW-16 (E3): pedestrians only. The SW-10 half — the lane variable pinned on a \
+         schedule while py was pinned only at the endpoints of a lane change, observed \
+         |py - lane*w - w/2| up to 3.46 m against a half-width of 1.75 — is fixed: `lane` \
+         is now derived from `py` at every step and every vehicle example is clean. What \
+         is left is the pedestrian encoder: `OnSidewalk` is the unbounded half-plane \
+         py > lane_width * num_lanes, so a crossing pedestrian parks up to 6.1 m outside \
+         the road surface (pedestrian_crossing: py = 7.85 on a road of [0, 7]) while its \
+         `lane` stays at the lane it started in. The SW-08 half — cartesian lane centres \
+         5 cm short — is also fixed; the centres are exactly 1.75 / 5.25 now.",
     ),
     (
         Invariant::ForwardProgress,
@@ -659,7 +663,16 @@ fn check_extraction_agreement(scenario: &Scenario, spec: &ScenarioSpec, out: &mu
             let steps = a1.states.len().min(a2.states.len());
             for t in 0..steps {
                 let (s1, s2) = (&a1.states[t], &a2.states[t]);
-                if s1.lane() != s2.lane() {
+                // Mirrors `encoder_utils::encode_same_lane_constraint`, which
+                // is what both the encoder's propositions and
+                // `compute_validation_metrics` use since SW-10:
+                //     lane1 == lane2  OR  |py1 - py2| < lane_width
+                // The discrete half alone misses an actor that is physically
+                // straddling the lane line mid-manoeuvre, and misses
+                // opposite-direction actors entirely (their lanes never match).
+                let same_lane = s1.lane() == s2.lane()
+                    || (s1.position().y - s2.position().y).abs() < spec.get_lane_width();
+                if !same_lane {
                     continue;
                 }
                 let distance = (s1.position().x - s2.position().x).abs();

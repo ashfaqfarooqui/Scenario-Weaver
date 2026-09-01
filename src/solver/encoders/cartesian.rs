@@ -97,6 +97,44 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         self.backend.assert(&py_var.eq(&expected_py));
     }
 
+    /// Encode lane-position *bracketing* at a specific time step:
+    /// `|py - (lane*lane_width + lane_width/2)| <= lane_width/2`.
+    ///
+    /// This is the mid-manoeuvre counterpart of
+    /// [`Self::encode_lane_position_coupling_at_time`] (SW-10/H2). While a
+    /// vehicle is between two lane centres `py` cannot equal a centre, so the
+    /// equality coupling cannot be asserted — but `lane` must still name the
+    /// lane the vehicle is *physically in*. Bracketing says exactly that:
+    /// `lane` is the index of the lane whose 3.5 m-wide strip contains `py`.
+    ///
+    /// This replaces the old schedule (`lane == source` for every step of the
+    /// window, `lane == target` only at its last step), under which `py` was
+    /// free to reach the target centre seconds before `lane` acknowledged it,
+    /// and every consumer keyed on `lane` — the TTC proposition's
+    /// `same_lane_discrete`, `compute_effective_dist`,
+    /// `compute_validation_metrics` — read the actors as separated during
+    /// exactly the window a cut-in is about.
+    ///
+    /// `lane.to_real() * lane_width` is constant x variable, so this stays
+    /// linear; it does move the window steps from pure QF_LRA into mixed
+    /// integer-real linear arithmetic, which is still decidable and still fine
+    /// for `Optimize`. Note the surrounding code was already mixed: the
+    /// source/target lane centres a few lines below are built from the same
+    /// `Int::to_real()` coercion.
+    fn encode_lane_position_bracket_at_time(&mut self, actor_id: &str, t: usize) {
+        let lane_var = &self.lanes[actor_id][t];
+        let py_var = &self.positions_y[actor_id][t];
+
+        let lane_width = self.spec.get_lane_width();
+        let lane_width_real = real_from_f64(lane_width);
+        let half_width = real_from_f64(lane_width / 2.0);
+
+        let centre = lane_var.to_real() * &lane_width_real + &half_width;
+        let offset = py_var - &centre;
+        self.backend.assert(&offset.le(&half_width));
+        self.backend.assert(&offset.ge(&-&half_width));
+    }
+
     /// A step in which a vehicle is not changing lanes: pinned to the lane
     /// centre, and not moving laterally at all.
     ///
@@ -314,17 +352,27 @@ impl<B: Z3Backend> CartesianEncoder<B> {
             self.backend.assert(&vy_t.le(&max_vy));
         }
 
-        // Update lane variable during transition
+        // Lane variable during the transition (SW-10/H2).
+        //
+        // The old encoding pinned `lane` on a schedule — `source` for every
+        // step of the window, `target` only at the last one — while `py` was
+        // constrained only at the two endpoints. Z3 was therefore free to sit
+        // on the target lane centre for seconds while `lane` still read
+        // `source`; `overtake_left` flipped `lane` at py = 2.12 and 4.88,
+        // neither of which is a lane centre.
+        //
+        // Instead, derive `lane` from `py`: at every step of the window `lane`
+        // must be the index of the lane physically containing `py`. The
+        // timing is *not* lost with the schedule — it was never carried by it.
+        // `py[start_step]` is pinned within 0.5 m of the source centre and
+        // `py[end_step]` within 0.5 m of the target centre (above), and 0.5 m
+        // is inside the 1.75 m half-width, so the bracket forces
+        // `lane[start_step] == source` and `lane[end_step] == target`
+        // exactly as the schedule's two endpoints did. What the schedule
+        // additionally asserted — `lane == source` strictly *inside* the
+        // window — is the bug, not the timing.
         for t in start_step..=end_step.min(self.horizon) {
-            if t < end_step {
-                // Keep lane variable at source during transition
-                self.backend
-                    .assert(&self.lanes[actor_id][t].eq(source_lane));
-            } else {
-                // At end of transition, lane equals target
-                self.backend
-                    .assert(&self.lanes[actor_id][t].eq(&target_lane_int));
-            }
+            self.encode_lane_position_bracket_at_time(actor_id, t);
         }
 
         // `max_lateral_acceleration` used to be applied only here, over the

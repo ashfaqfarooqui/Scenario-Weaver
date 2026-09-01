@@ -399,17 +399,59 @@ impl<B: Z3Backend> BicycleEncoder<B> {
         self.backend
             .assert(&py_end.le(&(&target_center_val + &tolerance)));
 
-        // Update lane variables: source during transition, target at end
+        // Lane variable during the transition (SW-10/H2).
+        //
+        // The old encoding pinned `lane` on a schedule — `source` for every
+        // step of the window, `target` only at the last one — while `py` was
+        // constrained only at the two endpoints. Z3 reached the target centre
+        // early and sat there while `lane` still read `source`; the finding
+        // records t=5.0 and t=6.0 at y=5.25 (lane-1 centre) with lane=0.
+        //
+        // Instead, derive `lane` from `py`: `lane` must name the lane whose
+        // lane_width-wide strip physically contains `py`. The cartesian
+        // encoder writes this as |py - lane*w - w/2| <= w/2 directly, because
+        // its source/target lanes are symbolic `Int`s. Here they are concrete
+        // `usize`s, so the same relation is expressed as a two-way case split
+        // over the only two lanes reachable in this window. That keeps this
+        // file in pure LRA — no Int-to-Real coercion, as
+        // `encode_lane_position_bounds_const` above is careful to avoid — and
+        // is strictly stronger, since it also rules out any third lane index.
+        //
+        // The timing does not go away with the schedule: `py[start_step]` is
+        // pinned within 0.5 m of the source centre and `py[end_clamped]`
+        // within 0.5 m of the target centre above, and 0.5 m is inside the
+        // half-width, so the case split forces lane == source at the first
+        // step of the window and lane == target at the last, exactly as the
+        // schedule's endpoints did.
         let source_lane_val = Int::from_i64(source_lane as i64);
         let target_lane_val = Int::from_i64(target_lane as i64);
+        let half_width_val = real_from_f64(lane_width / 2.0);
         for t in start_step..=end_clamped {
-            if t < end_clamped {
-                self.backend
-                    .assert(&self.lanes[actor_id][t].eq(&source_lane_val));
-            } else {
-                self.backend
-                    .assert(&self.lanes[actor_id][t].eq(&target_lane_val));
-            }
+            let lane_var = &self.lanes[actor_id][t];
+            let py_var = &self.positions_y[actor_id][t];
+
+            let at_source = lane_var.eq(&source_lane_val);
+            let at_target = lane_var.eq(&target_lane_val);
+
+            let off_source = py_var - &source_center_val;
+            let in_source = Bool::and(&[
+                &off_source.le(&half_width_val),
+                &off_source.ge(&-&half_width_val),
+            ]);
+
+            let off_target = py_var - &target_center_val;
+            let in_target = Bool::and(&[
+                &off_target.le(&half_width_val),
+                &off_target.ge(&-&half_width_val),
+            ]);
+
+            let case_split = Bool::or(&[&at_source, &at_target]);
+            let source_consistent = at_source.implies(&in_source);
+            let target_consistent = at_target.implies(&in_target);
+
+            self.backend.assert(&case_split);
+            self.backend.assert(&source_consistent);
+            self.backend.assert(&target_consistent);
         }
 
         // Velocity ratio constraint during lane change: |vy| <= k * v
