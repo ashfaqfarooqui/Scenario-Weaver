@@ -4,17 +4,13 @@
 
 mod common;
 
-use std::path::PathBuf;
-use std::sync::Mutex;
-
-use libxml::parser::Parser as XmlParser;
-use libxml::schemas::{SchemaParserContext, SchemaValidationContext};
-
 use scenario_weaver::scenario::model::Scenario;
 use scenario_weaver::{
     export_scenario_to_gif, export_scenario_to_openlabel, export_scenario_to_svg,
     export_scenario_to_xodr, export_scenario_to_xosc,
 };
+
+use common::artifacts::{assert_valid_xodr, assert_valid_xosc};
 
 /// Generate one example, failing loudly rather than returning `Option` and
 /// letting the caller "skip".
@@ -31,64 +27,10 @@ fn generate_from_file(file: &str) -> Scenario {
 // so each scenario-type/format pair below still asserts something real about
 // its own output rather than importing the whole other suite.
 //
-// Duplicated (not shared via `tests/common`, which SW-06 owns) — see the
-// SW-05 report's "Notes for the next agent" for a proposal to fold this into
-// `tests/common` once this issue lands.
+// `assert_valid_xosc` / `assert_valid_xodr` moved to
+// `tests/common/artifacts.rs` (SW-07 dedup) — this file, `bicycle_export_test.rs`
+// and `artifact_validation_test.rs` all had near-verbatim copies.
 // ---------------------------------------------------------------------------
-
-/// See `tests/artifact_validation_test.rs` module docs for why the XSD is
-/// vendored here rather than resolved from the sibling `openscenario-rs`
-/// checkout.
-fn xsd_path() -> PathBuf {
-    common::project_root().join("tests/schemas/OpenSCENARIO.xsd")
-}
-
-/// See `tests/artifact_validation_test.rs`: libxml's schema validation
-/// context is documented as unsafe across threads, so this is serialized.
-static XSD_LOCK: Mutex<()> = Mutex::new(());
-
-/// Assert `xosc` is well-formed XML, passes XSD validation against the real
-/// OpenSCENARIO schema, and round-trips through `parse_from_str` with its
-/// entity count matching `scenario.actors`.
-fn assert_valid_xosc(xosc: &str, scenario: &Scenario, label: &str) {
-    {
-        let _guard = XSD_LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let doc = XmlParser::default()
-            .parse_string(xosc)
-            .unwrap_or_else(|e| panic!("{label}: xosc not well-formed XML: {e:?}"));
-        let mut xsd_parser =
-            SchemaParserContext::from_file(xsd_path().to_str().expect("utf8 path"));
-        let mut xsd = SchemaValidationContext::from_parser(&mut xsd_parser)
-            .unwrap_or_else(|e| panic!("{label}: failed to load XSD: {e:?}"));
-        xsd.validate_document(&doc)
-            .unwrap_or_else(|errors| panic!("{label}: xosc failed XSD validation: {errors:?}"));
-    }
-
-    let parsed = openscenario_rs::parse_from_str(xosc)
-        .unwrap_or_else(|e| panic!("{label}: xosc did not round-trip through parse_from_str: {e}"));
-    let entities = parsed
-        .entities
-        .unwrap_or_else(|| panic!("{label}: round-tripped xosc has no <Entities>"));
-    assert_eq!(
-        entities.scenario_objects.len(),
-        scenario.actors.len(),
-        "{label}: entity count not preserved across the xosc round-trip"
-    );
-}
-
-/// Assert `xodr` is well-formed OpenDRIVE that structurally parses back
-/// through the `opendrive` crate (catches an unclosed element or a
-/// malformed `<geometry>`/`<laneSection>` that a substring check cannot).
-fn assert_valid_xodr(xodr: &str, label: &str) {
-    let doc = opendrive::core::OpenDrive::from_xml_str(xodr)
-        .unwrap_or_else(|e| panic!("{label}: xodr did not parse: {e}"));
-    assert!(
-        !doc.road.is_empty(),
-        "{label}: xodr parsed but has no <road> elements"
-    );
-}
 
 // ===========================================================================
 // cut_in_right

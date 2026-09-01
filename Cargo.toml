@@ -75,6 +75,15 @@ libxml = "0.3"
 # .xosc/.xodr structure) without inventing another XML crate — quick-xml is
 # already resolved transitively via openscenario-rs.
 quick-xml = "0.38"
+# SW-07: golden/snapshot tests of generated JSON, .xosc and .xodr, with
+# redaction for the three nondeterministic fields (Uuid::new_v4, two
+# Utc::now call sites) so the committed snapshots are stable without
+# touching src/.
+insta = { version = "1.48.0", features = ["json", "redactions", "filters"] }
+# SW-07: property-based tests over valid ScenarioSpecs, asserting SW-06's
+# invariants hold for the whole generated space, not just the example
+# corpus.
+proptest = "1.5"
 
 [lints.rust]
 unsafe_code = "forbid"

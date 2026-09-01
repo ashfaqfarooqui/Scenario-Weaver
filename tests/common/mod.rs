@@ -15,6 +15,7 @@
 
 use std::path::{Path, PathBuf};
 
+pub mod artifacts;
 pub mod invariants;
 
 pub use invariants::{

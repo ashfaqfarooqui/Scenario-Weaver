@@ -35,17 +35,19 @@
 //! and reproducible off this machine, at the cost of needing a manual
 //! re-copy if the schema is ever upgraded (there is no automated sync; the
 //! two schema copies can drift, and nothing currently detects that).
+//!
+//! `XSD_LOCK`, `xsd_path` and `validate_against_xsd` live in
+//! `tests/common/artifacts.rs` (SW-07 dedup) — this file was their original
+//! home before `export_coverage_test.rs` and `bicycle_export_test.rs` grew
+//! near-verbatim copies.
 
 mod common;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Mutex;
 
-use libxml::parser::Parser as XmlParser;
-use libxml::schemas::{SchemaParserContext, SchemaValidationContext};
 use uom::si::length::meter;
 
+use common::artifacts::validate_against_xsd;
 use scenario_weaver::scenario::model::Scenario;
 use scenario_weaver::{export_scenario_to_svg, export_scenario_to_xodr, export_scenario_to_xosc};
 
@@ -56,58 +58,6 @@ use scenario_weaver::{export_scenario_to_svg, export_scenario_to_xodr, export_sc
 /// (`road_length = max_x * 1.2`, trigonometric lane offsets) on top of the
 /// solver's output, so a slightly looser but still tight bound is used here.
 const EPS: f64 = 1e-6;
-
-/// libxml's `SchemaValidationContext` is documented (libxml 0.3.8
-/// `tests/schema_tests.rs`) as unsafe to use concurrently from multiple
-/// threads in libxml2 >= 2.12. `cargo nextest run` (what `scripts/check.sh`
-/// prefers) isolates every test in its own process, so this does not matter
-/// there; a plain `cargo test` run puts every test in this binary on a
-/// shared thread pool, so this lock keeps that path from flaking.
-static XSD_LOCK: Mutex<()> = Mutex::new(());
-
-fn xsd_path() -> PathBuf {
-    common::project_root().join("tests/schemas/OpenSCENARIO.xsd")
-}
-
-/// Validate one `.xosc` document against the bundled OpenSCENARIO XSD.
-///
-/// Fails loudly (rather than silently skipping) if the schema itself cannot
-/// be loaded — a broken `tests/schemas/OpenSCENARIO.xsd` must not present as
-/// "every example passed validation".
-fn validate_against_xsd(xml: &str, label: &str) -> Result<(), String> {
-    let _guard = XSD_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-    let path = xsd_path();
-    let doc = XmlParser::default()
-        .parse_string(xml)
-        .map_err(|e| format!("{label}: not well-formed XML: {e:?}"))?;
-
-    let mut xsd_parser =
-        SchemaParserContext::from_file(path.to_str().expect("schema path is valid UTF-8"));
-    let mut xsd = SchemaValidationContext::from_parser(&mut xsd_parser).map_err(|errors| {
-        format!(
-            "failed to load {}: {}",
-            path.display(),
-            error_messages(&errors).join("; ")
-        )
-    })?;
-
-    xsd.validate_document(&doc)
-        .map_err(|errors| format!("{label}: {}", error_messages(&errors).join("; ")))
-}
-
-fn error_messages(errors: &[libxml::error::StructuredError]) -> Vec<String> {
-    errors
-        .iter()
-        .map(|e| {
-            e.message
-                .clone()
-                .unwrap_or_else(|| "<no message>".to_string())
-        })
-        .collect()
-}
 
 // ---------------------------------------------------------------------------
 // .xosc: XSD validation
