@@ -497,6 +497,33 @@ impl RoadSpec {
             }
         }
 
+        // The xodr exporter (`xodr_exporter::build_lane_section`) maps a scenario lane
+        // index `i` to a physical y-position `[i*lane_width, (i+1)*lane_width]` — that
+        // mapping is direction-independent (see `cartesian.rs`'s `py = lane*lane_width +
+        // lane_width/2`). To place forward lanes on OpenDRIVE's right side (negative ids)
+        // and backward lanes on the left (positive ids) while keeping ids consistent with
+        // physical y-position, every forward lane must sit at a lower index than every
+        // backward lane: `[1,1,-1,-1]` is fine, `[-1,-1,1,1]` and any interleaving such as
+        // `[1,-1,1,-1]` are not — the exporter would silently place a lane a full
+        // lane-width off from its scenario y-position (SW-16 E2). Reject rather than emit
+        // a road that disagrees with the trajectories driving on it.
+        if self
+            .lane_directions
+            .windows(2)
+            .any(|pair| pair[0] == -1 && pair[1] == 1)
+        {
+            return Err(format!(
+                "lane_directions {:?} is not a single forward-then-backward block \
+                 (e.g. [1,1,-1,-1]) — once a backward (-1) lane appears, no forward \
+                 (+1) lane may follow it. The xodr exporter's right/left lane-id split \
+                 assumes this ordering; an interleaved or reversed layout would place \
+                 lanes at the wrong y-position. Reorder the road's lanes, or track the \
+                 general fix under SW-16 (drop the direction-based id split entirely and \
+                 assign ids purely from lane index).",
+                self.lane_directions
+            ));
+        }
+
         if self.num_lanes == 0 {
             return Err("num_lanes must be at least 1".to_string());
         }
@@ -1298,6 +1325,62 @@ mod tests {
             road_length: None,
         };
         assert!(road.validate().is_err());
+    }
+
+    #[test]
+    fn test_road_spec_rejects_interleaved_directions() {
+        // SW-16 E2: [1,-1,1,-1] would place scenario lane 1 (y centre 5.25) at
+        // xodr's left lane +1 (y in [7.0, 10.5]) — a full lane-width off.
+        let interleaved = RoadSpec {
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![1, -1, 1, -1],
+            road_length: None,
+        };
+        let err = interleaved
+            .validate()
+            .expect_err("interleaved must be rejected");
+        assert!(err.contains("forward-then-backward"), "{err}");
+    }
+
+    #[test]
+    fn test_road_spec_rejects_backward_first() {
+        // Backward-first also breaks the exporter's right=forward/left=backward split
+        // (see the comment on RoadSpec::validate), even though it is not "interleaved".
+        let backward_first = RoadSpec {
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![-1, -1, 1, 1],
+            road_length: None,
+        };
+        assert!(backward_first.validate().is_err());
+    }
+
+    #[test]
+    fn test_road_spec_accepts_forward_then_backward_block() {
+        let ok = RoadSpec {
+            num_lanes: 4,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1, -1, -1],
+            road_length: None,
+        };
+        assert!(ok.validate().is_ok());
+
+        let all_forward = RoadSpec {
+            num_lanes: 3,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1, 1],
+            road_length: None,
+        };
+        assert!(all_forward.validate().is_ok());
+
+        let all_backward = RoadSpec {
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![-1, -1],
+            road_length: None,
+        };
+        assert!(all_backward.validate().is_ok());
     }
 
     #[test]

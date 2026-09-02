@@ -10,6 +10,15 @@ use crate::solver::encoder_utils::{encode_same_lane_constraint, real_from_f64};
 use crate::solver::encoders::bicycle::BicycleEncoder;
 use crate::solver::encoders::cartesian::CartesianEncoder;
 
+/// Width, in metres, of the sidewalk strip on either side of the drivable road surface.
+///
+/// `OnSidewalk` (below) bounds the pedestrian half-plane to this strip rather than leaving
+/// it unbounded, and `src/scenario/xodr_exporter.rs` emits a matching `LaneType::Sidewalk`
+/// of this width so the two agree (SW-16 E3, re-attributed from SW-10). 2.0 m is a
+/// conventional urban sidewalk width and comfortably covers the corpus's measured pre-fix
+/// excursions (pedestrian_running/pedestrian_crossing ~2.0 m; pedestrian_wide_road ~0.44 m).
+pub const SIDEWALK_WIDTH: f64 = 2.0;
+
 /// Trait providing read-only access to Z3 variables for scenario-specific constraints.
 ///
 /// This abstraction allows scenario models to work with any backend (Solver or Optimizer)
@@ -565,7 +574,13 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 ttc,
             } => self.encode_ttc_constraint(actor1, actor2, *ttc, time),
 
-            // OnSidewalk(actor, side): py < 0 (left) or py > road_width (right)
+            // OnSidewalk(actor, side): -SIDEWALK_WIDTH <= py < 0 (left) or
+            // road_width < py <= road_width + SIDEWALK_WIDTH (right).
+            //
+            // Previously an unbounded half-plane (`py < 0` / `py > road_width`), which let
+            // Z3 park a pedestrian arbitrarily far off the road — up to 10.7 m measured on
+            // pedestrian_wide_road (SW-16 E3, re-attributed from SW-10). Bounded to a strip
+            // matching the `LaneType::Sidewalk` the xodr exporter now emits.
             Proposition::OnSidewalk { actor, side } => {
                 let py = self.get_lateral_pos(actor, time);
                 let zero = Real::from_rational(0_i64, 1_i64);
@@ -574,11 +589,16 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 let num_lanes = self.spec.get_num_lanes();
                 let road_width = lane_width * num_lanes as f64;
                 let road_width_real = real_from_f64(road_width);
+                let sidewalk_outer_real = real_from_f64(-SIDEWALK_WIDTH);
+                let road_sidewalk_outer_real = real_from_f64(road_width + SIDEWALK_WIDTH);
 
                 if side == "left" {
-                    py.lt(&zero)
+                    z3::ast::Bool::and(&[&py.lt(&zero), &py.ge(&sidewalk_outer_real)])
                 } else {
-                    py.gt(&road_width_real)
+                    z3::ast::Bool::and(&[
+                        &py.gt(&road_width_real),
+                        &py.le(&road_sidewalk_outer_real),
+                    ])
                 }
             }
 

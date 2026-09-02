@@ -278,78 +278,113 @@ fn every_example_xodr_structure_is_well_formed() {
 
 /// Road `length` must be at least as large as the furthest longitudinal
 /// position (`x`) any actor reaches — otherwise a trajectory runs off the
-/// end of the road a downstream simulator loaded it onto.
+/// end of the road a downstream simulator loaded it onto. The road's `s`
+/// range (`geometry.x` .. `geometry.x + length`) must also cover the
+/// *nearest* `x` any actor reaches, so a backward-direction actor with
+/// `x < 0` does not land at a negative, out-of-range `s` (M12).
 ///
-/// See "What the new validation found" in the SW-05 report: this is
-/// expected to fail for some examples (M12) and is `#[ignore]`d rather than
-/// weakened.
+/// Fixed by SW-16: `compute_road_geometry` now takes
+/// `max(spec_length, trajectory_extent * margin)` for the length, and pulls
+/// the geometry's start `x` back to cover the most negative observed `x`.
 #[test]
-#[ignore = "SW-16: road length can be shorter than the trajectories it carries \
-            (M12) — export_to_xodr's compute_road_length() takes the RoadSpec's \
-            road_length when set (parser.rs defaults it to duration * 30.0) \
-            rather than the actor trajectories' actual max x, and the 20% \
-            trajectory-derived fallback buffer is not applied when road_length \
-            is Some. Observed: cut_in_left_optimize_max_ttc.yaml road length \
-            300.00m < furthest actor x 303.26m; \
-            cut_in_left_optimize_min_severity.yaml road length 300.00m < \
-            furthest actor x 402.62m."]
 fn every_example_xodr_road_length_covers_trajectories() {
     let mut failures = Vec::new();
     for (name, spec) in common::solvable_examples() {
         let (scenario, _spec) = common::generate_spec_with_spec(spec);
         let doc = xodr_for(&scenario, name);
-        let road_length = doc.road[0].length.get::<meter>();
+        let road = &doc.road[0];
+        let road_length = road.length.get::<meter>();
+        let start_x = road.plan_view.geometry[0].x.get::<meter>();
+        let end_x = start_x + road_length;
 
-        let max_x = scenario
+        let xs: Vec<f64> = scenario
             .actors
             .iter()
             .flat_map(|a| a.states.iter())
             .map(|s| s.position().x)
-            .fold(f64::MIN, f64::max);
+            .collect();
+        let max_x = xs.iter().copied().fold(f64::MIN, f64::max);
+        let min_x = xs.iter().copied().fold(f64::MAX, f64::min);
 
-        if max_x > road_length + EPS {
+        if max_x > end_x + EPS {
             failures.push(format!(
-                "{name}: road length {road_length:.2}m < furthest actor x {max_x:.2}m"
+                "{name}: road s-range ends at {end_x:.2}m < furthest actor x {max_x:.2}m"
+            ));
+        }
+        if min_x < start_x - EPS {
+            failures.push(format!(
+                "{name}: road s-range starts at {start_x:.2}m > nearest actor x {min_x:.2}m"
             ));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// Every actor position stays within the road surface the `.xodr` describes:
-/// `y` (lateral) within `[0, num_lanes * lane_width]`, matching the mapping
-/// `xodr_exporter::build_lane_section` uses (forward lanes project into
-/// `[0, n_forward * lane_width]`, backward lanes into
-/// `[n_forward * lane_width, num_lanes * lane_width]`).
+/// Every actor position stays within the road surface the `.xodr` actually
+/// describes: `y` within `[reference_y - (sum of right-lane widths),
+/// reference_y + (sum of left-lane widths)]`, where `reference_y = n_forward
+/// * lane_width`. This now includes the `LaneType::Sidewalk` strips
+/// `xodr_exporter::build_lane_section` adds on both sides.
 ///
-/// See "What the new validation found" in the SW-05 report: pedestrian
-/// scenarios are expected to fail this (E3), since a pedestrian crossing the
-/// road legitimately starts and ends off the drivable surface (on a
-/// sidewalk the `.xodr` does not model). `#[ignore]`d rather than weakened —
-/// weakening it would also stop catching a vehicle actor drifting off the
-/// road, which is the failure mode this check exists for.
+/// Before SW-16, `OnSidewalk` was an unbounded half-plane and the `.xodr`
+/// modelled no sidewalk at all, so a crossing pedestrian could park
+/// arbitrarily far off the described surface (E3, up to 10.7 m measured on
+/// `pedestrian_wide_road`). The exported sidewalk width is now derived from
+/// the actual trajectory excursion (`xodr_exporter::sidewalk_widths`, the
+/// same trajectory-driven pattern M12 uses for road length — see that
+/// function's doc comment for why a fixed width from the encoder's `OnSidewalk`
+/// bound alone is not sufficient), so this check — which still exists to
+/// catch e.g. a *vehicle* actor drifting off the drivable surface, since a
+/// vehicle's lane coupling should never let it reach the sidewalk at all —
+/// passes unweakened.
 #[test]
-#[ignore = "SW-16: pedestrian scenarios put actors outside the road surface \
-            (E3) — the xodr exporter only models the drivable lanes, and a \
-            pedestrian crossing them starts/ends off that surface by design. \
-            Observed: pedestrian_crossing.yaml 'pedestrian' reaches y=13.48 \
-            against a [0, 7.00] road surface; pedestrian_running.yaml \
-            'runner' reaches y=8.39 against [0, 7.00]; \
-            pedestrian_wide_road.yaml 'ped' reaches y=14.29 against \
-            [0, 10.50]."]
 fn every_example_actors_stay_within_road_surface() {
     let mut failures = Vec::new();
     for (name, spec) in common::solvable_examples() {
         let (scenario, _spec) = common::generate_spec_with_spec(spec);
-        let road_width = scenario.road.num_lanes as f64 * scenario.road.lane_width;
+        let doc = xodr_for(&scenario, name);
+        let road = &doc.road[0];
+        let reference_y = road.plan_view.geometry[0].y.get::<meter>();
+
+        let right_extent: f64 = road
+            .lanes
+            .lane_section
+            .first()
+            .right
+            .iter()
+            .flat_map(|r| r.lane.iter())
+            .filter_map(|l| {
+                l.base.choice.iter().find_map(|c| match c {
+                    opendrive::lane::lane_choice::LaneChoice::Width(w) => Some(w.a),
+                    opendrive::lane::lane_choice::LaneChoice::Border(_) => None,
+                })
+            })
+            .sum();
+        let left_extent: f64 = road
+            .lanes
+            .lane_section
+            .first()
+            .left
+            .iter()
+            .flat_map(|l| l.lane.iter())
+            .filter_map(|l| {
+                l.base.choice.iter().find_map(|c| match c {
+                    opendrive::lane::lane_choice::LaneChoice::Width(w) => Some(w.a),
+                    opendrive::lane::lane_choice::LaneChoice::Border(_) => None,
+                })
+            })
+            .sum();
+
+        let y_min = reference_y - right_extent;
+        let y_max = reference_y + left_extent;
 
         for actor in &scenario.actors {
             for state in &actor.states {
                 let y = state.position().y;
-                if y < -EPS || y > road_width + EPS {
+                if y < y_min - EPS || y > y_max + EPS {
                     failures.push(format!(
-                        "{name}: actor '{}' y={y:.2} outside road surface [0, {road_width:.2}]",
-                        actor.id
+                        "{name}: actor '{}' y={y:.2} outside road surface [{y_min:.2}, {y_max:.2}]",
+                        actor.id,
                     ));
                 }
             }

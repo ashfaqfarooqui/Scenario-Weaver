@@ -149,15 +149,23 @@ pub const KNOWN_BROKEN_INVARIANTS: &[(Invariant, &str)] = &[
     ),
     (
         Invariant::Containment,
-        "SW-16 (E3): pedestrians only. The SW-10 half — the lane variable pinned on a \
-         schedule while py was pinned only at the endpoints of a lane change, observed \
-         |py - lane*w - w/2| up to 3.46 m against a half-width of 1.75 — is fixed: `lane` \
-         is now derived from `py` at every step and every vehicle example is clean. What \
-         is left is the pedestrian encoder: `OnSidewalk` is the unbounded half-plane \
-         py > lane_width * num_lanes, so a crossing pedestrian parks up to 6.1 m outside \
-         the road surface (pedestrian_crossing: py = 7.85 on a road of [0, 7]) while its \
-         `lane` stays at the lane it started in. The SW-08 half — cartesian lane centres \
-         5 cm short — is also fixed; the centres are exactly 1.75 / 5.25 now.",
+        "SW-16 (E3): pedestrians only; vehicles are clean (SW-08's lane-centre rounding \
+         and SW-10's schedule-vs-py lag are both fixed, `lane` is derived from `py` at \
+         every step). This check compares `py` to the strict drivable surface \
+         `[0, num_lanes*lane_width]`, which is deliberate — a pedestrian legitimately \
+         leaves it, and SW-16 gave that a name: `src/solver/encoder.rs`'s `OnSidewalk` now \
+         bounds itself to a `SIDEWALK_WIDTH`-wide strip, and `xodr_exporter.rs` exports a \
+         matching (trajectory-widened) `LaneType::Sidewalk` so the artifact always \
+         describes wherever the pedestrian actually ends up — verified across the corpus in \
+         `tests/artifact_validation_test.rs::every_example_actors_stay_within_road_surface`, \
+         which SW-16 un-ignored. What remains broken, and keeps this entry, is that \
+         `OnSidewalk` is only ever used inside `eventually(...)`: it pins one instant to the \
+         sidewalk strip but nothing bounds `py` at any *other* instant, so the trajectory can \
+         (and does) drift further before or after — measured on this corpus at up to 0.6 m \
+         past the `OnSidewalk` bound on `pedestrian_wide_road`. A real fix needs an `always` \
+         bound on pedestrian `py` for every t, which belongs in \
+         `src/solver/encoders/pedestrian.rs` / `cartesian.rs` (out of SW-16's file list) — \
+         see its report for the concrete proposal.",
     ),
 ];
 
