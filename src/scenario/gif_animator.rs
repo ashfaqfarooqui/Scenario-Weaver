@@ -3,7 +3,7 @@
 //! Converts internal Scenario data structures to animated GIF showing
 //! vehicle trajectories evolving over time with real-time metrics overlay.
 
-use super::visualization_common::{self, ActorVisualRole, ViewportBounds};
+use super::visualization_common::{self, ActorVisualRole, Projection, ViewportBounds};
 use crate::error::{Result, ScenarioGenError};
 use crate::scenario::model::{Scenario, Velocity};
 use ab_glyph::{FontArc, PxScale};
@@ -66,22 +66,23 @@ const _TARGET_FPS: u16 = 10; // For reference: 10 FPS
 const FRAME_DELAY_CENTISECONDS: u16 = 10; // 100ms per frame = 10 FPS
 const MAX_TRAIL_LENGTH: usize = 30; // Limit trail to last 30 positions for performance
 
-// Colors (match SVG visualizer)
-const COLOR_EGO: Rgb<u8> = Rgb([76, 175, 80]); // #4CAF50 Green
-const COLOR_NPC: Rgb<u8> = Rgb([33, 150, 243]); // #2196F3 Blue
-const COLOR_PEDESTRIAN: Rgb<u8> = Rgb([255, 152, 0]); // #FF9800 Orange
-const COLOR_VIOLATION: Rgb<u8> = Rgb([244, 67, 54]); // #F44336 Red
-const COLOR_EGO_TRAIL: Rgb<u8> = Rgb([139, 195, 74]); // #8BC34A Light green
-const COLOR_NPC_TRAIL: Rgb<u8> = Rgb([100, 181, 246]); // #64B5F6 Light blue
-const COLOR_PEDESTRIAN_TRAIL: Rgb<u8> = Rgb([255, 183, 77]); // #FFB74D Light orange
-const COLOR_ROAD: Rgb<u8> = Rgb([42, 42, 42]); // #2A2A2A Dark gray
-const COLOR_LANE_MARKING: Rgb<u8> = Rgb([255, 255, 255]); // #FFFFFF White
-const COLOR_BACKGROUND: Rgb<u8> = Rgb([245, 245, 245]); // #F5F5F5 Light gray
-const COLOR_TEXT: Rgb<u8> = Rgb([51, 51, 51]); // #333333 Dark gray text
+// Colors — the literal values live once in `visualization_common`; these are
+// typed aliases for this renderer's `image::Rgb<u8>` representation.
+const COLOR_EGO: Rgb<u8> = Rgb(visualization_common::COLOR_EGO.rgb);
+const COLOR_NPC: Rgb<u8> = Rgb(visualization_common::COLOR_NPC.rgb);
+const COLOR_PEDESTRIAN: Rgb<u8> = Rgb(visualization_common::COLOR_PEDESTRIAN.rgb);
+const COLOR_VIOLATION: Rgb<u8> = Rgb(visualization_common::COLOR_VIOLATION.rgb);
+const COLOR_EGO_TRAIL: Rgb<u8> = Rgb(visualization_common::COLOR_EGO_PATH.rgb);
+const COLOR_NPC_TRAIL: Rgb<u8> = Rgb(visualization_common::COLOR_NPC_PATH.rgb);
+const COLOR_PEDESTRIAN_TRAIL: Rgb<u8> = Rgb(visualization_common::COLOR_PEDESTRIAN_PATH.rgb);
+const COLOR_ROAD: Rgb<u8> = Rgb(visualization_common::COLOR_ROAD.rgb);
+const COLOR_LANE_MARKING: Rgb<u8> = Rgb(visualization_common::COLOR_LANE_MARKING.rgb);
+const COLOR_BACKGROUND: Rgb<u8> = Rgb(visualization_common::COLOR_BACKGROUND.rgb);
+const COLOR_TEXT: Rgb<u8> = Rgb(visualization_common::COLOR_TEXT.rgb);
 
-// Vehicle dimensions (in pixels)
-const VEHICLE_LENGTH: u32 = 12;
-const VEHICLE_WIDTH: u32 = 6;
+// Vehicle dimensions (in pixels) — shared with the SVG visualizer.
+const VEHICLE_LENGTH: u32 = visualization_common::VEHICLE_LENGTH;
+const VEHICLE_WIDTH: u32 = visualization_common::VEHICLE_WIDTH;
 
 /// Export a scenario to animated GIF format
 ///
@@ -129,10 +130,7 @@ struct AnimatorConfig {
     canvas_height: u32,
     margin: u32,
     road_area_top: u32,
-    x_scale: f64,
-    y_scale: f64,
-    x_min: f64,
-    y_max: f64,
+    projection: Projection,
     num_frames: usize,
     frame_skip: usize,
 }
@@ -145,9 +143,6 @@ impl AnimatorConfig {
 
         // Find bounds of all trajectories
         let bounds = ViewportBounds::from_scenario(scenario);
-        let x_min = bounds.x_min;
-        let x_max = bounds.x_max;
-        let y_max = bounds.y_max;
 
         // Get canvas dimensions from resolution
         let canvas_width = resolution.width();
@@ -156,10 +151,9 @@ impl AnimatorConfig {
         let road_area_top = resolution.metrics_height();
 
         // Compute scales
-        let drawable_width = (canvas_width - 2 * margin) as f64;
-        let drawable_height = (canvas_height - road_area_top - margin) as f64;
-        let x_scale = drawable_width / (x_max - x_min);
-        let y_scale = drawable_height / bounds.height();
+        let drawable_width = f64::from(canvas_width - 2 * margin);
+        let drawable_height = f64::from(canvas_height - road_area_top - margin);
+        let projection = Projection::new(&bounds, drawable_width, drawable_height);
 
         // Number of frames = number of states
         let num_frames = if !scenario.actors.is_empty() {
@@ -173,10 +167,7 @@ impl AnimatorConfig {
             canvas_height,
             margin,
             road_area_top,
-            x_scale,
-            y_scale,
-            x_min,
-            y_max,
+            projection,
             num_frames,
             frame_skip,
         }
@@ -275,16 +266,18 @@ impl<'a> GifAnimator<'a> {
 
     /// Transform scenario coordinates to image pixel coordinates
     fn transform_coords(&self, scenario_x: f64, scenario_y: f64) -> (i32, i32) {
-        let px = self.config.margin as f64 + (scenario_x - self.config.x_min) * self.config.x_scale;
-        // Flip Y-axis: higher scenario Y should be at top (lower pixel Y)
-        let py = self.config.road_area_top as f64
-            + (self.config.y_max - scenario_y) * self.config.y_scale;
+        let (px, py) = self.config.projection.transform(
+            scenario_x,
+            scenario_y,
+            f64::from(self.config.margin),
+            f64::from(self.config.road_area_top),
+        );
         (px as i32, py as i32)
     }
 
     /// Get color for an actor based on role
-    fn get_actor_color(&self, actor_id: &str) -> Rgb<u8> {
-        match visualization_common::classify_actor(actor_id) {
+    fn get_actor_color(&self, role: &str) -> Rgb<u8> {
+        match visualization_common::classify_actor(role) {
             ActorVisualRole::Ego => COLOR_EGO,
             ActorVisualRole::Pedestrian => COLOR_PEDESTRIAN,
             ActorVisualRole::Npc => COLOR_NPC,
@@ -292,8 +285,8 @@ impl<'a> GifAnimator<'a> {
     }
 
     /// Get trail color for an actor
-    fn get_trail_color(&self, actor_id: &str) -> Rgb<u8> {
-        match visualization_common::classify_actor(actor_id) {
+    fn get_trail_color(&self, role: &str) -> Rgb<u8> {
+        match visualization_common::classify_actor(role) {
             ActorVisualRole::Ego => COLOR_EGO_TRAIL,
             ActorVisualRole::Pedestrian => COLOR_PEDESTRIAN_TRAIL,
             ActorVisualRole::Npc => COLOR_NPC_TRAIL,
@@ -386,7 +379,7 @@ impl<'a> GifAnimator<'a> {
     /// Limited to MAX_TRAIL_LENGTH recent positions for performance
     fn draw_trajectory_trails(&self, image: &mut RgbImage, current_frame: usize) {
         for actor in &self.scenario.actors {
-            let trail_color = self.get_trail_color(&actor.id);
+            let trail_color = self.get_trail_color(&actor.role);
 
             // Draw trail from start to current frame, limited to MAX_TRAIL_LENGTH most recent positions
             let trail_start = current_frame.saturating_sub(MAX_TRAIL_LENGTH);
@@ -441,9 +434,10 @@ impl<'a> GifAnimator<'a> {
             }
 
             let state = &actor.states[frame_idx];
-            let color = self.get_actor_color(&actor.id);
+            let color = self.get_actor_color(&actor.role);
             let (px, py) = self.transform_coords(state.position().x, state.position().y);
-            let is_pedestrian = actor.role.to_lowercase() == "pedestrian";
+            let is_pedestrian =
+                visualization_common::classify_actor(&actor.role) == ActorVisualRole::Pedestrian;
 
             if is_pedestrian {
                 // Draw pedestrian as circle
@@ -719,8 +713,8 @@ mod tests {
 
         assert_eq!(config.canvas_width, 900); // Medium resolution width
         assert_eq!(config.num_frames, 2); // 2 states
-        assert!(config.x_scale > 0.0);
-        assert!(config.y_scale > 0.0);
+        assert!(config.projection.x_scale > 0.0);
+        assert!(config.projection.y_scale > 0.0);
     }
 
     #[test]
@@ -738,9 +732,25 @@ mod tests {
         let scenario = create_test_scenario();
         let animator = GifAnimator::new(&scenario, Resolution::Medium).unwrap();
 
+        // get_actor_color takes a *role*, not an id.
         assert_eq!(animator.get_actor_color("ego"), COLOR_EGO);
         assert_eq!(animator.get_actor_color("npc"), COLOR_NPC);
-        assert_eq!(animator.get_actor_color("ego_vehicle"), COLOR_EGO);
+        assert_eq!(animator.get_actor_color("pedestrian"), COLOR_PEDESTRIAN);
+    }
+
+    /// Regression test for M15 (see the matching SVG test): an actor id
+    /// containing "ego" must not override its declared "npc" role.
+    #[test]
+    fn test_actor_id_ego_substring_does_not_override_npc_role() {
+        let mut scenario = create_test_scenario();
+        scenario.actors[1].id = "npc_ego_follower".to_string();
+        scenario.actors[1].role = "npc".to_string();
+
+        let animator = GifAnimator::new(&scenario, Resolution::Medium).unwrap();
+        assert_eq!(
+            animator.get_actor_color(&scenario.actors[1].role),
+            COLOR_NPC
+        );
     }
 
     #[test]

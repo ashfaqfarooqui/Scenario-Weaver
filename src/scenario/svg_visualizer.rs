@@ -3,7 +3,7 @@
 //! Converts internal Scenario data structures to SVG static images
 //! showing vehicle trajectories, lane layout, and safety metrics.
 
-use super::visualization_common::{self, ActorVisualRole, ViewportBounds};
+use super::visualization_common::{self, ActorVisualRole, Projection, ViewportBounds};
 use crate::error::Result;
 use crate::scenario::model::Scenario;
 use svg::node::element::{Circle, Group, Line, Path, Rectangle, Text};
@@ -15,22 +15,23 @@ const CANVAS_HEIGHT: f64 = 600.0;
 const MARGIN: f64 = 80.0;
 const ROAD_MARGIN_TOP: f64 = 120.0;
 
-// Colors
-const COLOR_EGO: &str = "#4CAF50"; // Green
-const COLOR_NPC: &str = "#2196F3"; // Blue
-const COLOR_PEDESTRIAN: &str = "#FF9800"; // Orange
-const COLOR_VIOLATION: &str = "#F44336"; // Red
-const COLOR_EGO_PATH: &str = "#8BC34A"; // Light green
-const COLOR_NPC_PATH: &str = "#64B5F6"; // Light blue
-const COLOR_PEDESTRIAN_PATH: &str = "#FFB74D"; // Light orange
-const COLOR_ROAD: &str = "#2A2A2A"; // Dark gray
-const COLOR_LANE_MARKING: &str = "#FFFFFF"; // White
-const COLOR_TEXT: &str = "#333333"; // Dark gray text
-const COLOR_BACKGROUND: &str = "#F5F5F5"; // Light gray background
+// Colors — the literal values live once in `visualization_common`; these are
+// typed aliases for this renderer's `&str` (SVG hex) representation.
+const COLOR_EGO: &str = visualization_common::COLOR_EGO.hex;
+const COLOR_NPC: &str = visualization_common::COLOR_NPC.hex;
+const COLOR_PEDESTRIAN: &str = visualization_common::COLOR_PEDESTRIAN.hex;
+const COLOR_VIOLATION: &str = visualization_common::COLOR_VIOLATION.hex;
+const COLOR_EGO_PATH: &str = visualization_common::COLOR_EGO_PATH.hex;
+const COLOR_NPC_PATH: &str = visualization_common::COLOR_NPC_PATH.hex;
+const COLOR_PEDESTRIAN_PATH: &str = visualization_common::COLOR_PEDESTRIAN_PATH.hex;
+const COLOR_ROAD: &str = visualization_common::COLOR_ROAD.hex;
+const COLOR_LANE_MARKING: &str = visualization_common::COLOR_LANE_MARKING.hex;
+const COLOR_TEXT: &str = visualization_common::COLOR_TEXT.hex;
+const COLOR_BACKGROUND: &str = visualization_common::COLOR_BACKGROUND.hex;
 
-// Vehicle dimensions (in pixels)
-const VEHICLE_LENGTH: f64 = 12.0;
-const VEHICLE_WIDTH: f64 = 6.0;
+// Vehicle dimensions (in pixels) — shared with the GIF animator.
+const VEHICLE_LENGTH: f64 = visualization_common::VEHICLE_LENGTH as f64;
+const VEHICLE_WIDTH: f64 = visualization_common::VEHICLE_WIDTH as f64;
 
 /// Export a scenario to SVG format for visualization
 ///
@@ -63,35 +64,25 @@ struct VisualizerConfig {
     canvas_height: f64,
     margin: f64,
     road_margin_top: f64,
-    x_scale: f64,
-    y_scale: f64,
-    x_min: f64,
-    y_max: f64,
+    projection: Projection,
 }
 
 impl VisualizerConfig {
     fn from_scenario(scenario: &Scenario) -> Self {
         // Find bounds of all trajectories
         let bounds = ViewportBounds::from_scenario(scenario);
-        let x_min = bounds.x_min;
-        let x_max = bounds.x_max;
-        let y_max = bounds.y_max;
 
         // Compute scales
         let drawable_width = CANVAS_WIDTH - 2.0 * MARGIN;
         let drawable_height = CANVAS_HEIGHT - ROAD_MARGIN_TOP - MARGIN;
-        let x_scale = drawable_width / (x_max - x_min);
-        let y_scale = drawable_height / bounds.height();
+        let projection = Projection::new(&bounds, drawable_width, drawable_height);
 
         Self {
             canvas_width: CANVAS_WIDTH,
             canvas_height: CANVAS_HEIGHT,
             margin: MARGIN,
             road_margin_top: ROAD_MARGIN_TOP,
-            x_scale,
-            y_scale,
-            x_min,
-            y_max,
+            projection,
         }
     }
 }
@@ -132,11 +123,12 @@ impl<'a> SvgVisualizer<'a> {
 
     /// Transform scenario coordinates to SVG viewport coordinates
     fn transform_coords(&self, scenario_x: f64, scenario_y: f64) -> (f64, f64) {
-        let svg_x = self.config.margin + (scenario_x - self.config.x_min) * self.config.x_scale;
-        // Flip Y-axis: higher scenario Y should be at top (lower SVG Y)
-        let svg_y =
-            self.config.road_margin_top + (self.config.y_max - scenario_y) * self.config.y_scale;
-        (svg_x, svg_y)
+        self.config.projection.transform(
+            scenario_x,
+            scenario_y,
+            self.config.margin,
+            self.config.road_margin_top,
+        )
     }
 
     /// Get the SVG Y coordinate for a lane center
@@ -146,8 +138,8 @@ impl<'a> SvgVisualizer<'a> {
     }
 
     /// Get color for an actor based on role
-    fn get_actor_color(&self, actor_id: &str) -> &'static str {
-        match visualization_common::classify_actor(actor_id) {
+    fn get_actor_color(&self, role: &str) -> &'static str {
+        match visualization_common::classify_actor(role) {
             ActorVisualRole::Ego => COLOR_EGO,
             ActorVisualRole::Pedestrian => COLOR_PEDESTRIAN,
             ActorVisualRole::Npc => COLOR_NPC,
@@ -155,8 +147,8 @@ impl<'a> SvgVisualizer<'a> {
     }
 
     /// Get trajectory path color for an actor
-    fn get_actor_path_color(&self, actor_id: &str) -> &'static str {
-        match visualization_common::classify_actor(actor_id) {
+    fn get_actor_path_color(&self, role: &str) -> &'static str {
+        match visualization_common::classify_actor(role) {
             ActorVisualRole::Ego => COLOR_EGO_PATH,
             ActorVisualRole::Pedestrian => COLOR_PEDESTRIAN_PATH,
             ActorVisualRole::Npc => COLOR_NPC_PATH,
@@ -340,7 +332,7 @@ impl<'a> SvgVisualizer<'a> {
             }
 
             // Draw trajectory path
-            let color = self.get_actor_path_color(&actor.id);
+            let color = self.get_actor_path_color(&actor.role);
             let path = Path::new()
                 .set("d", path_data)
                 .set("stroke", color)
@@ -400,8 +392,9 @@ impl<'a> SvgVisualizer<'a> {
         let mut group = Group::new().set("id", "vehicles");
 
         for actor in &self.scenario.actors {
-            let color = self.get_actor_color(&actor.id);
-            let is_pedestrian = actor.role.to_lowercase() == "pedestrian";
+            let color = self.get_actor_color(&actor.role);
+            let is_pedestrian =
+                visualization_common::classify_actor(&actor.role) == ActorVisualRole::Pedestrian;
 
             // Initial position
             if let Some(first_state) = actor.states.first() {
@@ -729,9 +722,35 @@ mod tests {
         let scenario = create_test_scenario();
         let visualizer = SvgVisualizer::new(&scenario);
 
+        // get_actor_color takes a *role*, not an id.
         assert_eq!(visualizer.get_actor_color("ego"), COLOR_EGO);
         assert_eq!(visualizer.get_actor_color("npc"), COLOR_NPC);
-        assert_eq!(visualizer.get_actor_color("ego_vehicle"), COLOR_EGO);
+        assert_eq!(visualizer.get_actor_color("pedestrian"), COLOR_PEDESTRIAN);
+    }
+
+    /// Regression test for M15: an actor whose *id* contains "ego" but whose
+    /// *role* is "npc" must be drawn as an NPC, not as ego. Before this fix,
+    /// `classify_actor` matched the "ego" substring in the id and coloured
+    /// the marker green while `openlabel_exporter.rs` tagged the same actor
+    /// NPC from its role — the two artifacts disagreed.
+    #[test]
+    fn test_actor_id_ego_substring_does_not_override_npc_role() {
+        let mut scenario = create_test_scenario();
+        scenario.actors[1].id = "npc_ego_follower".to_string();
+        scenario.actors[1].role = "npc".to_string();
+
+        let visualizer = SvgVisualizer::new(&scenario);
+        assert_eq!(
+            visualizer.get_actor_color(&scenario.actors[1].role),
+            COLOR_NPC
+        );
+
+        let svg = export_to_svg(&scenario).unwrap();
+        assert!(svg.contains("npc_ego_follower"));
+        // The npc marker (blue) must appear; it must not be tagged with the
+        // ego colour anywhere it wouldn't otherwise appear (ego itself still
+        // legitimately uses COLOR_EGO for its own marker/legend entry).
+        assert!(svg.contains(COLOR_NPC));
     }
 
     #[test]
