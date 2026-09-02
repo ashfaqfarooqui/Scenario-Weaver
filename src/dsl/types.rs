@@ -2,7 +2,9 @@
 //!
 //! These types are deserialized from YAML input and drive the entire generation pipeline.
 
-use serde::{Deserialize, Serialize};
+use serde::de::{self, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::fmt;
 
 // Pedestrian physics constants
 //
@@ -76,6 +78,15 @@ pub const MAX_LANE_WIDTH: f64 = 20.0;
 /// would say precisely the right thing but needs one Boolean indicator per
 /// step and turns propagation into search. One inequality per actor does not.
 pub const MIN_FORWARD_PROGRESS_FRACTION: f64 = 0.5;
+
+/// The only `ActorSpec.behavior` keys anything in the crate reads (SW-21/M10).
+///
+/// `behavior` is an untyped `HashMap<String, serde_json::Value>` — there is no
+/// per-scenario-type schema to validate against — so this whitelist is the
+/// "at minimum" option: reject any key that is not one of these two, so a
+/// typo (`walking_moad` for `walking_mode`) is a parse-time error rather than
+/// a silently-defaulted behavior. Grep the crate before adding to this list.
+pub const ALLOWED_BEHAVIOR_KEYS: &[&str] = &["direction", "walking_mode"];
 
 /// Constraint enforcement mode
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -153,6 +164,7 @@ pub enum LaneChangeDirection {
 /// Note: Multiple lane changes can be specified as a `Vec<LaneChangeConfig>`.
 /// Presence in the vec implies enabled (no explicit enabled field needed).
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct LaneChangeConfig {
     pub direction: LaneChangeDirection,
     /// Start time (can be a fixed value or range for solver to choose)
@@ -167,6 +179,7 @@ pub struct LaneChangeConfig {
 /// is the exact kinematic one, `wheelbase / tan(max_steering_angle)` — see
 /// [`BicycleParams::min_turn_radius`].
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BicycleParams {
     /// Wheelbase in meters (distance between front and rear axles)
     pub wheelbase: f64,
@@ -222,6 +235,7 @@ impl BicycleParams {
 ///
 /// Applied to any actor that does not specify its own [`BicycleParams`].
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BicycleConfig {
     /// Default wheelbase for actors without specific bicycle_params
     pub default_wheelbase: f64,
@@ -263,139 +277,255 @@ impl BicycleConfig {
     }
 }
 
+/// Which of the seven per-constraint modes is being asked for.
+///
+/// SW-21/D1+item 3: `ConstraintModes` used to expose seven public accessors
+/// (`min_ttc()`, `min_distance()`, ...) that were the same 4-line match
+/// copy-pasted seven times, once per field. This enum plus
+/// [`ConstraintModes::mode_for`] is the single real implementation; the seven
+/// named methods below are kept as one-line wrappers only because they are
+/// public API called from `src/scenarios/{head_on,pedestrian_crossing}.rs`
+/// and elsewhere outside this issue's file list — removing them would be a
+/// breaking rename this issue is not scoped to make.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Constraint {
+    MinTtc,
+    MinDistance,
+    MaxAcceleration,
+    MaxVelocity,
+    MinVelocity,
+    MinLateralDistance,
+    MaxRelativeVelocity,
+}
+
 /// Per-constraint enforcement configuration.
 ///
 /// Controls how each safety constraint is treated during generation:
 /// enforced (must hold), violated (adversarial), or ignored.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+///
+/// SW-21/D1+D2: `Deserialize` is hand-written rather than derived (see
+/// `impl<'de> Deserialize<'de> for ConstraintModes` below) for two reasons
+/// that `#[serde(untagged)]` cannot give us:
+///   1. The `Detailed { .. }` mapping form needs `#[serde(deny_unknown_fields)]`
+///      so `{min_tcc: violate}` (typo of `min_ttc`) is a parse error naming
+///      the bad key, not a silently-ignored field that leaves the constraint
+///      at its default. Serde does not support `#[serde(deny_unknown_fields)]`
+///      on one variant of an enum (confirmed: `unknown serde variant
+///      attribute`), so the mapping form is deserialized through a private
+///      `DetailedConstraintModesRaw` struct that does carry the attribute.
+///   2. The shorthand string form needs a custom error naming the valid
+///      values when it does not match one of them, e.g. `violate-all` (a
+///      hyphen typo of `violate_all`) used to deserialize successfully as an
+///      arbitrary `String` and then silently fall through the accessors'
+///      `_ => ConstraintMode::Enforce` arm — the exact inverse of the
+///      adversarial intent the user wrote, with no error and no warning.
+#[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum ConstraintModes {
     /// Individual mode per constraint (e.g., enforce TTC but violate distance).
     Detailed {
-        #[serde(default)]
         min_ttc: ConstraintMode,
-        #[serde(default)]
         min_distance: ConstraintMode,
-        #[serde(default)]
         max_acceleration: ConstraintMode,
-        #[serde(default)]
         max_velocity: ConstraintMode,
-        #[serde(default)]
         min_velocity: ConstraintMode,
-        #[serde(default)]
         min_lateral_distance: ConstraintMode,
-        #[serde(default)]
         max_relative_velocity: ConstraintMode,
     },
     /// Bulk mode string: `"violate_all"`, `"ignore_all"`, or `"enforce_all"`.
     Shorthand(String),
 }
 
+/// Deserialization target for the `Detailed` mapping form only. Exists
+/// purely so `#[serde(deny_unknown_fields)]` can be attached to it (serde
+/// rejects that attribute on an individual enum variant), then its fields are
+/// moved into the real `ConstraintModes::Detailed { .. }` — see the impl
+/// below.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DetailedConstraintModesRaw {
+    #[serde(default)]
+    min_ttc: ConstraintMode,
+    #[serde(default)]
+    min_distance: ConstraintMode,
+    #[serde(default)]
+    max_acceleration: ConstraintMode,
+    #[serde(default)]
+    max_velocity: ConstraintMode,
+    #[serde(default)]
+    min_velocity: ConstraintMode,
+    #[serde(default)]
+    min_lateral_distance: ConstraintMode,
+    #[serde(default)]
+    max_relative_velocity: ConstraintMode,
+}
+
+impl<'de> Deserialize<'de> for ConstraintModes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ConstraintModesVisitor;
+
+        impl<'de> Visitor<'de> for ConstraintModesVisitor {
+            type Value = ConstraintModes;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(
+                    f,
+                    "a mapping of individual constraint modes (min_ttc, min_distance, \
+                     max_acceleration, max_velocity, min_velocity, min_lateral_distance, \
+                     max_relative_velocity), or one of the strings \"violate_all\", \
+                     \"ignore_all\", \"enforce_all\""
+                )
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                match v {
+                    "violate_all" | "ignore_all" | "enforce_all" => {
+                        Ok(ConstraintModes::Shorthand(v.to_string()))
+                    }
+                    other => Err(E::custom(format!(
+                        "unknown constraint_modes value '{other}'. Valid values: \
+                         violate_all, ignore_all, enforce_all (or a mapping of \
+                         per-constraint modes)"
+                    ))),
+                }
+            }
+
+            fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let raw = DetailedConstraintModesRaw::deserialize(
+                    de::value::MapAccessDeserializer::new(map),
+                )?;
+                Ok(ConstraintModes::Detailed {
+                    min_ttc: raw.min_ttc,
+                    min_distance: raw.min_distance,
+                    max_acceleration: raw.max_acceleration,
+                    max_velocity: raw.max_velocity,
+                    min_velocity: raw.min_velocity,
+                    min_lateral_distance: raw.min_lateral_distance,
+                    max_relative_velocity: raw.max_relative_velocity,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(ConstraintModesVisitor)
+    }
+}
+
 impl Default for ConstraintModes {
     fn default() -> Self {
+        // SW-21/M7: this used to disagree with the per-field `#[serde(default)]`
+        // (which resolves to `ConstraintMode::default()` = `Enforce` for every
+        // field), so omitting `constraint_modes` entirely and writing a
+        // *partial* `Detailed` block gave different semantics for
+        // `min_velocity`, `min_lateral_distance` and `max_relative_velocity`
+        // — the first left them `Ignore`, the second silently flipped them to
+        // `Enforce`. Reconciled here in favour of `Enforce`: these three are
+        // still `Option<f64>` scalars on `ScenarioSpec` that default to
+        // `None`, so an omitted `constraint_modes` block was already inert
+        // for them in every shipped example and test fixture (verified: grep
+        // finds no example that sets `min_velocity`/`min_lateral_distance`/
+        // `max_relative_velocity` without also spelling out `constraint_modes`
+        // explicitly). `Enforce` is also the safer default in general: a user
+        // who sets one of these numeric bounds and does not touch
+        // `constraint_modes` at all almost certainly means for it to hold,
+        // not to be silently inert — the same "wrong silently" failure mode
+        // this issue exists to remove from the shorthand string.
         ConstraintModes::Detailed {
             min_ttc: ConstraintMode::Enforce,
             min_distance: ConstraintMode::Enforce,
             max_acceleration: ConstraintMode::Enforce,
             max_velocity: ConstraintMode::Enforce,
-            min_velocity: ConstraintMode::Ignore,
-            min_lateral_distance: ConstraintMode::Ignore,
-            max_relative_velocity: ConstraintMode::Ignore,
+            min_velocity: ConstraintMode::Enforce,
+            min_lateral_distance: ConstraintMode::Enforce,
+            max_relative_velocity: ConstraintMode::Enforce,
         }
     }
 }
 
 impl ConstraintModes {
-    /// Get the mode for min_ttc constraint
-    pub fn min_ttc(&self) -> ConstraintMode {
+    /// The one real implementation behind the seven named accessors below.
+    pub fn mode_for(&self, constraint: Constraint) -> ConstraintMode {
         match self {
-            ConstraintModes::Detailed { min_ttc, .. } => *min_ttc,
+            ConstraintModes::Detailed {
+                min_ttc,
+                min_distance,
+                max_acceleration,
+                max_velocity,
+                min_velocity,
+                min_lateral_distance,
+                max_relative_velocity,
+            } => match constraint {
+                Constraint::MinTtc => *min_ttc,
+                Constraint::MinDistance => *min_distance,
+                Constraint::MaxAcceleration => *max_acceleration,
+                Constraint::MaxVelocity => *max_velocity,
+                Constraint::MinVelocity => *min_velocity,
+                Constraint::MinLateralDistance => *min_lateral_distance,
+                Constraint::MaxRelativeVelocity => *max_relative_velocity,
+            },
+            // SW-21/D1: this used to be duplicated seven times, once per
+            // accessor, with a `_ => ConstraintMode::Enforce` fallback that
+            // made a typo'd shorthand silently enforce rather than error.
+            // `ConstraintModes`'s custom `Deserialize` above now rejects any
+            // string that is not one of these three at parse time, so by the
+            // time a `Shorthand` value exists, `s` is guaranteed to be one of
+            // them — this match has no `_` arm on purpose, so a future
+            // shorthand value nobody taught this function about is a compile
+            // error, not a silent `Enforce`.
             ConstraintModes::Shorthand(s) => match s.as_str() {
                 "violate_all" => ConstraintMode::Violate,
                 "ignore_all" => ConstraintMode::Ignore,
-                _ => ConstraintMode::Enforce,
+                "enforce_all" => ConstraintMode::Enforce,
+                other => unreachable!(
+                    "ConstraintModes::Shorthand must be violate_all/ignore_all/enforce_all, \
+                     got '{other}' — this indicates a ConstraintModes value was constructed \
+                     outside Deserialize without validation"
+                ),
             },
         }
+    }
+
+    /// Get the mode for min_ttc constraint
+    pub fn min_ttc(&self) -> ConstraintMode {
+        self.mode_for(Constraint::MinTtc)
     }
 
     /// Get the mode for min_distance constraint
     pub fn min_distance(&self) -> ConstraintMode {
-        match self {
-            ConstraintModes::Detailed { min_distance, .. } => *min_distance,
-            ConstraintModes::Shorthand(s) => match s.as_str() {
-                "violate_all" => ConstraintMode::Violate,
-                "ignore_all" => ConstraintMode::Ignore,
-                _ => ConstraintMode::Enforce,
-            },
-        }
+        self.mode_for(Constraint::MinDistance)
     }
 
     /// Get the mode for max_acceleration constraint
     pub fn max_acceleration(&self) -> ConstraintMode {
-        match self {
-            ConstraintModes::Detailed {
-                max_acceleration, ..
-            } => *max_acceleration,
-            ConstraintModes::Shorthand(s) => match s.as_str() {
-                "violate_all" => ConstraintMode::Violate,
-                "ignore_all" => ConstraintMode::Ignore,
-                _ => ConstraintMode::Enforce,
-            },
-        }
+        self.mode_for(Constraint::MaxAcceleration)
     }
 
     /// Get the mode for max_velocity constraint
     pub fn max_velocity(&self) -> ConstraintMode {
-        match self {
-            ConstraintModes::Detailed { max_velocity, .. } => *max_velocity,
-            ConstraintModes::Shorthand(s) => match s.as_str() {
-                "violate_all" => ConstraintMode::Violate,
-                "ignore_all" => ConstraintMode::Ignore,
-                _ => ConstraintMode::Enforce,
-            },
-        }
+        self.mode_for(Constraint::MaxVelocity)
     }
 
     /// Get the mode for min_velocity constraint
     pub fn min_velocity(&self) -> ConstraintMode {
-        match self {
-            ConstraintModes::Detailed { min_velocity, .. } => *min_velocity,
-            ConstraintModes::Shorthand(s) => match s.as_str() {
-                "violate_all" => ConstraintMode::Violate,
-                "ignore_all" => ConstraintMode::Ignore,
-                _ => ConstraintMode::Enforce,
-            },
-        }
+        self.mode_for(Constraint::MinVelocity)
     }
 
     /// Get the mode for min_lateral_distance constraint
     pub fn min_lateral_distance(&self) -> ConstraintMode {
-        match self {
-            ConstraintModes::Detailed {
-                min_lateral_distance,
-                ..
-            } => *min_lateral_distance,
-            ConstraintModes::Shorthand(s) => match s.as_str() {
-                "violate_all" => ConstraintMode::Violate,
-                "ignore_all" => ConstraintMode::Ignore,
-                _ => ConstraintMode::Enforce,
-            },
-        }
+        self.mode_for(Constraint::MinLateralDistance)
     }
 
     /// Get the mode for max_relative_velocity constraint
     pub fn max_relative_velocity(&self) -> ConstraintMode {
-        match self {
-            ConstraintModes::Detailed {
-                max_relative_velocity,
-                ..
-            } => *max_relative_velocity,
-            ConstraintModes::Shorthand(s) => match s.as_str() {
-                "violate_all" => ConstraintMode::Violate,
-                "ignore_all" => ConstraintMode::Ignore,
-                _ => ConstraintMode::Enforce,
-            },
-        }
+        self.mode_for(Constraint::MaxRelativeVelocity)
     }
 }
 
@@ -466,6 +596,7 @@ impl ScenarioType {
 /// Bidirectional traffic is modeled by assigning `+1` (forward) or `-1` (backward)
 /// to each lane in `lane_directions`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct RoadSpec {
     /// Number of lanes (total, both directions)
     pub num_lanes: usize,
@@ -568,6 +699,7 @@ fn default_lane_directions() -> Vec<i32> {
 /// Position and speed can be fixed values or ranges; ranges let the Z3 solver
 /// choose concrete values that satisfy all constraints.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ActorSpec {
     pub id: String,
     pub role: ActorRole,
@@ -595,6 +727,7 @@ pub struct ActorSpec {
 /// actors, road geometry, timing, safety thresholds, constraint modes, and
 /// coordinate system selection.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ScenarioSpec {
     pub scenario_type: ScenarioType,
     pub time_step: f64, // seconds per discretization step
@@ -657,13 +790,85 @@ fn default_max_lateral_acceleration() -> f64 {
 }
 
 /// A numeric value that is either fixed or a `[min, max]` range for the solver to explore.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+///
+/// SW-21/M11. `Deserialize` is hand-written rather than derived from
+/// `#[serde(untagged)]`. The derived untagged form buffers the value into a
+/// generic `Content` tree and retries each variant against it, which loses
+/// the original deserializer's position tracking — `speed: "fast"` used to
+/// report `data did not match any variant of untagged enum ValueOrRange` at
+/// the line/column of the *start of the actor mapping*, not the `speed:` key,
+/// and named an internal type the user has never heard of. Visiting the value
+/// directly (no buffering) keeps the deserializer's real position, and a
+/// custom `expecting` message states the accepted shapes in DSL terms instead
+/// of the type name.
+#[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum ValueOrRange {
     /// Exact value (encoded as an equality constraint in Z3).
     Value(f64),
     /// Inclusive range `[min, max]` (encoded as inequality constraints in Z3).
     Range([f64; 2]), // [min, max]
+}
+
+impl<'de> Deserialize<'de> for ValueOrRange {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ValueOrRangeVisitor;
+
+        impl<'de> Visitor<'de> for ValueOrRangeVisitor {
+            type Value = ValueOrRange;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "a number, or a two-element [min, max] array")
+            }
+
+            fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(ValueOrRange::Value(v))
+            }
+
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                #[allow(clippy::cast_precision_loss)]
+                Ok(ValueOrRange::Value(v as f64))
+            }
+
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                #[allow(clippy::cast_precision_loss)]
+                Ok(ValueOrRange::Value(v as f64))
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let min: f64 = seq.next_element()?.ok_or_else(|| {
+                    de::Error::invalid_length(0, &"a two-element [min, max] array")
+                })?;
+                let max: f64 = seq.next_element()?.ok_or_else(|| {
+                    de::Error::invalid_length(1, &"a two-element [min, max] array")
+                })?;
+                if seq.next_element::<f64>()?.is_some() {
+                    return Err(de::Error::invalid_length(
+                        3,
+                        &"a two-element [min, max] array",
+                    ));
+                }
+                Ok(ValueOrRange::Range([min, max]))
+            }
+        }
+
+        deserializer.deserialize_any(ValueOrRangeVisitor)
+    }
 }
 
 impl ValueOrRange {
@@ -899,6 +1104,60 @@ impl ScenarioSpec {
                     "Actor {} direction must be +1 (forward) or -1 (backward), got {}",
                     actor.id, actor.direction
                 ));
+            }
+            // SW-21/M9. `parser::parse_yaml` used to validate `actor.direction`
+            // here and then unconditionally *overwrite* it from
+            // `road.lane_directions[actor.lane]` a few lines later, discarding
+            // whatever the user wrote. An npc declaring `direction: -1` in a
+            // `[1, 1]` road was silently flipped to `+1` with no error — the
+            // validated field never actually took effect. Lane direction does
+            // genuinely determine an actor's direction of travel (that is why
+            // the overwrite existed), so the field is not removed from the
+            // DSL; instead it is required to already agree with its lane,
+            // which makes the overwrite in `parser::parse_yaml` a no-op
+            // consistency check rather than a silent correction. (`self.road`
+            // is `Some` here: the very first check in this function returns
+            // early otherwise. `actor.lane < num_lanes` and
+            // `road.lane_directions.len() == num_lanes` are both already
+            // guaranteed by the checks above and by `RoadSpec::validate`, so
+            // this index cannot panic.)
+            if let Some(road) = &self.road {
+                let lane_dir = road.lane_directions[actor.lane];
+                if actor.direction != lane_dir {
+                    return Err(format!(
+                        "Actor {} declares direction {} but is in lane {}, whose \
+                         lane_directions entry is {lane_dir}. An actor's direction \
+                         is determined by its lane, not chosen independently \
+                         (previously this mismatch was silently overwritten to \
+                         match the lane) — set direction to {lane_dir}, or move \
+                         the actor to a lane whose direction is {}",
+                        actor.id, actor.direction, actor.lane, actor.direction
+                    ));
+                }
+            }
+            // SW-21/M10. `behavior` is an untyped `HashMap<String, Value>`
+            // with no schema, so `walking_moad: run` (typo of `walking_mode`)
+            // used to deserialize successfully and the reader
+            // (`solver/encoders/pedestrian.rs`, `pedestrian_crossing.rs`)
+            // fell back to its `"walk"` default, silently producing a walking
+            // pedestrian for a scenario that asked for a runner. There is no
+            // typed schema per scenario type, so this is the "at minimum"
+            // option the issue names: reject any key that nothing in the
+            // crate reads. `cut_in_time` was in this set until this issue
+            // (grep confirms it: zero non-test readers; the actual cut-in
+            // timing is `ActorSpec::lane_changes`) and has been dropped from
+            // the two test fixtures that still had it, matching every shipped
+            // example already having moved off it (see the "replaces
+            // behavior.cut_in_time" comments in cut_in_left.yaml /
+            // cut_in_right.yaml).
+            for key in actor.behavior.keys() {
+                if !ALLOWED_BEHAVIOR_KEYS.contains(&key.as_str()) {
+                    return Err(format!(
+                        "Actor {}: unknown behavior key '{key}'. Allowed keys: {}",
+                        actor.id,
+                        ALLOWED_BEHAVIOR_KEYS.join(", ")
+                    ));
+                }
             }
             // Validate lane changes.
             //
@@ -1434,8 +1693,6 @@ mod tests {
         speed: 13.0
         direction: 1
         acceleration: [-8.0, 3.0]
-        behavior:
-          cut_in_time: 5.0
     min_ttc: 3.0
     min_distance: 5.0
     lane_width: 3.5
@@ -1524,10 +1781,62 @@ num_scenarios: 1
 
     #[test]
     fn test_constraint_modes_unknown_shorthand() {
-        let modes = ConstraintModes::Shorthand("enforce_al".to_string()); // typo
-                                                                          // Shorthand itself doesn't validate — validation happens in ScenarioSpec::validate()
-                                                                          // Check that the shorthand accessor still falls back to Enforce (existing behaviour
-                                                                          // is unchanged for the accessor; the *error* is raised in validate()).
-        assert_eq!(modes.min_ttc(), ConstraintMode::Enforce);
+        // SW-21/D1: `enforce_al` (typo of `enforce_all`) used to deserialize
+        // successfully as `Shorthand("enforce_al")` and the accessor's
+        // `_ => ConstraintMode::Enforce` fallback made it behave as
+        // `enforce_all` with no error and no warning — the exact inverse of
+        // adversarial intent when the typo was e.g. `violate_al`. It is now a
+        // parse error at deserialize time, naming the valid values.
+        let err = serde_yml::from_str::<ConstraintModes>("enforce_al")
+            .expect_err("a typo'd shorthand must not deserialize");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("enforce_al")
+                && msg.contains("violate_all")
+                && msg.contains("ignore_all")
+                && msg.contains("enforce_all"),
+            "error must name the bad value and the valid ones, got: {msg}"
+        );
+
+        // The three real values still deserialize and resolve correctly.
+        for (input, expected) in [
+            ("violate_all", ConstraintMode::Violate),
+            ("ignore_all", ConstraintMode::Ignore),
+            ("enforce_all", ConstraintMode::Enforce),
+        ] {
+            let modes: ConstraintModes = serde_yml::from_str(input).unwrap();
+            assert_eq!(modes.min_ttc(), expected, "input {input}");
+        }
+    }
+
+    /// SW-21/D1: a hyphenated typo of a shorthand value is a parse error
+    /// naming the valid values — not a silent `enforce_all`, which is what a
+    /// typo'd `violate_all` used to become (the exact inverse of the
+    /// adversarial intent the user wrote).
+    #[test]
+    fn test_constraint_modes_hyphen_typo_is_a_parse_error() {
+        let err = serde_yml::from_str::<ConstraintModes>("violate-all")
+            .expect_err("'violate-all' (hyphen) must not silently become enforce_all");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("violate-all") && msg.contains("violate_all"),
+            "error must name the bad value and suggest the real one, got: {msg}"
+        );
+    }
+
+    /// SW-21/D2: a typo'd key inside the `Detailed` mapping form (`min_tcc`
+    /// for `min_ttc`) used to deserialize successfully — untagged +
+    /// `#[serde(default)]` on every field meant *any* mapping matched, and
+    /// the misspelled key's real target silently kept its default mode. It is
+    /// now a parse error naming the bad key.
+    #[test]
+    fn test_constraint_modes_detailed_rejects_unknown_key() {
+        let err = serde_yml::from_str::<ConstraintModes>("min_tcc: violate")
+            .expect_err("'min_tcc' (typo of min_ttc) must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("min_tcc"),
+            "error must name the offending key, got: {msg}"
+        );
     }
 }

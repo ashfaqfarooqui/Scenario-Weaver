@@ -25,16 +25,15 @@ pub fn parse_yaml(yaml_content: &str) -> Result<ScenarioSpec> {
         road.road_length = Some(road_length);
     }
 
-    // Resolve each actor's direction from lane_directions when a road spec is present.
-    // This ensures actors in backward lanes (-1) get direction = -1 regardless of what
-    // was written in the YAML, so velocity-sign constraints are consistent with the road.
-    if let Some(road) = &spec.road {
-        let lane_directions = road.lane_directions.clone();
-        for actor in &mut spec.actors {
-            let lane_dir = lane_directions.get(actor.lane).copied().unwrap_or(1);
-            actor.direction = lane_dir;
-        }
-    }
+    // SW-21/M9. This used to unconditionally overwrite each actor's
+    // `direction` from `road.lane_directions[actor.lane]` here, silently
+    // discarding whatever the user wrote — even though `spec.validate()`
+    // (above) had just validated that same field, misleading the user into
+    // thinking it mattered. `ScenarioSpec::validate` now rejects a spec whose
+    // `actor.direction` disagrees with its lane's `lane_directions` entry, so
+    // by the time execution reaches here every actor's `direction` already
+    // equals its lane's direction and this rewrite is provably a no-op —
+    // removed rather than kept as dead code.
 
     Ok(spec)
 }
@@ -169,8 +168,6 @@ actors:
     speed: 13.0
     direction: 1
     acceleration: [-8.0, 3.0]
-    behavior:
-      cut_in_time: 5.0
 min_ttc: 3.0
 min_distance: 5.0
 lane_width: 3.5
@@ -216,8 +213,6 @@ actors:
     speed: 15.0
     direction: 1
     acceleration: [-2.0, 0.0]
-    behavior:
-      cut_in_time: [2.5, 7.5]
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -288,8 +283,6 @@ actors:
     speed: 13.0
     direction: 1
     acceleration: [-8.0, 3.0]
-    behavior:
-      cut_in_time: 5.0
 
 min_ttc: 3.0
 min_distance: 5.0
@@ -360,8 +353,6 @@ actors:
     speed: 15.0
     direction: -1
     acceleration: [-2.0, 0.0]
-    behavior:
-      cut_in_time: [2.5, 7.5]
 
 min_ttc: 3.0
 min_distance: 5.0

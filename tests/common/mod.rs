@@ -277,17 +277,23 @@ pub const EXAMPLE_EXPECTATIONS: &[(&str, Expect)] = &[
     ("simple_bidirectional.yaml", Expect::Solvable),
     ("speed_limit_violation.yaml", Expect::Solvable),
     ("unsafe_following.yaml", Expect::Solvable),
+    ("with_import.yaml", Expect::Solvable),
 ];
 
 /// Examples that cannot currently be loaded at all, each with the issue that
 /// owns the fix. They are excluded from the corpus sweep and each has its own
 /// `#[ignore = "SW-NN"]` test that fails for the documented reason.
-pub const KNOWN_BROKEN_EXAMPLES: &[(&str, &str)] = &[(
-    "with_import.yaml",
-    "SW-21: `imports: roads/...` resolves relative to the YAML's own directory, \
-     but roads/ lives at the repo root, so the shipped example cannot be loaded \
-     from examples/ as its own header documents",
-)];
+///
+/// SW-21: this used to hold `with_import.yaml` (`imports: roads/...` resolved
+/// relative to the YAML's own directory, but `roads/` lives at the repo root,
+/// so the shipped example could not be loaded from `examples/` as its own
+/// header documented). SW-13 fixed the example's `imports:` path and wired
+/// `main.rs` through `parse_yaml_file`; verified here by moving the entry to
+/// `EXAMPLE_EXPECTATIONS` above instead of leaving a stale "still broken"
+/// claim in this list (the bidirectional-ratchet rule: an entry that no
+/// longer applies is removed in the same commit that discovers it, the same
+/// as `KNOWN_BROKEN_INVARIANTS`).
+pub const KNOWN_BROKEN_EXAMPLES: &[(&str, &str)] = &[];
 
 // ---------------------------------------------------------------------------
 // Corpus slices, derived from the expectation table

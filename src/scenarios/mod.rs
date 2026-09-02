@@ -51,6 +51,47 @@ pub trait ScenarioModel: Send + Sync {
     }
 }
 
+/// Whether a safety atom already states the *safe* condition, or states the
+/// *unsafe* one (so the safe condition is its negation).
+///
+/// SW-21/item 3. Every safety atom below reduces to the same Enforce/Violate/
+/// Ignore triple — `Enforce` keeps the safe formula, `Violate` demands its
+/// negation eventually hold, `Ignore` adds nothing — except which of "the
+/// atom" or "its negation" *is* the safe formula differs by atom. `TTCGT`,
+/// `DistanceGT`, `LateralDistanceGT`, `VelocityLT` and `VelocityGT` all name
+/// the safe condition directly (e.g. "TTC is greater than the minimum" is
+/// safe). `RelativeVelocityGT` instead names the unsafe one — staying under
+/// the limit is `NOT (relative velocity > max)` — so its polarity is
+/// flipped. This type makes that one difference explicit at each call site
+/// instead of six near-identical `match`es.
+#[derive(Clone, Copy)]
+enum AtomPolarity {
+    /// The atom itself is the safe formula.
+    Positive,
+    /// The atom's negation is the safe formula.
+    Negated,
+}
+
+/// The one real implementation behind the six per-constraint `match`es that
+/// used to be copy-pasted through this function (`generate_default_safety`),
+/// each varying only in which `Proposition` it built and whether the safe
+/// condition was the atom or its negation.
+fn push_constraint(
+    constraints: &mut Vec<LTLFormula>,
+    mode: ConstraintMode,
+    atom: LTLFormula,
+    polarity: AtomPolarity,
+) {
+    let formula = match (mode, polarity) {
+        (ConstraintMode::Enforce, AtomPolarity::Positive) => atom.always(),
+        (ConstraintMode::Enforce, AtomPolarity::Negated) => atom.negate().always(),
+        (ConstraintMode::Violate, AtomPolarity::Positive) => atom.negate().eventually(),
+        (ConstraintMode::Violate, AtomPolarity::Negated) => atom.eventually(),
+        (ConstraintMode::Ignore, _) => return,
+    };
+    constraints.push(formula);
+}
+
 /// Generate default safety constraints for all actor pairs
 ///
 /// This function generates pairwise TTC and distance constraints based on
@@ -62,158 +103,83 @@ fn generate_default_safety(spec: &ScenarioSpec) -> LTLFormula {
     // Generate pairwise safety for all actor combinations
     for (i, actor1) in spec.actors.iter().enumerate() {
         for actor2 in spec.actors.iter().skip(i + 1) {
-            // TTC constraint
-            match spec.constraint_modes.min_ttc() {
-                ConstraintMode::Enforce => {
-                    let ttc = LTLFormula::Atom(Proposition::TTCGT {
-                        actor1: actor1.id.clone(),
-                        actor2: actor2.id.clone(),
-                        ttc: spec.min_ttc,
-                    })
-                    .always();
-                    constraints.push(ttc);
-                }
-                ConstraintMode::Violate => {
-                    let ttc_violation = LTLFormula::Atom(Proposition::TTCGT {
-                        actor1: actor1.id.clone(),
-                        actor2: actor2.id.clone(),
-                        ttc: spec.min_ttc,
-                    })
-                    .negate()
-                    .eventually();
-                    constraints.push(ttc_violation);
-                }
-                ConstraintMode::Ignore => {}
-            }
+            push_constraint(
+                &mut constraints,
+                spec.constraint_modes.min_ttc(),
+                LTLFormula::Atom(Proposition::TTCGT {
+                    actor1: actor1.id.clone(),
+                    actor2: actor2.id.clone(),
+                    ttc: spec.min_ttc,
+                }),
+                AtomPolarity::Positive,
+            );
 
-            // Distance constraint
-            match spec.constraint_modes.min_distance() {
-                ConstraintMode::Enforce => {
-                    let dist = LTLFormula::Atom(Proposition::DistanceGT {
-                        actor1: actor1.id.clone(),
-                        actor2: actor2.id.clone(),
-                        distance: spec.min_distance,
-                    })
-                    .always();
-                    constraints.push(dist);
-                }
-                ConstraintMode::Violate => {
-                    let dist_violation = LTLFormula::Atom(Proposition::DistanceGT {
-                        actor1: actor1.id.clone(),
-                        actor2: actor2.id.clone(),
-                        distance: spec.min_distance,
-                    })
-                    .negate()
-                    .eventually();
-                    constraints.push(dist_violation);
-                }
-                ConstraintMode::Ignore => {}
-            }
+            push_constraint(
+                &mut constraints,
+                spec.constraint_modes.min_distance(),
+                LTLFormula::Atom(Proposition::DistanceGT {
+                    actor1: actor1.id.clone(),
+                    actor2: actor2.id.clone(),
+                    distance: spec.min_distance,
+                }),
+                AtomPolarity::Positive,
+            );
 
-            // Lateral distance constraint
             if let Some(min_lat_dist) = spec.min_lateral_distance {
-                match spec.constraint_modes.min_lateral_distance() {
-                    ConstraintMode::Enforce => {
-                        let lat_dist = LTLFormula::Atom(Proposition::LateralDistanceGT {
-                            actor1: actor1.id.clone(),
-                            actor2: actor2.id.clone(),
-                            distance: min_lat_dist,
-                        })
-                        .always();
-                        constraints.push(lat_dist);
-                    }
-                    ConstraintMode::Violate => {
-                        let lat_dist_violation = LTLFormula::Atom(Proposition::LateralDistanceGT {
-                            actor1: actor1.id.clone(),
-                            actor2: actor2.id.clone(),
-                            distance: min_lat_dist,
-                        })
-                        .negate()
-                        .eventually();
-                        constraints.push(lat_dist_violation);
-                    }
-                    ConstraintMode::Ignore => {}
-                }
+                push_constraint(
+                    &mut constraints,
+                    spec.constraint_modes.min_lateral_distance(),
+                    LTLFormula::Atom(Proposition::LateralDistanceGT {
+                        actor1: actor1.id.clone(),
+                        actor2: actor2.id.clone(),
+                        distance: min_lat_dist,
+                    }),
+                    AtomPolarity::Positive,
+                );
             }
 
-            // Relative velocity constraint (note: we negate it for "enforce" mode)
-            // Enforce means: |vx1 - vx2| <= max_relative_velocity
-            // Which is: NOT (|vx1 - vx2| > max_relative_velocity)
+            // RelativeVelocityGT names the *unsafe* condition — staying under
+            // the limit is `NOT (|vx1 - vx2| > max_relative_velocity)` — so
+            // this one is `Negated`, not `Positive`.
             if let Some(max_rel_vel) = spec.max_relative_velocity {
-                match spec.constraint_modes.max_relative_velocity() {
-                    ConstraintMode::Enforce => {
-                        let rel_vel = LTLFormula::Atom(Proposition::RelativeVelocityGT {
-                            actor1: actor1.id.clone(),
-                            actor2: actor2.id.clone(),
-                            velocity: max_rel_vel,
-                        })
-                        .negate()
-                        .always();
-                        constraints.push(rel_vel);
-                    }
-                    ConstraintMode::Violate => {
-                        let rel_vel_violation = LTLFormula::Atom(Proposition::RelativeVelocityGT {
-                            actor1: actor1.id.clone(),
-                            actor2: actor2.id.clone(),
-                            velocity: max_rel_vel,
-                        })
-                        .eventually();
-                        constraints.push(rel_vel_violation);
-                    }
-                    ConstraintMode::Ignore => {}
-                }
+                push_constraint(
+                    &mut constraints,
+                    spec.constraint_modes.max_relative_velocity(),
+                    LTLFormula::Atom(Proposition::RelativeVelocityGT {
+                        actor1: actor1.id.clone(),
+                        actor2: actor2.id.clone(),
+                        velocity: max_rel_vel,
+                    }),
+                    AtomPolarity::Negated,
+                );
             }
         }
     }
 
     // Generate per-actor velocity constraints
     for actor in &spec.actors {
-        // Max velocity constraint
         if let Some(max_vel) = spec.max_velocity {
-            match spec.constraint_modes.max_velocity() {
-                ConstraintMode::Enforce => {
-                    let vel = LTLFormula::Atom(Proposition::VelocityLT {
-                        actor: actor.id.clone(),
-                        velocity: max_vel,
-                    })
-                    .always();
-                    constraints.push(vel);
-                }
-                ConstraintMode::Violate => {
-                    let vel_violation = LTLFormula::Atom(Proposition::VelocityLT {
-                        actor: actor.id.clone(),
-                        velocity: max_vel,
-                    })
-                    .negate()
-                    .eventually();
-                    constraints.push(vel_violation);
-                }
-                ConstraintMode::Ignore => {}
-            }
+            push_constraint(
+                &mut constraints,
+                spec.constraint_modes.max_velocity(),
+                LTLFormula::Atom(Proposition::VelocityLT {
+                    actor: actor.id.clone(),
+                    velocity: max_vel,
+                }),
+                AtomPolarity::Positive,
+            );
         }
 
-        // Min velocity constraint
         if let Some(min_vel) = spec.min_velocity {
-            match spec.constraint_modes.min_velocity() {
-                ConstraintMode::Enforce => {
-                    let vel = LTLFormula::Atom(Proposition::VelocityGT {
-                        actor: actor.id.clone(),
-                        velocity: min_vel,
-                    })
-                    .always();
-                    constraints.push(vel);
-                }
-                ConstraintMode::Violate => {
-                    let vel_violation = LTLFormula::Atom(Proposition::VelocityGT {
-                        actor: actor.id.clone(),
-                        velocity: min_vel,
-                    })
-                    .negate()
-                    .eventually();
-                    constraints.push(vel_violation);
-                }
-                ConstraintMode::Ignore => {}
-            }
+            push_constraint(
+                &mut constraints,
+                spec.constraint_modes.min_velocity(),
+                LTLFormula::Atom(Proposition::VelocityGT {
+                    actor: actor.id.clone(),
+                    velocity: min_vel,
+                }),
+                AtomPolarity::Positive,
+            );
         }
     }
 
