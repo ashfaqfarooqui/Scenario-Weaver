@@ -5,6 +5,7 @@
 
 pub mod extractor;
 pub mod gif_animator;
+pub mod lane_ids;
 pub mod model;
 pub mod openlabel_exporter;
 pub mod svg_visualizer;

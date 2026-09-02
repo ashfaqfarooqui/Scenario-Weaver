@@ -276,6 +276,85 @@ fn every_example_xodr_structure_is_well_formed() {
     }
 }
 
+/// The `.xosc` exporter's `LanePosition` ids (`scenario::lane_ids::lane_index_to_xodr_id`,
+/// SW-15) and the `.xodr` exporter's own inline id assignment
+/// (`xodr_exporter::build_lane_section`, SW-16) are two independent
+/// implementations of one mapping, and nothing in the type system forces
+/// them to agree — exactly the shape of defect the audit found three times
+/// over in the old TTC/distance code (SW-20 exists to clean that pattern
+/// up). `xodr_exporter.rs` is fenced to SW-16, so `lane_ids::` cannot be
+/// wired into it from here; this test is the guard against silent drift
+/// instead: it parses a real `.xodr`'s driving lane ids and checks they
+/// equal what `lane_ids::lane_index_to_xodr_id` computes for the same
+/// scenario lane index, on a **multi-lane bidirectional** road (not just a
+/// single-direction one, where a mismatch could hide).
+#[test]
+fn xodr_driving_lane_ids_match_lane_ids_helper() {
+    for name in ["simple_bidirectional.yaml", "cut_in_left.yaml"] {
+        let scenario = common::generate_example(name);
+        let road = &scenario.road;
+        assert!(
+            road.lane_directions.len() >= 2,
+            "{name}: expected a multi-lane road, got {:?}",
+            road.lane_directions
+        );
+
+        let doc = xodr_for(&scenario, name);
+        let lane_section = doc.road[0].lanes.lane_section.first();
+
+        // Driving lane ids on the right, in document order — SW-16's
+        // `build_lane_section` pushes these in the same order it walks
+        // `lane_directions` for `direction == 1`, so document order here is
+        // scenario lane-index order among forward lanes.
+        let actual_right: Vec<i64> = lane_section
+            .right
+            .as_ref()
+            .map(|r| {
+                r.lane
+                    .iter()
+                    .filter(|l| l.base.r#type == opendrive::lane::lane_type::LaneType::Driving)
+                    .map(|l| l.id)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Same, for the left (backward) side.
+        let actual_left: Vec<i64> = lane_section
+            .left
+            .as_ref()
+            .map(|l| {
+                l.lane
+                    .iter()
+                    .filter(|l| l.base.r#type == opendrive::lane::lane_type::LaneType::Driving)
+                    .map(|l| l.id)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut expected_right = Vec::new();
+        let mut expected_left = Vec::new();
+        for (i, &direction) in road.lane_directions.iter().enumerate() {
+            let id = scenario_weaver::scenario::lane_ids::lane_index_to_xodr_id(road, i);
+            if direction == 1 {
+                expected_right.push(id);
+            } else {
+                expected_left.push(id);
+            }
+        }
+
+        assert_eq!(
+            actual_right, expected_right,
+            "{name}: .xodr right (forward) driving lane ids {actual_right:?} != \
+             lane_ids::lane_index_to_xodr_id {expected_right:?}"
+        );
+        assert_eq!(
+            actual_left, expected_left,
+            "{name}: .xodr left (backward) driving lane ids {actual_left:?} != \
+             lane_ids::lane_index_to_xodr_id {expected_left:?}"
+        );
+    }
+}
+
 /// Road `length` must be at least as large as the furthest longitudinal
 /// position (`x`) any actor reaches — otherwise a trajectory runs off the
 /// end of the road a downstream simulator loaded it onto. The road's `s`

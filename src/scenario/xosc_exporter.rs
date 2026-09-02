@@ -3,15 +3,51 @@
 //! Converts internal Scenario data structures to OpenSCENARIO XML format
 //! with complete trajectory-based actions using openscenario-rs builders.
 
+use crate::dsl::types::RoadSpec;
 use crate::error::Result;
+use crate::scenario::lane_ids::{lane_index_to_xodr_id, XODR_ROAD_ID};
 use crate::scenario::model::{Scenario, State};
 use openscenario_rs::builder::actions::trajectory::TrajectoryBuilder;
 use openscenario_rs::builder::init::InitActionBuilder;
-use openscenario_rs::builder::positions::WorldPositionBuilder;
+use openscenario_rs::builder::positions::{LanePositionBuilder, PositionBuilder};
 use openscenario_rs::builder::StoryboardBuilder;
+use openscenario_rs::types::basic::Double;
 use openscenario_rs::types::catalogs::locations::CatalogLocations;
+use openscenario_rs::types::enums::ReferenceContext;
+use openscenario_rs::types::positions::{Orientation, Position};
 use openscenario_rs::types::road::RoadNetwork;
 use openscenario_rs::ScenarioBuilder;
+
+/// The OpenSCENARIO revision this project targets, declared explicitly
+/// (SW-15 M13). `1.3` is what `ScenarioBuilder::with_header` already
+/// defaults to; calling `with_revision` makes that a deliberate choice
+/// instead of an accident of the dependency's default, and gives future
+/// changes to that default nothing to silently break.
+const OSC_REV_MAJOR: u16 = 1;
+const OSC_REV_MINOR: u16 = 3;
+
+/// Vehicle bounding-box dimensions used for every exported `PassengerCar`
+/// entity (SW-15 H8). These match `openscenario_rs::VehicleBuilder::car()`'s
+/// own preset exactly — made explicit here, via `with_dimensions`, so a
+/// change to that dependency default cannot silently change what this crate
+/// ships. The DSL does not yet carry per-actor dimensions (see the SW-15
+/// report: `ActorSpec` is built via plain struct literals with no
+/// `..Default::default()` in `src/scenarios/*.rs` and `src/solver/*.rs`, both
+/// out of this issue's touch list, so adding required fields there is not a
+/// same-issue-sized change), so every vehicle uses this single constant set.
+/// `min_distance` therefore remains centre-to-centre, not bumper-to-bumper —
+/// unchanged by this issue, tracked as a solver-side follow-up.
+const VEHICLE_LENGTH_M: f64 = 4.5;
+const VEHICLE_WIDTH_M: f64 = 1.8;
+const VEHICLE_HEIGHT_M: f64 = 1.4;
+
+/// Pedestrian bounding-box dimensions, matching
+/// `openscenario_rs::PedestrianBuilder::pedestrian()`'s own preset (see the
+/// `VEHICLE_*_M` doc comment above for why these are constants rather than
+/// DSL-configurable yet).
+const PEDESTRIAN_LENGTH_M: f64 = 0.6;
+const PEDESTRIAN_WIDTH_M: f64 = 0.6;
+const PEDESTRIAN_HEIGHT_M: f64 = 1.8;
 
 /// Export a scenario to OpenSCENARIO XML format
 ///
@@ -38,7 +74,9 @@ fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<S
     let description = build_scenario_description(scenario);
 
     // Create basic scenario structure with entities
-    let header_builder = ScenarioBuilder::new().with_header(&description, "ScenarioWeaver");
+    let header_builder = ScenarioBuilder::new()
+        .with_header(&description, "ScenarioWeaver")
+        .with_revision(OSC_REV_MAJOR, OSC_REV_MINOR);
 
     let header_builder = if let Some(path) = road_file {
         header_builder.with_road_file(path)
@@ -53,9 +91,19 @@ fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<S
     // Add entities for each actor
     for actor in &scenario.actors {
         if actor.role == "pedestrian" {
-            builder = builder.add_pedestrian(&actor.id, |ped| ped.pedestrian());
+            builder = builder.add_pedestrian(&actor.id, |ped| {
+                ped.pedestrian().with_dimensions(
+                    PEDESTRIAN_LENGTH_M,
+                    PEDESTRIAN_WIDTH_M,
+                    PEDESTRIAN_HEIGHT_M,
+                )
+            });
         } else {
-            builder = builder.add_vehicle(&actor.id, |vehicle| vehicle.car());
+            builder = builder.add_vehicle(&actor.id, |vehicle| {
+                vehicle
+                    .car()
+                    .with_dimensions(VEHICLE_LENGTH_M, VEHICLE_WIDTH_M, VEHICLE_HEIGHT_M)
+            });
         }
     }
 
@@ -73,7 +121,7 @@ fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<S
     // are placed in the same ManeuverGroup, which causes esmini conflicts
     for actor in &scenario.actors {
         // Build trajectory from actor states
-        let trajectory = build_trajectory(actor)?;
+        let trajectory = build_trajectory(actor, &scenario.road)?;
 
         // Create a separate act for this actor
         let act_name = format!("{}_trajectory_act", actor.id);
@@ -133,8 +181,13 @@ fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<S
 }
 
 /// Build a trajectory from an actor's state sequence
+///
+/// Each vertex is a `LanePosition` referencing the same lane id the
+/// companion `.xodr` uses for this physical lane (SW-15 E1), rather than a
+/// bare `WorldPosition` that shares no identifier with the road network.
 fn build_trajectory(
     actor: &crate::scenario::model::ActorTrajectory,
+    road: &RoadSpec,
 ) -> Result<openscenario_rs::types::actions::movement::Trajectory> {
     let mut polyline_builder = TrajectoryBuilder::new()
         .name(&format!("{}_trajectory", actor.id))
@@ -144,11 +197,18 @@ fn build_trajectory(
     // Add vertex for each state
     for state in &actor.states {
         let heading = compute_heading(state);
+        let position = lane_position(
+            road,
+            state.cartesian.lane,
+            state.position().x,
+            state.position().y,
+            heading,
+        )?;
 
         polyline_builder = polyline_builder
             .add_vertex()
             .time(state.time)
-            .world_position(state.position().x, state.position().y, 0.0, heading)
+            .position(position)
             .finish()
             .map_err(|e| {
                 crate::error::ScenarioGenError::XoscExport(format!(
@@ -164,6 +224,56 @@ fn build_trajectory(
     })?;
 
     Ok(trajectory)
+}
+
+/// Build a `LanePosition` for the given world coordinates, referencing the
+/// lane id `lane_index_to_xodr_id` derives for the same physical lane in the
+/// companion `.xodr` (SW-15 E1). Heading is carried via `<Orientation h="…">`
+/// since `LanePosition` (unlike `WorldPosition`) has no direct heading
+/// attribute.
+///
+/// `s` is the actor's raw world `x`. This is exact whenever the exported
+/// road's geometry starts at `x=0`, which `xodr_exporter::compute_road_geometry`
+/// (out of this issue's touch list — SW-16 owns that file) guarantees for
+/// every current example. A scenario with a backward-direction actor that
+/// reaches `x<0` pulls that road's start back to cover it (SW-16 M12), which
+/// would leave `s` here offset from the `.xodr`'s `s=0` by that same amount;
+/// none of the examples this issue was asked to verify (`simple_bidirectional`,
+/// `cut_in_left`) do this. Fixing it exactly would mean either duplicating
+/// `compute_road_geometry` a third time or exposing it from `xodr_exporter.rs`
+/// — flagged here rather than done, since that file is fenced to SW-16.
+///
+/// `z` is never emitted: the exported road never carries an elevation
+/// profile (`xodr_exporter::export_to_xodr` always sets
+/// `elevation_profile: None`), so there is no elevation to encode.
+fn lane_position(road: &RoadSpec, lane: usize, x: f64, y: f64, heading: f64) -> Result<Position> {
+    let xodr_lane_id = lane_index_to_xodr_id(road, lane);
+    let lane_center = lane as f64 * road.lane_width + road.lane_width / 2.0;
+    let offset = y - lane_center;
+
+    let mut position = LanePositionBuilder::new()
+        .road(XODR_ROAD_ID)
+        .lane(&xodr_lane_id.to_string())
+        .s(x)
+        .offset(offset)
+        .finish()
+        .map_err(|e| {
+            crate::error::ScenarioGenError::XoscExport(format!(
+                "Failed to build lane position: {}",
+                e
+            ))
+        })?;
+
+    if let Some(lane_position) = position.lane_position.as_mut() {
+        lane_position.orientation = Some(Orientation {
+            h: Some(Double::literal(heading)),
+            p: None,
+            r: None,
+            reference_context: Some(ReferenceContext::Absolute),
+        });
+    }
+
+    Ok(position)
 }
 
 /// Build a detailed scenario description with trajectory summary
@@ -217,17 +327,15 @@ fn build_init_actions(scenario: &Scenario) -> Result<openscenario_rs::types::sce
         // Calculate heading from velocity
         let heading = compute_heading(initial_state);
 
-        // Create world position
-        let position = WorldPositionBuilder::new()
-            .at_coordinates(initial_state.position().x, initial_state.position().y, 0.0)
-            .with_heading(heading)
-            .build()
-            .map_err(|e| {
-                crate::error::ScenarioGenError::XoscExport(format!(
-                    "Failed to build world position: {}",
-                    e
-                ))
-            })?;
+        // Lane-referenced initial position (SW-15 E1), matching the
+        // trajectory vertices below so the whole file is self-consistent.
+        let position = lane_position(
+            &scenario.road,
+            initial_state.cartesian.lane,
+            initial_state.position().x,
+            initial_state.position().y,
+            heading,
+        )?;
 
         // Add speed action first, then teleport (to match reference format)
         init_builder = init_builder
@@ -349,6 +457,136 @@ mod tests {
         // Verify storyboard structure
         assert!(xml.contains("<Storyboard"));
         assert!(xml.contains("<Story"));
+    }
+
+    /// SW-15 E1: the exported trajectory and initial teleport reference a
+    /// lane id, not just a bare world position, and that id matches what
+    /// `lane_index_to_xodr_id` (shared with the `.xodr` exporter) derives
+    /// for the same lane index.
+    #[test]
+    fn test_export_to_xosc_contains_lane_position() {
+        let road = crate::dsl::types::RoadSpec {
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            road_length: None,
+        };
+        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.5, 1.0, road.clone());
+
+        let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
+        ego.add_state(State::new(
+            0.0,
+            Position::new(0.0, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        ));
+        ego.add_state(State::new(
+            0.5,
+            Position::new(7.5, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        ));
+        scenario.add_actor(ego);
+
+        let xml = export_to_xosc(&scenario).expect("export should succeed");
+
+        assert!(
+            xml.contains("LanePosition"),
+            "expected a LanePosition element in the exported .xosc"
+        );
+
+        let expected_lane_id = crate::scenario::lane_ids::lane_index_to_xodr_id(&road, 1);
+        assert_eq!(
+            expected_lane_id, -1,
+            "lane 1 of an all-forward 2-lane road is xodr id -1"
+        );
+        assert!(
+            xml.contains(&format!("laneId=\"{expected_lane_id}\"")),
+            "expected laneId=\"{expected_lane_id}\" in:\n{xml}"
+        );
+        assert!(
+            xml.contains(&format!("roadId=\"{XODR_ROAD_ID}\"")),
+            "expected roadId=\"{XODR_ROAD_ID}\""
+        );
+
+        // No bare WorldPosition should remain now that every position is
+        // lane-referenced.
+        assert!(
+            !xml.contains("WorldPosition"),
+            "expected WorldPosition to be fully replaced by LanePosition"
+        );
+    }
+
+    /// SW-15 H8: vehicle dimensions are emitted explicitly (not left to the
+    /// dependency's implicit `.car()` default) and match the constants this
+    /// file documents as the DSL's assumed default.
+    #[test]
+    fn test_export_to_xosc_vehicle_dimensions_present() {
+        let road = crate::dsl::types::RoadSpec {
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            road_length: None,
+        };
+        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.5, 1.0, road);
+        let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
+        ego.add_state(State::new(
+            0.0,
+            Position::new(0.0, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        ));
+        ego.add_state(State::new(
+            0.5,
+            Position::new(7.5, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        ));
+        scenario.add_actor(ego);
+
+        let xml = export_to_xosc(&scenario).expect("export should succeed");
+
+        assert!(xml.contains(&format!("length=\"{VEHICLE_LENGTH_M}\"")));
+        assert!(xml.contains(&format!("width=\"{VEHICLE_WIDTH_M}\"")));
+        assert!(xml.contains(&format!("height=\"{VEHICLE_HEIGHT_M}\"")));
+    }
+
+    /// SW-15 M13: the declared revision is the one this file explicitly
+    /// requests via `with_revision`, not an accidental dependency default.
+    #[test]
+    fn test_export_to_xosc_declares_explicit_revision() {
+        let road = crate::dsl::types::RoadSpec {
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            road_length: None,
+        };
+        let mut scenario = Scenario::new("cut_in_left".to_string(), 0.5, 1.0, road);
+        let mut ego = ActorTrajectory::new("ego".to_string(), "ego".to_string());
+        ego.add_state(State::new(
+            0.0,
+            Position::new(0.0, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        ));
+        ego.add_state(State::new(
+            0.5,
+            Position::new(7.5, 5.25),
+            Velocity::new(15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            1,
+        ));
+        scenario.add_actor(ego);
+
+        let xml = export_to_xosc(&scenario).expect("export should succeed");
+
+        assert!(xml.contains(&format!("revMajor=\"{OSC_REV_MAJOR}\"")));
+        assert!(xml.contains(&format!("revMinor=\"{OSC_REV_MINOR}\"")));
     }
 
     #[test]
