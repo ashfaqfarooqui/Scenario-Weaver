@@ -123,6 +123,22 @@ impl std::fmt::Display for Violation {
 ///
 /// Never add an entry to silence a new failure. An entry means "an open issue
 /// owns this and the fix is scheduled".
+///
+/// [`Invariant::ForwardProgress`] was retired by SW-12. Its entry described
+/// the pedestrian examples only ("on all three pedestrian examples the only
+/// vehicle brakes to a standstill and stays there for a majority of the
+/// horizon, pedestrian_crossing: 29 of 35 steps"), but SW-11 widened it to the
+/// vehicle examples: once H4's bogus `speed.max()` ceiling and the forced
+/// `a[t+1] == a[t]` were gone, nothing held a forward speed profile in place
+/// and the ego parked on `bicycle_lane_change` from t = 7.0 and on its
+/// cartesian twin from t = 2.0. `GenericEncoder::encode_forward_progress` now
+/// requires every vehicle to cover at least
+/// `MIN_FORWARD_PROGRESS_FRACTION * speed.min() * duration`, and
+/// `test_forward_progress_across_the_corpus` passes on all 21 examples:
+/// cut_in_left's ego went from 22 of 101 steps at `vx = 0` to none,
+/// bicycle_lane_change's from 32 of 101 to none, and pedestrian_crossing's
+/// from 29 of 35 to 14 of 35 — braking for the pedestrian, which is the point
+/// of that scenario, but no longer parked for the majority of it.
 pub const KNOWN_BROKEN_INVARIANTS: &[(Invariant, &str)] = &[
     (
         Invariant::ConstraintModes,
@@ -142,12 +158,6 @@ pub const KNOWN_BROKEN_INVARIANTS: &[(Invariant, &str)] = &[
          the road surface (pedestrian_crossing: py = 7.85 on a road of [0, 7]) while its \
          `lane` stays at the lane it started in. The SW-08 half — cartesian lane centres \
          5 cm short — is also fixed; the centres are exactly 1.75 / 5.25 now.",
-    ),
-    (
-        Invariant::ForwardProgress,
-        "SW-12: on all three pedestrian examples the only vehicle brakes to a standstill \
-         and stays there for a majority of the horizon (pedestrian_crossing: 29 of 35 \
-         steps), which trivially satisfies every distance and TTC threshold.",
     ),
 ];
 

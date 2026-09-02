@@ -152,9 +152,74 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         self.coord_encoder.encode_velocity_constraints();
     }
 
-    /// Encode lane-based velocity constraints
+    /// Encode lane-based velocity constraints, plus the forward-progress floor.
     pub fn encode_lane_velocity_constraints(&mut self) {
         self.coord_encoder.encode_lane_velocity_constraints();
+        self.encode_forward_progress();
+    }
+
+    /// Require every vehicle to actually traverse the scenario (SW-12/M5).
+    ///
+    /// Nothing used to: the coordinate encoders assert only a sign condition
+    /// on `vx` (`vx >= 0` forward, `vx <= 0` backward) and `min_velocity`
+    /// defaults to `ConstraintMode::Ignore`, so "everybody stops" was a legal
+    /// answer to every specification — and a very attractive one, because a
+    /// pair of parked cars satisfies every distance and TTC threshold
+    /// trivially. On `cut_in_left` both vehicles came to a dead stop 98 m
+    /// apart and the result was emitted with `all_constraints_satisfied: true`;
+    /// on all three pedestrian examples the only vehicle stood still for a
+    /// majority of the horizon.
+    ///
+    /// The constraint is on net displacement over the whole horizon:
+    ///
+    /// ```text
+    /// dir * (px[horizon] - px[0])  >=  f * v_declared_min * duration
+    /// ```
+    ///
+    /// One inequality per vehicle, `f * v * T` a compile-time constant, so it
+    /// is a single linear bound that propagates rather than a case split.
+    ///
+    /// Displacement rather than a per-step speed floor, deliberately: braking
+    /// hard — to a standstill, briefly — is legitimate driving, and is the
+    /// whole point of a scenario with a pedestrian in the road. What is not
+    /// legitimate is standing still for most of the scenario. A per-step floor
+    /// would forbid the first to prevent the second.
+    ///
+    /// Pedestrians are excluded: they cross the road, so their longitudinal
+    /// displacement is near zero by design, and `PEDESTRIAN_*` already bounds
+    /// their speed on both axes.
+    fn encode_forward_progress(&mut self) {
+        use crate::dsl::types::{ActorRole, MIN_FORWARD_PROGRESS_FRACTION};
+
+        let duration = self.spec.duration;
+        let horizon = self.horizon;
+
+        let bounds: Vec<(String, f64)> = self
+            .spec
+            .actors
+            .iter()
+            .filter(|a| a.role != ActorRole::Pedestrian)
+            .filter_map(|a| {
+                let required = MIN_FORWARD_PROGRESS_FRACTION
+                    * a.speed.min()
+                    * duration
+                    * f64::from(a.direction);
+                (a.speed.min() > 0.0).then(|| (a.id.clone(), required))
+            })
+            .collect();
+
+        for (actor_id, required) in bounds {
+            let start = self.get_longitudinal_pos(&actor_id, 0).clone();
+            let end = self.get_longitudinal_pos(&actor_id, horizon).clone();
+            let travelled = &end - &start;
+            let bound = real_from_f64(required);
+            let constraint = if required >= 0.0 {
+                travelled.ge(&bound)
+            } else {
+                travelled.le(&bound)
+            };
+            self.coord_encoder.backend_mut().assert(&constraint);
+        }
     }
 
     /// Encode lateral velocity bounds for realistic lane changes
@@ -291,8 +356,23 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 if time < horizon {
                     self.encode_ltl_bounded(phi, time + 1, horizon)
                 } else {
-                    // If at horizon, treat as false (no next state)
-                    z3::ast::Bool::from_bool(false)
+                    // SW-12/L1. At the horizon there is no next state, and
+                    // this used to yield `false`. Because `Always` expands
+                    // over `time..=horizon` *inclusive*, that made every
+                    // `G(X phi)` unsatisfiable regardless of `phi` — the
+                    // conjunct at `t = horizon` was the literal `false`.
+                    //
+                    // Bounded model checking has no information about what
+                    // happens after the bound, so the honest reading of `X`
+                    // past the end is "not refuted by this trace". `true` is
+                    // the standard weak/optimistic semantics for safety
+                    // properties and is what makes `G(X phi)` mean "phi holds
+                    // at every step from 1 to the horizon", which is what a
+                    // caller writing it means. It is unsound for liveness —
+                    // `F(G(X phi))` becomes trivially satisfiable at the last
+                    // step — but bounded `F(G(...))` already has that defect
+                    // independently (see the note in `cut_in_left.rs`).
+                    z3::ast::Bool::from_bool(true)
                 }
             }
 
@@ -349,6 +429,28 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         }
     }
 
+    /// The longitudinal frame in which `Ahead(actor1, actor2)` is judged.
+    ///
+    /// A function of the unordered pair, never of one member of it: the shared
+    /// travel direction when the two actors agree, and the fixed road frame
+    /// (+1) when they do not. See the `Ahead` arm of `encode_proposition` for
+    /// why (SW-12/M4).
+    fn ahead_frame(&self, actor1: &str, actor2: &str) -> i32 {
+        let dir = |id: &str| {
+            self.spec
+                .actors
+                .iter()
+                .find(|a| a.id == id)
+                .map_or(1, |a| a.direction)
+        };
+        let (d1, d2) = (dir(actor1), dir(actor2));
+        if d1 == d2 {
+            d1
+        } else {
+            1
+        }
+    }
+
     /// Encode atomic propositions as Z3 constraints at a specific time
     fn encode_proposition(
         &self,
@@ -365,19 +467,29 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 lane_var.eq(&lane_val)
             }
 
-            // Ahead(actor1, actor2): actor1 is ahead of actor2 in actor1's direction of travel.
-            // For forward actors (direction=1): px1 > px2 (higher x is ahead)
-            // For backward actors (direction=-1): px1 < px2 (lower x is ahead)
+            // Ahead(actor1, actor2): actor1 is ahead of actor2.
+            //
+            // SW-12/M4. The frame used to be read off *actor1* alone, which
+            // made the relation symmetric instead of antisymmetric whenever
+            // the two actors travelled in opposite directions. For ego
+            // (dir = +1) against an oncoming NPC (dir = -1):
+            //
+            //     Ahead{ego, onc}  =>  px_ego > px_onc
+            //     Ahead{onc, ego}  =>  px_onc < px_ego
+            //
+            // — the same constraint, so both directions of the relation were
+            // simultaneously satisfiable. `head_on.rs` and
+            // `overtake_left.rs` both apply `Ahead` to mixed-direction pairs.
+            //
+            // The frame is now a function of the *pair*, not of actor1: the
+            // shared travel direction when the two agree, and the fixed road
+            // frame (+x) when they do not. Being pair-symmetric, the same
+            // comparison direction is used for `Ahead(a,b)` and `Ahead(b,a)`,
+            // so `Ahead(a,b) => !Ahead(b,a)` holds by construction.
             Proposition::Ahead { actor1, actor2 } => {
                 let px1 = self.get_longitudinal_pos(actor1, time);
                 let px2 = self.get_longitudinal_pos(actor2, time);
-                let direction = self
-                    .spec
-                    .actors
-                    .iter()
-                    .find(|a| &a.id == actor1)
-                    .map_or(1, |a| a.direction);
-                if direction >= 0 {
+                if self.ahead_frame(actor1, actor2) >= 0 {
                     px1.gt(px2)
                 } else {
                     px1.lt(px2)
@@ -410,12 +522,29 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 let px2 = self.get_longitudinal_pos(actor2, time);
                 let dist_val = real_from_f64(*distance);
 
-                // |px1 - px2| > d is equivalent to: (px1 - px2 > d) OR (px2 - px1 > d)
+                // |px1 - px2| >= d, as (px1 - px2 >= d) OR (px2 - px1 >= d).
+                //
+                // SW-12. The comparison is deliberately non-strict, and this
+                // is the whole of the violate-mode fix. `compute_validation_metrics`
+                // reports a breach when `distance < min_distance`, so "safe"
+                // for the validator is `distance >= min_distance`. The encoder
+                // asserted the strict `>`, and `Violate` mode is the negation
+                // of whatever the encoder asserted: `!(d > 5)` is `d <= 5`,
+                // which is satisfied by `d == 5` exactly — a solution the
+                // validator then reports as *satisfying* the constraint the
+                // spec asked to have violated.
+                // `test_violate_mode_negates_constraint` measured exactly
+                // 5.0000 against a threshold of 5.00 and passed only because
+                // its assertion was `<=`.
+                //
+                // With `>=` here the two agree: enforce asserts what the
+                // validator calls safe, and violate asserts its exact
+                // negation, `distance < min_distance`, strictly.
                 let diff_pos = px1 - px2;
                 let diff_neg = px2 - px1;
 
-                let pos_case = diff_pos.gt(&dist_val);
-                let neg_case = diff_neg.gt(&dist_val);
+                let pos_case = diff_pos.ge(&dist_val);
+                let neg_case = diff_neg.ge(&dist_val);
                 let distance_safe = z3::ast::Bool::or(&[&pos_case, &neg_case]);
 
                 let same_lane = encode_same_lane_constraint(
@@ -751,9 +880,17 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         let distance_1 = px1 - px2;
         let collision_possible_1 =
             z3::ast::Bool::and(&[&actor1_ahead, &actor2_faster, &rel_vel_1.gt(&epsilon)]);
-        // TTC > min_ttc means: distance / rel_vel > min_ttc
-        // Equivalent to: distance > min_ttc * rel_vel
-        let ttc_safe_1 = distance_1.gt(&(&min_ttc_val * &rel_vel_1));
+        // TTC >= min_ttc means: distance / rel_vel >= min_ttc, i.e.
+        // distance >= min_ttc * rel_vel (rel_vel > 0 on this branch).
+        //
+        // Non-strict for the same reason as `DistanceGT` above (SW-12):
+        // `compute_validation_metrics` calls `ttc < min_ttc` a violation, so
+        // safe is `ttc >= min_ttc`, and `Violate` mode — the negation of what
+        // the encoder asserts — then means `ttc < min_ttc` strictly rather
+        // than the boundary-satisfying `ttc <= min_ttc`.
+        // `cut_in_left_adversarial_all` reported `min_ttc = 3.0` against a
+        // threshold of exactly 3.0 under the strict form.
+        let ttc_safe_1 = distance_1.ge(&(&min_ttc_val * &rel_vel_1));
 
         // Case 2: actor2 ahead, actor1 behind, actor1 faster
         // TTC = (px2 - px1) / (vx1 - vx2)
@@ -763,7 +900,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         let distance_2 = px2 - px1;
         let collision_possible_2 =
             z3::ast::Bool::and(&[&actor2_ahead, &actor1_faster, &rel_vel_2.gt(&epsilon)]);
-        let ttc_safe_2 = distance_2.gt(&(&min_ttc_val * &rel_vel_2));
+        let ttc_safe_2 = distance_2.ge(&(&min_ttc_val * &rel_vel_2));
 
         // Overall constraint:
         // If same_lane AND collision_possible_1, then ttc_safe_1
@@ -839,6 +976,24 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             .extract_actor_trajectory(model, actor_id, role)
     }
 
+    /// A breach is only a breach beyond the representation error (SW-12).
+    ///
+    /// The encoder asserts `distance >= min_distance` and
+    /// `gap >= min_ttc * closing_speed` as exact rationals, and since SW-12 it
+    /// asserts them non-strictly, so Z3 answers *on* the boundary:
+    /// `min_distance` comes back as exactly 5, `gap` as exactly
+    /// `3 * closing_speed`. Rendering those rationals as `f64` and then
+    /// *dividing* to recover a TTC does not round back to the same number — an
+    /// exactly-satisfying solution reports `2.999999999999999 < 3.00`, and the
+    /// validator called that a violation of a constraint the solver had
+    /// proved.
+    ///
+    /// 1e-6 is the tolerance `tests/common/invariants.rs` uses for the same
+    /// reason and for the same quantities. It is the rational-to-double
+    /// rounding error, not an allowance for modelling error: the discrepancies
+    /// it excuses are ~1e-15.
+    const METRIC_TOL: f64 = 1e-6;
+
     /// Compute validation metrics from the scenario trajectories
     fn compute_validation_metrics(
         &self,
@@ -883,7 +1038,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                             Some(min_distance.map_or(distance, |m: f64| m.min(distance)));
 
                         // Check minimum distance violation
-                        if distance < self.spec.min_distance {
+                        if distance < self.spec.min_distance - Self::METRIC_TOL {
                             violations.push(format!(
                                 "Distance violation at t={:.1}s: {}-{}: {:.2}m < {:.2}m",
                                 t as f64 * self.spec.time_step,
@@ -905,7 +1060,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                     // asserts: unguarded, at every step.
                     if let Some(min_lat) = self.spec.min_lateral_distance {
                         let lateral = (state1.position().y - state2.position().y).abs();
-                        if lateral < min_lat {
+                        if lateral < min_lat - Self::METRIC_TOL {
                             violations.push(format!(
                                 "Lateral distance violation at t={:.1}s: {}-{}: {:.2}m < {:.2}m",
                                 t as f64 * self.spec.time_step,
@@ -930,7 +1085,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
 
                                 min_ttc = Some(min_ttc.map_or(ttc, |m: f64| m.min(ttc)));
 
-                                if ttc < self.spec.min_ttc {
+                                if ttc < self.spec.min_ttc - Self::METRIC_TOL {
                                     violations.push(format!(
                                         "TTC violation at t={:.1}s: {}-{}: {:.2}s < {:.2}s",
                                         t as f64 * self.spec.time_step,
@@ -950,7 +1105,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
 
                                 min_ttc = Some(min_ttc.map_or(ttc, |m: f64| m.min(ttc)));
 
-                                if ttc < self.spec.min_ttc {
+                                if ttc < self.spec.min_ttc - Self::METRIC_TOL {
                                     violations.push(format!(
                                         "TTC violation at t={:.1}s: {}-{}: {:.2}s < {:.2}s",
                                         t as f64 * self.spec.time_step,
@@ -1916,6 +2071,79 @@ mod tests {
     }
 
     /// Helper: create a two-actor spec with both in the same lane (for TTC/distance tests)
+    /// `Ahead(a, b)` and `Ahead(b, a)` must not both hold (SW-12/M4).
+    ///
+    /// The failing case is a *mixed-direction* pair, because the frame used to
+    /// be read off actor1 alone. For ego (dir = +1) against an oncoming npc
+    /// (dir = -1) the lowering produced `px_ego > px_onc` for one direction of
+    /// the relation and `px_onc < px_ego` for the other — the same constraint,
+    /// so asserting both was satisfiable and "ahead" was not a strict order.
+    /// `head_on.rs` and `overtake_left.rs` both apply `Ahead` to exactly this
+    /// kind of pair.
+    ///
+    /// Asserting the conjunction and requiring UNSAT is the test: it holds for
+    /// any lowering that is genuinely antisymmetric, and fails for any that
+    /// collapses the two directions into one comparison.
+    #[test]
+    fn test_ahead_is_antisymmetric_for_a_mixed_direction_pair() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::Proposition;
+
+            let mut spec = create_two_actor_same_lane_spec();
+            spec.actors[1].direction = -1;
+            spec.road = Some(RoadSpec {
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, -1],
+                road_length: None,
+            });
+            spec.actors[1].lane = 1;
+
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+
+            let ahead = |a: &str, b: &str| Proposition::Ahead {
+                actor1: a.to_string(),
+                actor2: b.to_string(),
+            };
+            let fwd = encoder.encode_proposition(&ahead("ego", "npc"), 0);
+            let rev = encoder.encode_proposition(&ahead("npc", "ego"), 0);
+            let both = Bool::and(&[&fwd, &rev]);
+            encoder.assert_constraint(&both);
+
+            assert_eq!(
+                encoder.check(),
+                SatResult::Unsat,
+                "Ahead(ego, npc) and Ahead(npc, ego) must not be simultaneously \
+                 satisfiable for a mixed-direction pair"
+            );
+        });
+    }
+
+    /// The same-direction case must keep working, and must still be decided in
+    /// the actors' own travel direction rather than the road frame.
+    #[test]
+    fn test_ahead_is_antisymmetric_for_a_same_direction_pair() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::Proposition;
+
+            let mut encoder = Z3Encoder::new(create_two_actor_same_lane_spec());
+            encoder.create_variables();
+
+            let ahead = |a: &str, b: &str| Proposition::Ahead {
+                actor1: a.to_string(),
+                actor2: b.to_string(),
+            };
+            let fwd = encoder.encode_proposition(&ahead("ego", "npc"), 0);
+            let rev = encoder.encode_proposition(&ahead("npc", "ego"), 0);
+            encoder.assert_constraint(&Bool::and(&[&fwd, &rev]));
+
+            assert_eq!(encoder.check(), SatResult::Unsat);
+        });
+    }
+
     fn create_two_actor_same_lane_spec() -> ScenarioSpec {
         ScenarioSpec {
             scenario_type: ScenarioType::CutInLeft,
@@ -2340,11 +2568,18 @@ mod tests {
             );
             // `None` = never evaluated, which is the same escape hatch the old
             // `== f64::INFINITY` disjunct provided.
+            //
+            // The 1e-6 slack is the same rational-to-double rounding error
+            // `compute_validation_metrics` allows for (see `METRIC_TOL`
+            // there): since SW-12 the encoder asserts `gap >= min_ttc *
+            // closing_speed` non-strictly and Z3 answers on the boundary, and
+            // recovering a TTC by dividing two rounded `f64`s lands a ULP low
+            // — 2.999999999999991 against a threshold of 3.
             assert!(
                 scenario
                     .validation
                     .min_ttc
-                    .is_none_or(|ttc| ttc >= spec.min_ttc),
+                    .is_none_or(|ttc| ttc >= spec.min_ttc - 1e-6),
                 "Min TTC {:?} should be >= {}",
                 scenario.validation.min_ttc,
                 spec.min_ttc
@@ -2549,24 +2784,28 @@ mod tests {
             encoder.create_variables();
             encoder.encode_initial_conditions();
 
-            // Encode: Always(Next(Next(Next(InLane(ego, 1)))))
-            // At horizon, Next should return false
-            // This creates Next at time horizon which should be false
+            // Encode: X(X(X(InLane(ego, 1)))) with horizon = 2, so the
+            // innermost X is taken at the horizon and has no next state.
             let inner = LTLFormula::Atom(Proposition::InLane {
                 actor: "ego".to_string(),
                 lane: 1,
             });
-            // Triple Next from time 0 means we need time 3, but horizon is 2
             let formula = LTLFormula::Next(Box::new(LTLFormula::Next(Box::new(LTLFormula::Next(
                 Box::new(inner),
             )))));
             encoder.encode_ltl(&formula);
 
-            // Should be UNSAT because Next at horizon returns false
+            // SW-12/L1. This test asserted `Unsat`, which is the defect rather
+            // than the specification: `X` past the bound yielded the literal
+            // `false`, and because `Always` expands over `time..=horizon`
+            // *inclusive*, every `G(X phi)` was unsatisfiable no matter what
+            // `phi` said — see `test_always_next_is_satisfiable` below.
+            // Bounded model checking knows nothing about states after the
+            // bound, so the honest reading is "not refuted by this trace".
             assert_eq!(
                 encoder.check(),
-                SatResult::Unsat,
-                "Next beyond horizon should be unsatisfiable"
+                SatResult::Sat,
+                "X past the horizon must not refute the formula by itself"
             );
         });
     }
@@ -2598,6 +2837,45 @@ mod tests {
                 encoder.check(),
                 SatResult::Unsat,
                 "Actor cannot be in two lanes simultaneously"
+            );
+        });
+    }
+
+    /// `G(X phi)` must be satisfiable (SW-12/L1).
+    ///
+    /// The direct consequence of the bug above: `Always` expands over
+    /// `time..=horizon` inclusive, so its last conjunct is `X` evaluated *at*
+    /// the horizon. With `X` past the bound lowered to `false`, that conjunct
+    /// was the literal `false` and every `G(X phi)` in the language was
+    /// unsatisfiable regardless of `phi`. Nothing in the shipped scenario
+    /// templates uses `X` today, which is why this went unnoticed.
+    #[test]
+    fn test_always_next_is_satisfiable() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            let mut spec = create_two_actor_same_lane_spec();
+            spec.duration = 1.0;
+            spec.time_step = 0.5; // horizon = 2
+
+            let ego_lane = spec.ego().unwrap().lane;
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            let formula = LTLFormula::Atom(Proposition::InLane {
+                actor: "ego".to_string(),
+                lane: ego_lane,
+            })
+            .next()
+            .always();
+            encoder.encode_ltl(&formula);
+
+            assert_eq!(
+                encoder.check(),
+                SatResult::Sat,
+                "G(X phi) must be satisfiable; it was unsat for every phi before SW-12/L1"
             );
         });
     }

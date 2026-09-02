@@ -453,13 +453,17 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
 
                 if is_pedestrian {
                     // Acceleration clamped to the pedestrian limits on both
-                    // axes, plus the linearised speed box |vx|,|vy| <= v_max.
+                    // axes, plus the linearised speed *octagon*
+                    // |vx| <= v, |vy| <= v, |vx| + |vy| <= sqrt(2)*v.
                     //
-                    // The box replaces the quadratic disk vx^2 + vy^2 <= v_max^2
-                    // so the encoding stays in QF_LRA (10-20x faster, and the
-                    // optimiser works at all); it is over-conservative by up to
-                    // sqrt(2) on the diagonal, which the speed constants
-                    // compensate for.
+                    // The octagon replaces the quadratic disk
+                    // vx^2 + vy^2 <= v^2 so the encoding stays in QF_LRA
+                    // (10-20x faster, and the optimiser works at all). It used
+                    // to be a plain box, over-conservative by sqrt(2) on the
+                    // diagonal, which the speed constants "compensated" for by
+                    // shrinking — capping a pedestrian crossing perpendicular
+                    // to the road, the dominant case in this corpus, at
+                    // 1.41 m/s instead of 2.0 (SW-12/M8).
                     encode_pedestrian_bounds_step(&self.backend, vx_t, vy_t, ax_t, ay_t, actor);
                 } else {
                     self.backend.assert(&ax_t.ge(&ax_min_real));

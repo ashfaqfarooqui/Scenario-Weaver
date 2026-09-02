@@ -6,21 +6,32 @@ use serde::{Deserialize, Serialize};
 
 // Pedestrian physics constants
 //
-// NOTE: Max speeds are adjusted for linear box constraint (|vx| <= max AND |vy| <= max)
-// instead of quadratic disk constraint (vx² + vy² <= max²). The box contains the disk,
-// allowing diagonal speeds up to sqrt(2) * max. To maintain original semantic max speeds,
-// we divide by sqrt(2). Result: diagonal movement matches original speed limits.
+// SW-12/M8. These are the true physical speeds, not a compensation for the
+// encoding. They used to be divided by sqrt(2) (2.0 -> 1.41, 5.0 -> 3.54)
+// because the encoder bounded velocity with a *box* — `|vx| <= v` and
+// `|vy| <= v` — which contains the disk and so permits `sqrt(2)*v` on the
+// diagonal. Shrinking the constant fixed the diagonal by breaking every other
+// direction: a pedestrian crossing perpendicular to the road, which is the
+// dominant case in this corpus, was capped at 1.41 m/s instead of 2.0. The
+// compensation also never reached `PEDESTRIAN_WALK_MIN_SPEED`, so the
+// min/max ratio moved as well.
 //
+// The bound is now an *octagon* (`encoders::pedestrian::encode_pedestrian_bounds_step`):
+// `|vx| <= v`, `|vy| <= v` and `|vx| + |vy| <= sqrt(2)*v`. Still linear — eight
+// half-planes, no case split, so the encoding stays in QF_LRA and the
+// optimiser keeps working. It is exact on both axes and exact on the
+// 45-degree diagonal (`|vx| = |vy| = v/sqrt(2)`, speed `v`), and its worst
+// over-approximation of the disk is at the corner `(v, (sqrt(2)-1)v)`, whose
+// speed is `1.0824*v` — 8.2 %, against the box's 41.4 %.
+
 /// Maximum walking speed for pedestrians (m/s) - normal walk
-/// Adjusted: 2.0 / sqrt(2) ≈ 1.41 m/s to maintain diagonal speed semantics with box constraint
-pub const PEDESTRIAN_WALK_MAX_SPEED: f64 = 1.41;
+pub const PEDESTRIAN_WALK_MAX_SPEED: f64 = 2.0;
 
 /// Minimum walking speed for pedestrians (m/s)
 pub const PEDESTRIAN_WALK_MIN_SPEED: f64 = 0.5;
 
 /// Maximum running speed for pedestrians (m/s)
-/// Adjusted: 5.0 / sqrt(2) ≈ 3.54 m/s to maintain diagonal speed semantics with box constraint
-pub const PEDESTRIAN_RUN_MAX_SPEED: f64 = 3.54;
+pub const PEDESTRIAN_RUN_MAX_SPEED: f64 = 5.0;
 
 /// Minimum running speed for pedestrians (m/s)
 pub const PEDESTRIAN_RUN_MIN_SPEED: f64 = 2.0;
@@ -30,6 +41,41 @@ pub const PEDESTRIAN_MAX_ACCELERATION: f64 = 1.0;
 
 /// Maximum deceleration for pedestrians (m/s²) - negative value
 pub const PEDESTRIAN_MAX_DECELERATION: f64 = -1.0;
+
+// Scenario envelope bounds (SW-12/L2)
+//
+// `ScenarioSpec::validate` bounded `time_step` and `duration` from one side
+// only, so `time_step: 1e-9` with `duration: 10.0` was accepted and then hung
+// the process building 10^10 Z3 variables. These name the accepted range so
+// the error message can quote it.
+
+/// Smallest accepted `time_step` (s).
+pub const MIN_TIME_STEP: f64 = 0.001;
+
+/// Largest accepted `duration` (s).
+pub const MAX_DURATION: f64 = 3600.0;
+
+/// Largest accepted `duration / time_step`.
+pub const MAX_TIME_STEPS: usize = 100_000;
+
+/// Smallest accepted lane width (m).
+pub const MIN_LANE_WIDTH: f64 = 1.0;
+
+/// Largest accepted lane width (m).
+pub const MAX_LANE_WIDTH: f64 = 20.0;
+
+/// Fraction of the distance implied by an actor's declared initial speed that
+/// a vehicle must actually cover over the scenario duration (SW-12/M5).
+///
+/// This is the forward-progress floor. It is a bound on *net displacement*
+/// over the whole horizon, not a per-step speed floor, so a vehicle may still
+/// brake hard — including to a full stop, which is exactly what a scenario
+/// with a pedestrian in the road is for — but it cannot answer the whole
+/// specification by parking. A per-step floor would forbid the emergency stop
+/// outright; a "stopped for at most half the steps" cardinality constraint
+/// would say precisely the right thing but needs one Boolean indicator per
+/// step and turns propagation into search. One inequality per actor does not.
+pub const MIN_FORWARD_PROGRESS_FRACTION: f64 = 0.5;
 
 /// Constraint enforcement mode
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -663,6 +709,32 @@ impl ScenarioSpec {
         if self.duration < self.time_step {
             return Err("duration must be >= time_step".to_string());
         }
+        // SW-12/L2. `time_step` was bounded below only by `> 0.0`, so
+        // `time_step: 1e-9` with `duration: 10` gave `num_time_steps() = 10^10`
+        // and the process hung building Z3 variables before it ever reached the
+        // solver. The floor is the smallest step that yields a tractable
+        // horizon; the ceiling on `duration` bounds the same product from the
+        // other side.
+        if self.time_step < MIN_TIME_STEP {
+            return Err(format!(
+                "time_step must be at least {MIN_TIME_STEP} s (got {});                  smaller steps produce an intractable number of time steps",
+                self.time_step
+            ));
+        }
+        if self.duration > MAX_DURATION {
+            return Err(format!(
+                "duration must be at most {MAX_DURATION} s (got {})",
+                self.duration
+            ));
+        }
+        if self.num_time_steps() > MAX_TIME_STEPS {
+            return Err(format!(
+                "duration {} / time_step {} yields {} time steps, above the {MAX_TIME_STEPS}                  supported",
+                self.duration,
+                self.time_step,
+                self.num_time_steps()
+            ));
+        }
 
         // Safety constraints
         if self.min_ttc <= 0.0 {
@@ -675,6 +747,48 @@ impl ScenarioSpec {
         // Validate road specification
         if let Some(road) = &self.road {
             road.validate()?;
+        }
+
+        // SW-12/L2. `lane_width` had a lower bound but no upper one, and the
+        // three optional safety scalars below were never checked for sign at
+        // all — a negative `min_lateral_distance` is a constraint no pair can
+        // fail, silently disabling the check it looks like it enables.
+        let lane_width = self.get_lane_width();
+        if !(MIN_LANE_WIDTH..=MAX_LANE_WIDTH).contains(&lane_width) {
+            return Err(format!(
+                "lane_width must be within [{MIN_LANE_WIDTH}, {MAX_LANE_WIDTH}] m, got {lane_width}"
+            ));
+        }
+        if let Some(v) = self.max_velocity {
+            if v <= 0.0 {
+                return Err(format!("max_velocity must be positive, got {v}"));
+            }
+        }
+        if let Some(v) = self.min_velocity {
+            if v < 0.0 {
+                return Err(format!("min_velocity must be non-negative, got {v}"));
+            }
+        }
+        if let (Some(lo), Some(hi)) = (self.min_velocity, self.max_velocity) {
+            if lo > hi {
+                return Err(format!("min_velocity {lo} exceeds max_velocity {hi}"));
+            }
+        }
+        if let Some(d) = self.min_lateral_distance {
+            if d <= 0.0 {
+                return Err(format!("min_lateral_distance must be positive, got {d}"));
+            }
+        }
+        if let Some(v) = self.max_relative_velocity {
+            if v <= 0.0 {
+                return Err(format!("max_relative_velocity must be positive, got {v}"));
+            }
+        }
+        if self.max_lateral_acceleration <= 0.0 {
+            return Err(format!(
+                "max_lateral_acceleration must be positive, got {}",
+                self.max_lateral_acceleration
+            ));
         }
 
         // Generation parameters
@@ -743,7 +857,20 @@ impl ScenarioSpec {
                     actor.id, actor.direction
                 ));
             }
-            // Validate lane change timing ranges
+            // Validate lane changes.
+            //
+            // SW-12/M6. All three of these used to be silent: an out-of-range
+            // target clamped to the actor's current lane and the encoder then
+            // encoded a "transition" from lane N to lane N; a `start_time`
+            // past the horizon was dropped by `collect_lane_change_data`'s
+            // `filter_map`; and a non-positive `duration` gave
+            // `duration_steps = 0`, so `start_step >= end_step` and
+            // `encode_smooth_lane_transition` returned early. In every case
+            // the requested manoeuvre disappeared and the scenario was emitted
+            // as if it had been performed.
+            let horizon = self.num_time_steps();
+            let mut current_lane = i64::try_from(actor.lane).unwrap_or(i64::MAX);
+            let lane_count = i64::try_from(num_lanes).unwrap_or(i64::MAX);
             for lc in &actor.lane_changes {
                 if lc.start_time.min() > lc.start_time.max() {
                     return Err(format!(
@@ -757,6 +884,66 @@ impl ScenarioSpec {
                         actor.id
                     ));
                 }
+                if lc.start_time.min() < 0.0 {
+                    return Err(format!(
+                        "Actor {}: lane change start_time must be non-negative, got {}",
+                        actor.id,
+                        lc.start_time.min()
+                    ));
+                }
+                if lc.duration.min() <= 0.0 {
+                    return Err(format!(
+                        "Actor {}: lane change duration must be positive, got {}                          (a zero-length lane change is silently discarded by the encoder)",
+                        actor.id,
+                        lc.duration.min()
+                    ));
+                }
+                if lc.duration.min() < self.time_step {
+                    return Err(format!(
+                        "Actor {}: lane change duration {} is shorter than time_step {},                          so it spans no time steps and would be discarded",
+                        actor.id,
+                        lc.duration.min(),
+                        self.time_step
+                    ));
+                }
+                // The encoder schedules the change at the midpoint of the
+                // declared start window (`collect_lane_change_data`); a
+                // midpoint past the horizon is a change that never happens.
+                let start_step = usize::midpoint(
+                    (lc.start_time.min() / self.time_step) as usize,
+                    (lc.start_time.max() / self.time_step) as usize,
+                );
+                if start_step > horizon {
+                    return Err(format!(
+                        "Actor {}: lane change starts at step {} (t = {:.3} s), past the                          scenario horizon of {} steps ({} s)",
+                        actor.id,
+                        start_step,
+                        start_step as f64 * self.time_step,
+                        horizon,
+                        self.duration
+                    ));
+                }
+                // Right is +1 lane in the actor's own travel direction, Left
+                // is -1; for a backward actor that is mirrored in the road
+                // frame. Same rule as `CartesianEncoder::encode_lane_change`
+                // and `CutInLeftModel::cut_in_behavior`.
+                let delta = match lc.direction {
+                    LaneChangeDirection::Right => actor.direction as i64,
+                    LaneChangeDirection::Left => -(actor.direction as i64),
+                };
+                let target = current_lane + delta;
+                if target < 0 || target >= lane_count {
+                    return Err(format!(
+                        "Actor {}: lane change {:?} from lane {} leaves the road                          (target lane {}, road has {} lanes 0..{})",
+                        actor.id,
+                        lc.direction,
+                        current_lane,
+                        target,
+                        num_lanes,
+                        num_lanes - 1
+                    ));
+                }
+                current_lane = target;
             }
         }
 
@@ -882,6 +1069,149 @@ mod tests {
         assert!(spec.get_actor("ego").is_some());
         assert!(spec.get_actor("npc").is_some());
         assert!(spec.get_actor("unknown").is_none());
+    }
+
+    /// A spec that passes `validate()`, so each test below can break exactly
+    /// one thing. `create_test_spec` has `road: None`, which `validate`
+    /// rejects on its own.
+    fn create_valid_spec() -> ScenarioSpec {
+        let mut spec = create_test_spec();
+        spec.road = Some(RoadSpec {
+            num_lanes: 2,
+            lane_width: 3.5,
+            lane_directions: vec![1, 1],
+            road_length: None,
+        });
+        // Right from lane 0 lands in lane 1, which exists.
+        spec.actors[1].lane_changes[0].direction = LaneChangeDirection::Right;
+        assert!(
+            spec.validate().is_ok(),
+            "fixture must be valid: {:?}",
+            spec.validate()
+        );
+        spec
+    }
+
+    /// SW-12/M6: a lane change off the edge of the road is an error, not a clamp.
+    ///
+    /// `bicycle.rs` clamps the target with
+    /// `(current_lane + lane_delta).clamp(0, num_lanes - 1)`, so `direction:
+    /// left` from lane 0 used to become a "transition" from lane 0 to lane 0 —
+    /// the requested manoeuvre silently disappeared and the scenario was
+    /// emitted as though it had been performed.
+    #[test]
+    fn test_validate_rejects_lane_change_off_the_road() {
+        let mut spec = create_valid_spec();
+        spec.actors[1].lane = 0;
+        spec.actors[1].lane_changes[0].direction = LaneChangeDirection::Left;
+
+        let err = spec
+            .validate()
+            .expect_err("left from lane 0 leaves the road");
+        assert!(
+            err.contains("leaves the road") && err.contains("npc"),
+            "error must name the actor and the problem, got: {err}"
+        );
+    }
+
+    /// SW-12/M6: a lane change scheduled past the horizon is an error.
+    ///
+    /// `encoder_utils::collect_lane_change_data` dropped these with a
+    /// `filter_map` returning `None`, with no warning.
+    #[test]
+    fn test_validate_rejects_lane_change_past_the_horizon() {
+        let mut spec = create_valid_spec();
+        // duration 10.0, so the horizon is t = 10.0.
+        spec.actors[1].lane_changes[0].start_time = ValueOrRange::Value(30.0);
+
+        let err = spec
+            .validate()
+            .expect_err("a lane change at t = 30 in a 10 s scenario cannot happen");
+        assert!(
+            err.contains("past the") && err.contains("horizon"),
+            "error must say the change is past the horizon, got: {err}"
+        );
+    }
+
+    /// SW-12/M6: a non-positive lane-change duration is an error.
+    ///
+    /// `duration: 0` gave `duration_steps = 0`, so `start_step >= end_step`
+    /// and `encode_smooth_lane_transition` returned early at
+    /// `cartesian.rs:208` — again silently discarding the change. Only
+    /// `min > max` was ever checked.
+    #[test]
+    fn test_validate_rejects_zero_lane_change_duration() {
+        let mut spec = create_valid_spec();
+        spec.actors[1].lane_changes[0].duration = ValueOrRange::Value(0.0);
+
+        let err = spec
+            .validate()
+            .expect_err("a zero-length lane change is not a lane change");
+        assert!(
+            err.contains("duration must be positive"),
+            "error must name the field and the accepted range, got: {err}"
+        );
+    }
+
+    /// SW-12/L2: `time_step: 1e-9` is rejected instead of hanging.
+    ///
+    /// With `duration: 10` it gives `num_time_steps() = 10^10`, and the
+    /// process died building Z3 variables long before it reached the solver.
+    /// `validate` only ever checked `time_step > 0.0`.
+    #[test]
+    fn test_validate_rejects_a_time_step_that_would_hang() {
+        let mut spec = create_valid_spec();
+        spec.time_step = 1e-9;
+
+        let err = spec
+            .validate()
+            .expect_err("1e-9 s steps over 10 s is 10^10 time steps");
+        assert!(
+            err.contains("time_step must be at least"),
+            "error must name the field and the accepted range, got: {err}"
+        );
+    }
+
+    /// SW-12/L2: the optional safety scalars are checked for sign.
+    ///
+    /// A negative `min_lateral_distance` is a constraint no pair can fail, so
+    /// it silently disables the check it looks like it enables.
+    #[test]
+    fn test_validate_rejects_negative_optional_bounds() {
+        for (name, apply) in [
+            (
+                "min_lateral_distance",
+                (|s: &mut ScenarioSpec| s.min_lateral_distance = Some(-1.0))
+                    as fn(&mut ScenarioSpec),
+            ),
+            ("max_velocity", |s: &mut ScenarioSpec| {
+                s.max_velocity = Some(-1.0)
+            }),
+            ("max_relative_velocity", |s: &mut ScenarioSpec| {
+                s.max_relative_velocity = Some(-1.0)
+            }),
+        ] {
+            let mut spec = create_valid_spec();
+            apply(&mut spec);
+            let err = spec
+                .validate()
+                .expect_err("negative bound must be rejected");
+            assert!(err.contains(name), "error must name {name}, got: {err}");
+        }
+    }
+
+    /// SW-12/L2: `lane_width` is bounded from above as well as below.
+    #[test]
+    fn test_validate_rejects_an_absurd_lane_width() {
+        let mut spec = create_valid_spec();
+        if let Some(road) = spec.road.as_mut() {
+            road.lane_width = 500.0;
+        }
+        let err = spec.validate().expect_err("a 500 m lane is not a lane");
+        assert!(
+            err.contains("lane_width must be within"),
+            "error must name the field and the accepted range, got: {err}"
+        );
     }
 
     fn create_test_spec() -> ScenarioSpec {

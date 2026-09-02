@@ -243,8 +243,15 @@ fn test_ignore_mode_generates_with_fewer_constraints() {
 /// `min_distance = 5.0000` — exactly on the boundary, i.e. the constraint still
 /// holds. The old assertion used `<=`, which accepted that. The correct
 /// assertion is a strict `<`.
+///
+/// Fixed by SW-12. `DistanceGT` lowered to a *strict* `|dx| > d`, so the
+/// negation `Violate` asserts is `|dx| <= d` — satisfied by `d` exactly. The
+/// validator, meanwhile, calls `distance < min_distance` a breach, so the
+/// solver's answer was a distance the validator reported as *safe* for a
+/// constraint the spec asked to have violated. The lowering is non-strict now
+/// (`|dx| >= d`, which is the validator's own definition of safe), and the
+/// negation is therefore `|dx| < d`, strictly.
 #[test]
-#[ignore = "SW-12: ConstraintMode::Violate produces a boundary-satisfying solution (min_distance == threshold) instead of negating the constraint"]
 fn test_violate_mode_negates_constraint() {
     let mut spec = short_cut_in_left();
     let threshold = spec.min_distance;
@@ -260,6 +267,10 @@ fn test_violate_mode_negates_constraint() {
 
     let scenario = common::generate_spec_or_fail(spec);
 
+    println!(
+        "SW-12 violate mode: min_distance = {:?} against threshold {threshold:.2}",
+        scenario.validation.min_distance
+    );
     assert!(
         scenario
             .validation
@@ -278,32 +289,44 @@ fn test_violate_mode_negates_constraint() {
 /// this test fails, rather than passing vacuously on a sentinel that satisfies
 /// any `>=` threshold.
 ///
-/// The fixture is `simple_bidirectional.yaml`: it declares both modes as
-/// `enforce` and both metrics are measured (TTC 3.99 s against a 3.0 s
-/// threshold, distance 39.08 m against 5.0 m).
+/// The fixture is `head_on_near_miss.yaml`: it declares both modes as
+/// `enforce` and both metrics are measured (TTC 4.85 s against a 2.0 s
+/// threshold, distance 23.31 m against 5.0 m).
 ///
-/// It is the *third* fixture this test has had to move to.
-/// `speed_limit_violation.yaml` stopped producing a measured TTC when SW-10
-/// reconciled the encoder's and the validator's same-lane predicates and Z3
-/// moved to a different, equally valid model; that had replaced
-/// `unsafe_following.yaml`, which stopped when SW-09 chained `vy` to `ay`; and
-/// that had replaced `overtake_with_opposite.yaml`, which stopped when SW-08
-/// corrected the lane centres and the position integration. Every time, the
-/// mechanism is the same: nothing in the encoding *requires* the two actors to
-/// be closing on each other, so whether a TTC exists to measure is decided by
-/// which satisfying model Z3 happens to return.
+/// It is the *fourth* fixture this test has had to move to.
+/// `simple_bidirectional.yaml` stopped producing a measured TTC when SW-12
+/// added the forward-progress bound and Z3 moved to a different, equally valid
+/// model — as, in the same change, did `cut_in_right.yaml`, which was briefly
+/// its replacement; that had replaced `speed_limit_violation.yaml`, which stopped when
+/// SW-10 reconciled the encoder's and the validator's same-lane predicates;
+/// that had replaced `unsafe_following.yaml`, which stopped when SW-09 chained
+/// `vy` to `ay`; and that had replaced `overtake_with_opposite.yaml`, which
+/// stopped when SW-08 corrected the lane centres and the position integration.
+/// Every time, the mechanism is the same: nothing in the encoding *requires*
+/// the two actors to be closing on each other, so whether a TTC exists to
+/// measure is decided by which satisfying model Z3 happens to return.
 ///
-/// `simple_bidirectional` should be steadier than its predecessors, because its
-/// closing pair is structural rather than incidental — the two actors travel in
-/// opposite directions down the same road, so they approach each other in every
-/// model. Forcing a conflict in the same-direction examples is SW-12's
-/// forward-progress work; the corpus-wide version of this test,
+/// **This will keep happening until a conflict is required rather than hoped
+/// for**, and SW-12 established that the obvious way to require one is not
+/// affordable: `F(some pair is closing)` is a disjunction over every step of
+/// the horizon, and adding it took `cut_in_left` from 4 s to over 500 s and
+/// `bicycle_lane_change` past 200 s. See the SW-12 report; the corpus-wide
+/// version of this test,
 /// `examples_smoke_test::test_enforce_min_ttc_examples_produce_a_measured_ttc`,
-/// is `#[ignore]`d against it.
+/// remains `#[ignore]`d against it.
+///
+/// `head_on_near_miss.yaml` is chosen for the one thing that has survived
+/// every previous rotation: its closing pair is **structural**. The ego and
+/// the oncoming actor travel in opposite directions down the same road, so
+/// they approach each other in every model there is — no encoding choice can
+/// make that pair stop closing without making the example unsolvable. Its
+/// margins are comfortable too (TTC 4.85 s against 2.0 s, distance 23.31 m
+/// against 5.0 m), where several of the alternatives sit on their thresholds
+/// exactly and are one rounding step from a spurious failure.
 #[test]
 fn test_enforce_mode_respects_constraint() {
     // Declares `min_ttc: enforce` and `min_distance: enforce`.
-    let spec = common::parse_example("simple_bidirectional.yaml");
+    let spec = common::parse_example("head_on_near_miss.yaml");
     assert_eq!(spec.constraint_modes.min_ttc(), ConstraintMode::Enforce);
     assert_eq!(
         spec.constraint_modes.min_distance(),

@@ -244,15 +244,14 @@ fn test_enforce_min_ttc_examples_produce_a_measured_ttc() {
 /// stops failing must be deleted, and
 /// `test_enforce_min_distance_examples_meet_their_threshold` below fails if it
 /// is not. Never add an entry to silence a new failure.
-const MIN_DISTANCE_NOT_ASSERTED: &[(&str, &str)] = &[(
-    "head_on_near_miss.yaml",
-    "SW-12 (owns src/scenarios/head_on.rs): `HeadOnModel::generate_safety` builds TTC and \
-     distance constraints for the ego <-> oncoming pair *only* — see the `// Only ego <-> \
-     oncoming gets the requested constraint mode` comment — while \
-     `compute_validation_metrics` measures every pair. The breach reported here is \
-     ego <-> slow_npc, a pair the encoder never constrained at all, so no change inside \
-     the encoder can satisfy it.",
-)];
+/// Empty since SW-12: `HeadOnModel::generate_safety` used to build TTC and
+/// distance constraints for the ego <-> oncoming pair *only* — under the
+/// comment "Only ego <-> oncoming gets the requested constraint mode" — while
+/// `compute_validation_metrics` measured every pair, so the breach
+/// `head_on_near_miss` reported was on ego <-> slow_npc, a pair the encoder
+/// had never constrained. `generate_safety` now applies the declared
+/// `Enforce` mode to every pair, exactly as `generate_default_safety` does.
+const MIN_DISTANCE_NOT_ASSERTED: &[(&str, &str)] = &[];
 
 /// An example that declares `min_distance: enforce` must end up satisfying its
 /// own threshold, with the metric actually measured.
@@ -289,8 +288,18 @@ fn test_enforce_min_distance_examples_meet_their_threshold() {
             .find(|(n, _)| n == name)
             .map(|(_, why)| *why);
 
+        // `>= threshold - TOL`, not a bare `>=`. Since SW-12 the encoder
+        // asserts `|dx| >= min_distance` non-strictly (so that `Violate` can
+        // negate it strictly), and Z3 answers *on* the boundary: `dx` comes
+        // back as exactly 5 as a rational. Rendering the two positions as
+        // `f64` and subtracting does not always round back to 5 —
+        // `cut_in_right_bicycle` and `simple_bidirectional` both report
+        // 4.999999999999999 — so a bare `>=` fails an example the solver
+        // proved. `TOL` is 1e-6, the rational-to-double rounding error
+        // `tests/common/invariants.rs` documents and uses for the same
+        // quantities; the discrepancy it excuses here is 1e-15.
         let met = match scenario.validation.min_distance {
-            Some(d) if d >= threshold => {
+            Some(d) if d >= threshold - common::TOL => {
                 println!("{name}: min_distance={d:.4} >= {threshold}");
                 true
             }

@@ -119,42 +119,76 @@ impl ScenarioModel for HeadOnModel {
 
     /// Custom safety generation for head-on scenario.
     ///
-    /// Only applies TTC/distance constraints to the ego↔oncoming pair.
-    /// Other pairs are left unconstrained — the kinematics (positions, speeds)
-    /// are already set by the encoder from the YAML config.
+    /// Applies the declared TTC/distance constraint modes to **every** actor
+    /// pair, exactly as `generate_default_safety` does; the head-on model
+    /// overrides `generate_safety` only to check that an oncoming actor is
+    /// present at all.
+    ///
+    /// SW-12, inherited from SW-10. This used to constrain the ego ↔ oncoming
+    /// pair alone, under the comment "Other pairs are left unconstrained — the
+    /// kinematics are already set by the encoder from the YAML config". They
+    /// are not: `compute_validation_metrics` measures *every* pair, so the
+    /// distance and TTC breaches `head_on_near_miss` reported were all on the
+    /// ego ↔ slow_npc pair — a pair the encoder had never asserted anything
+    /// about. The tool enforced one thing and reported another, which is the
+    /// same encoder/validator disagreement as H7 one level up, in the scenario
+    /// model rather than in the lowering. It is why the example carried an
+    /// entry in `MIN_DISTANCE_NOT_ASSERTED` that no change inside the encoder
+    /// could have cleared.
     fn generate_safety(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
         let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let npcs = spec.npcs();
 
-        let ego_id = &ego.id;
         let passing_lane = ego.lane + 1;
 
-        // Identify the oncoming NPC
-        let oncoming_npc = npcs
+        let ego_id = &ego.id;
+        let oncoming_id = &npcs
             .iter()
             .find(|n| n.lane == passing_lane && n.direction != ego.direction)
             .ok_or_else(|| {
                 ScenarioGenError::InvalidSpec(
                     "Head-on scenario requires an oncoming actor (direction=-1)".to_string(),
                 )
-            })?;
-        let oncoming_id = &oncoming_npc.id;
+            })?
+            .id;
 
         let mut constraints = Vec::new();
 
         let ttc_mode = spec.constraint_modes.min_ttc();
         let dist_mode = spec.constraint_modes.min_distance();
 
-        // Only ego ↔ oncoming gets the requested constraint mode
-        Self::add_pair_constraints(
-            &mut constraints,
-            ego_id,
-            oncoming_id,
-            spec.min_ttc,
-            spec.min_distance,
-            ttc_mode,
-            dist_mode,
-        );
+        // `Enforce` is a property of the whole scene, so it goes on every
+        // pair. `Violate` is not: "this scenario breaches its distance
+        // threshold" is satisfied by one breach, and demanding that *every*
+        // pair breach it makes `head_on_collision` — ego, oncoming and a slow
+        // npc two lanes away, all three declared `violate` — UNSAT. The
+        // adversarial pair a head-on scenario is about is ego <-> oncoming, so
+        // that is the pair the violation is required of.
+        for (i, actor1) in spec.actors.iter().enumerate() {
+            for actor2 in spec.actors.iter().skip(i + 1) {
+                let pair_is_conflict = (actor1.id == *ego_id && actor2.id == *oncoming_id)
+                    || (actor2.id == *ego_id && actor1.id == *oncoming_id);
+                let ttc_for_pair = if ttc_mode == ConstraintMode::Violate && !pair_is_conflict {
+                    ConstraintMode::Ignore
+                } else {
+                    ttc_mode
+                };
+                let dist_for_pair = if dist_mode == ConstraintMode::Violate && !pair_is_conflict {
+                    ConstraintMode::Ignore
+                } else {
+                    dist_mode
+                };
+                Self::add_pair_constraints(
+                    &mut constraints,
+                    &actor1.id,
+                    &actor2.id,
+                    spec.min_ttc,
+                    spec.min_distance,
+                    ttc_for_pair,
+                    dist_for_pair,
+                );
+            }
+        }
 
         Ok(LTLFormula::conjunction(constraints))
     }

@@ -24,3 +24,17 @@ fail-fast = false
 [[profile.default.overrides]]
 filter = 'test(test_bicycle_vs_cartesian_both_generate)'
 slow-timeout = { period = "60s", terminate-after = 4 }
+
+# 30 proptest cases, each a full Z3 solve of a perturbed `cut_in_left`.
+# Measured 33.2s before SW-12 and 116.4s after: the forward-progress bound
+# (`px[horizon] - px[0] >= f * speed.min() * duration`) is a single linear row,
+# but it couples the two ends of a 101-step integration chain, so the LP can no
+# longer be decided locally. That cost is paid 30 times here.
+#
+# Given its own budget rather than widening the global threshold, and rather
+# than cutting the case count — 30 cases is what makes this test worth having.
+# If a later issue makes forward progress cheaper, lower this back rather than
+# leaving the slack.
+[[profile.default.overrides]]
+filter = 'test(envelope_and_extraction_agreement_hold_over_perturbed_cut_in_left)'
+slow-timeout = { period = "60s", terminate-after = 4 }

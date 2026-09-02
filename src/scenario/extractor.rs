@@ -146,9 +146,28 @@ mod tests {
         result.unwrap()
     }
 
+    /// The validation metrics must be *computed*, not left unevaluated.
+    ///
+    /// SW-12: this used to run on `create_test_spec()`, whose npc (12-14 m/s,
+    /// 60-80 m ahead) is faster than the ego and simply drives away, so
+    /// whether a TTC ever got computed depended on which satisfying model Z3
+    /// happened to return — `Always(TTCGT(..))` is a guarded implication and
+    /// says nothing when nobody closes. The forward-progress bound changed
+    /// that arbitrary choice and the test started failing, correctly: it had
+    /// been asserting the solver's luck. The spec here puts a *slower* npc in
+    /// front of the ego, so a closing conflict exists by construction and the
+    /// metric has to be evaluated for any model at all.
     #[test]
     fn test_extract_scenario_validation_metrics() {
-        let spec = create_test_spec();
+        let mut spec = create_test_spec();
+        // Both actors start in the ego's lane, npc 30 m ahead and 6 m/s
+        // slower, so at t = 0 the pair is already same-lane, ordered and
+        // closing: TTC = 30 / 6 = 5 s, comfortably above the 3 s threshold.
+        // No choice the solver makes later can leave the metric unevaluated.
+        spec.actors[1].lane = 1;
+        spec.actors[1].position = ValueOrRange::Value(80.0);
+        spec.actors[1].speed = ValueOrRange::Value(9.0);
+        spec.actors[1].lane_changes[0].direction = LaneChangeDirection::Left;
         let scenario = run_extraction(&spec);
 
         let min_ttc = scenario
@@ -166,7 +185,13 @@ mod tests {
         assert!(min_distance > 0.0);
 
         // all_constraints_satisfied is a bool — for a valid SAT scenario it should be true
-        assert!(scenario.validation.all_constraints_satisfied);
+        assert!(
+            scenario.validation.all_constraints_satisfied,
+            "violations: {:?} ttc={:?} dist={:?}",
+            scenario.validation.safety_violations,
+            scenario.validation.min_ttc,
+            scenario.validation.min_distance
+        );
     }
 
     #[test]

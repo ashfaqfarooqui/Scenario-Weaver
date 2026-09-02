@@ -171,7 +171,7 @@ pub fn encode_pedestrian_kinematics_step<B: Z3Backend>(
 /// Encode per-step bounds for a pedestrian's velocity and acceleration.
 ///
 /// - Acceleration bounds: clamp actor range to `[-1.0, +1.0]` for both axes
-/// - Speed box constraint: `|vx| <= max_speed` AND `|vy| <= max_speed`
+/// - Speed octagon: `|vx| <= v`, `|vy| <= v` and `|vx| + |vy| <= sqrt(2)*v`
 pub fn encode_pedestrian_bounds_step<B: Z3Backend>(
     backend: &B,
     vx_t: &Real,
@@ -190,7 +190,22 @@ pub fn encode_pedestrian_bounds_step<B: Z3Backend>(
     backend.assert(&ay_t.ge(&ax_min_real));
     backend.assert(&ay_t.le(&ax_max_real));
 
-    // Speed box constraint: |vx| <= max_speed AND |vy| <= max_speed
+    // Speed octagon (SW-12/M8):
+    //     |vx| <= v,  |vy| <= v,  |vx| + |vy| <= sqrt(2)*v
+    //
+    // The last pair of half-planes is the whole change. Without them the
+    // bound is a *box*, which contains the disk and lets a pedestrian walk at
+    // sqrt(2)*v on the diagonal; `dsl::types` compensated by dividing the
+    // speed constants by sqrt(2), which fixed the diagonal and broke every
+    // other direction — a pedestrian crossing perpendicular to the road, the
+    // dominant case here, was capped at 1.41 m/s instead of 2.0.
+    //
+    // `|vx| + |vy| <= c` is four linear constraints, one per sign
+    // combination, asserted unconditionally: no Bool selector, no case split,
+    // so this is propagation rather than search and the encoding stays in
+    // QF_LRA. The disk `vx^2 + vy^2 <= v^2` would be exact but nonlinear —
+    // QF_NRA with the Int lane variable in the same problem, where Z3 answers
+    // `unknown` and `Optimize` has no support for the objective at all.
     let max_speed = pedestrian_max_speed(actor);
     let max_speed_real = real_from_f64(max_speed);
     let neg_max_speed_real = real_from_f64(-max_speed);
@@ -199,6 +214,14 @@ pub fn encode_pedestrian_bounds_step<B: Z3Backend>(
     backend.assert(&vx_t.le(&max_speed_real));
     backend.assert(&vy_t.ge(&neg_max_speed_real));
     backend.assert(&vy_t.le(&max_speed_real));
+
+    let diag_real = real_from_f64(max_speed * std::f64::consts::SQRT_2);
+    let sum = vx_t + vy_t;
+    let diff = vx_t - vy_t;
+    backend.assert(&sum.le(&diag_real));
+    backend.assert(&diff.le(&diag_real));
+    backend.assert(&(&Real::from_rational(0_i64, 1_i64) - &sum).le(&diag_real));
+    backend.assert(&(&Real::from_rational(0_i64, 1_i64) - &diff).le(&diag_real));
 }
 
 /// Extract a pedestrian's trajectory from the Z3 model.

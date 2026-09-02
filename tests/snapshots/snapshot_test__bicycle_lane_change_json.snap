@@ -33,7 +33,7 @@ expression: json
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -43,15 +43,15 @@ expression: json
           "time": 0.1,
           "cartesian": {
             "position": {
-              "x": 51.515,
+              "x": 51.46,
               "y": 5.25
             },
             "velocity": {
-              "vx": 15.3,
+              "vx": 14.2,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -61,15 +61,15 @@ expression: json
           "time": 0.2,
           "cartesian": {
             "position": {
-              "x": 53.06,
+              "x": 52.84,
               "y": 5.25
             },
             "velocity": {
-              "vx": 15.6,
+              "vx": 13.4,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -79,15 +79,15 @@ expression: json
           "time": 0.30000000000000004,
           "cartesian": {
             "position": {
-              "x": 54.635,
+              "x": 54.14,
               "y": 5.25
             },
             "velocity": {
-              "vx": 15.9,
+              "vx": 12.6,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -97,15 +97,15 @@ expression: json
           "time": 0.4,
           "cartesian": {
             "position": {
-              "x": 56.24,
+              "x": 55.36,
               "y": 5.25
             },
             "velocity": {
-              "vx": 16.2,
+              "vx": 11.8,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -115,11 +115,11 @@ expression: json
           "time": 0.5,
           "cartesian": {
             "position": {
-              "x": 57.875,
+              "x": 56.5,
               "y": 5.25
             },
             "velocity": {
-              "vx": 16.5,
+              "vx": 11.0,
               "vy": 0.0
             },
             "acceleration": {
@@ -133,11 +133,11 @@ expression: json
           "time": 0.6000000000000001,
           "cartesian": {
             "position": {
-              "x": 59.54,
+              "x": 57.615,
               "y": 5.25
             },
             "velocity": {
-              "vx": 16.8,
+              "vx": 11.3,
               "vy": 0.0
             },
             "acceleration": {
@@ -151,11 +151,11 @@ expression: json
           "time": 0.7000000000000001,
           "cartesian": {
             "position": {
-              "x": 61.235,
+              "x": 58.76,
               "y": 5.25
             },
             "velocity": {
-              "vx": 17.1,
+              "vx": 11.6,
               "vy": 0.0
             },
             "acceleration": {
@@ -169,11 +169,11 @@ expression: json
           "time": 0.8,
           "cartesian": {
             "position": {
-              "x": 62.96,
+              "x": 59.935,
               "y": 5.25
             },
             "velocity": {
-              "vx": 17.4,
+              "vx": 11.9,
               "vy": 0.0
             },
             "acceleration": {
@@ -187,11 +187,11 @@ expression: json
           "time": 0.9,
           "cartesian": {
             "position": {
-              "x": 64.715,
+              "x": 61.14,
               "y": 5.25
             },
             "velocity": {
-              "vx": 17.7,
+              "vx": 12.2,
               "vy": 0.0
             },
             "acceleration": {
@@ -205,11 +205,11 @@ expression: json
           "time": 1.0,
           "cartesian": {
             "position": {
-              "x": 66.5,
+              "x": 62.375,
               "y": 5.25
             },
             "velocity": {
-              "vx": 18.0,
+              "vx": 12.5,
               "vy": 0.0
             },
             "acceleration": {
@@ -223,11 +223,11 @@ expression: json
           "time": 1.1,
           "cartesian": {
             "position": {
-              "x": 68.315,
+              "x": 63.64,
               "y": 5.25
             },
             "velocity": {
-              "vx": 18.3,
+              "vx": 12.8,
               "vy": 0.0
             },
             "acceleration": {
@@ -241,11 +241,11 @@ expression: json
           "time": 1.2000000000000002,
           "cartesian": {
             "position": {
-              "x": 70.16,
+              "x": 64.935,
               "y": 5.25
             },
             "velocity": {
-              "vx": 18.6,
+              "vx": 13.1,
               "vy": 0.0
             },
             "acceleration": {
@@ -259,11 +259,11 @@ expression: json
           "time": 1.3,
           "cartesian": {
             "position": {
-              "x": 72.035,
+              "x": 66.26,
               "y": 5.25
             },
             "velocity": {
-              "vx": 18.9,
+              "vx": 13.4,
               "vy": 0.0
             },
             "acceleration": {
@@ -277,11 +277,11 @@ expression: json
           "time": 1.4000000000000001,
           "cartesian": {
             "position": {
-              "x": 73.94,
+              "x": 67.615,
               "y": 5.25
             },
             "velocity": {
-              "vx": 19.2,
+              "vx": 13.7,
               "vy": 0.0
             },
             "acceleration": {
@@ -295,11 +295,11 @@ expression: json
           "time": 1.5,
           "cartesian": {
             "position": {
-              "x": 75.875,
+              "x": 69.0,
               "y": 5.25
             },
             "velocity": {
-              "vx": 19.5,
+              "vx": 14.0,
               "vy": 0.0
             },
             "acceleration": {
@@ -313,11 +313,11 @@ expression: json
           "time": 1.6,
           "cartesian": {
             "position": {
-              "x": 77.84,
+              "x": 70.415,
               "y": 5.25
             },
             "velocity": {
-              "vx": 19.8,
+              "vx": 14.3,
               "vy": 0.0
             },
             "acceleration": {
@@ -331,11 +331,11 @@ expression: json
           "time": 1.7000000000000002,
           "cartesian": {
             "position": {
-              "x": 79.835,
+              "x": 71.86,
               "y": 5.25
             },
             "velocity": {
-              "vx": 20.1,
+              "vx": 14.6,
               "vy": 0.0
             },
             "acceleration": {
@@ -349,11 +349,11 @@ expression: json
           "time": 1.8,
           "cartesian": {
             "position": {
-              "x": 81.86,
+              "x": 73.335,
               "y": 5.25
             },
             "velocity": {
-              "vx": 20.4,
+              "vx": 14.9,
               "vy": 0.0
             },
             "acceleration": {
@@ -367,11 +367,11 @@ expression: json
           "time": 1.9000000000000001,
           "cartesian": {
             "position": {
-              "x": 83.915,
+              "x": 74.84,
               "y": 5.25
             },
             "velocity": {
-              "vx": 20.7,
+              "vx": 15.2,
               "vy": 0.0
             },
             "acceleration": {
@@ -385,11 +385,11 @@ expression: json
           "time": 2.0,
           "cartesian": {
             "position": {
-              "x": 86.0,
+              "x": 76.375,
               "y": 5.25
             },
             "velocity": {
-              "vx": 21.0,
+              "vx": 15.5,
               "vy": 0.0
             },
             "acceleration": {
@@ -403,11 +403,11 @@ expression: json
           "time": 2.1,
           "cartesian": {
             "position": {
-              "x": 88.115,
+              "x": 77.94,
               "y": 5.25
             },
             "velocity": {
-              "vx": 21.3,
+              "vx": 15.8,
               "vy": 0.0
             },
             "acceleration": {
@@ -421,11 +421,11 @@ expression: json
           "time": 2.2,
           "cartesian": {
             "position": {
-              "x": 90.26,
+              "x": 79.535,
               "y": 5.25
             },
             "velocity": {
-              "vx": 21.6,
+              "vx": 16.1,
               "vy": 0.0
             },
             "acceleration": {
@@ -439,11 +439,11 @@ expression: json
           "time": 2.3000000000000003,
           "cartesian": {
             "position": {
-              "x": 92.435,
+              "x": 81.16,
               "y": 5.25
             },
             "velocity": {
-              "vx": 21.9,
+              "vx": 16.4,
               "vy": 0.0
             },
             "acceleration": {
@@ -457,11 +457,11 @@ expression: json
           "time": 2.4000000000000004,
           "cartesian": {
             "position": {
-              "x": 94.64,
+              "x": 82.815,
               "y": 5.25
             },
             "velocity": {
-              "vx": 22.2,
+              "vx": 16.7,
               "vy": 0.0
             },
             "acceleration": {
@@ -475,11 +475,11 @@ expression: json
           "time": 2.5,
           "cartesian": {
             "position": {
-              "x": 96.875,
+              "x": 84.5,
               "y": 5.25
             },
             "velocity": {
-              "vx": 22.5,
+              "vx": 17.0,
               "vy": 0.0
             },
             "acceleration": {
@@ -493,11 +493,11 @@ expression: json
           "time": 2.6,
           "cartesian": {
             "position": {
-              "x": 99.14,
+              "x": 86.215,
               "y": 5.25
             },
             "velocity": {
-              "vx": 22.8,
+              "vx": 17.3,
               "vy": 0.0
             },
             "acceleration": {
@@ -511,11 +511,11 @@ expression: json
           "time": 2.7,
           "cartesian": {
             "position": {
-              "x": 101.435,
+              "x": 87.96,
               "y": 5.25
             },
             "velocity": {
-              "vx": 23.1,
+              "vx": 17.6,
               "vy": 0.0
             },
             "acceleration": {
@@ -529,11 +529,11 @@ expression: json
           "time": 2.8000000000000003,
           "cartesian": {
             "position": {
-              "x": 103.76,
+              "x": 89.735,
               "y": 5.25
             },
             "velocity": {
-              "vx": 23.4,
+              "vx": 17.9,
               "vy": 0.0
             },
             "acceleration": {
@@ -547,11 +547,11 @@ expression: json
           "time": 2.9000000000000004,
           "cartesian": {
             "position": {
-              "x": 106.115,
+              "x": 91.54,
               "y": 5.25
             },
             "velocity": {
-              "vx": 23.7,
+              "vx": 18.2,
               "vy": 0.0
             },
             "acceleration": {
@@ -565,11 +565,11 @@ expression: json
           "time": 3.0,
           "cartesian": {
             "position": {
-              "x": 108.5,
+              "x": 93.375,
               "y": 5.25
             },
             "velocity": {
-              "vx": 24.0,
+              "vx": 18.5,
               "vy": 0.0
             },
             "acceleration": {
@@ -583,11 +583,11 @@ expression: json
           "time": 3.1,
           "cartesian": {
             "position": {
-              "x": 110.915,
+              "x": 95.24,
               "y": 5.25
             },
             "velocity": {
-              "vx": 24.3,
+              "vx": 18.8,
               "vy": 0.0
             },
             "acceleration": {
@@ -601,11 +601,11 @@ expression: json
           "time": 3.2,
           "cartesian": {
             "position": {
-              "x": 113.36,
+              "x": 97.135,
               "y": 5.25
             },
             "velocity": {
-              "vx": 24.6,
+              "vx": 19.1,
               "vy": 0.0
             },
             "acceleration": {
@@ -619,11 +619,11 @@ expression: json
           "time": 3.3000000000000003,
           "cartesian": {
             "position": {
-              "x": 115.835,
+              "x": 99.06,
               "y": 5.25
             },
             "velocity": {
-              "vx": 24.9,
+              "vx": 19.4,
               "vy": 0.0
             },
             "acceleration": {
@@ -637,11 +637,11 @@ expression: json
           "time": 3.4000000000000004,
           "cartesian": {
             "position": {
-              "x": 118.34,
+              "x": 101.015,
               "y": 5.25
             },
             "velocity": {
-              "vx": 25.2,
+              "vx": 19.7,
               "vy": 0.0
             },
             "acceleration": {
@@ -655,11 +655,11 @@ expression: json
           "time": 3.5,
           "cartesian": {
             "position": {
-              "x": 120.875,
+              "x": 103.0,
               "y": 5.25
             },
             "velocity": {
-              "vx": 25.5,
+              "vx": 20.0,
               "vy": 0.0
             },
             "acceleration": {
@@ -673,15 +673,15 @@ expression: json
           "time": 3.6,
           "cartesian": {
             "position": {
-              "x": 123.44,
+              "x": 105.015,
               "y": 5.25
             },
             "velocity": {
-              "vx": 25.8,
+              "vx": 20.3,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -691,15 +691,15 @@ expression: json
           "time": 3.7,
           "cartesian": {
             "position": {
-              "x": 125.98,
+              "x": 107.06,
               "y": 5.25
             },
             "velocity": {
-              "vx": 25.0,
+              "vx": 20.6,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -709,15 +709,15 @@ expression: json
           "time": 3.8000000000000003,
           "cartesian": {
             "position": {
-              "x": 128.44,
+              "x": 109.135,
               "y": 5.25
             },
             "velocity": {
-              "vx": 24.2,
+              "vx": 20.9,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -727,15 +727,15 @@ expression: json
           "time": 3.9000000000000004,
           "cartesian": {
             "position": {
-              "x": 130.82,
+              "x": 111.24,
               "y": 5.25
             },
             "velocity": {
-              "vx": 23.4,
+              "vx": 21.2,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -745,15 +745,15 @@ expression: json
           "time": 4.0,
           "cartesian": {
             "position": {
-              "x": 133.12,
+              "x": 113.375,
               "y": 5.25
             },
             "velocity": {
-              "vx": 22.6,
+              "vx": 21.5,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -763,7 +763,7 @@ expression: json
           "time": 4.1000000000000005,
           "cartesian": {
             "position": {
-              "x": 135.34,
+              "x": 115.54,
               "y": 5.25
             },
             "velocity": {
@@ -771,7 +771,7 @@ expression: json
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -781,15 +781,15 @@ expression: json
           "time": 4.2,
           "cartesian": {
             "position": {
-              "x": 137.48,
+              "x": 117.735,
               "y": 5.25
             },
             "velocity": {
-              "vx": 21.0,
+              "vx": 22.1,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -799,15 +799,15 @@ expression: json
           "time": 4.3,
           "cartesian": {
             "position": {
-              "x": 139.54,
+              "x": 119.96,
               "y": 5.25
             },
             "velocity": {
-              "vx": 20.2,
+              "vx": 22.4,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -817,15 +817,15 @@ expression: json
           "time": 4.4,
           "cartesian": {
             "position": {
-              "x": 141.52,
+              "x": 122.215,
               "y": 5.25
             },
             "velocity": {
-              "vx": 19.4,
+              "vx": 22.7,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -835,15 +835,15 @@ expression: json
           "time": 4.5,
           "cartesian": {
             "position": {
-              "x": 143.42,
+              "x": 124.5,
               "y": 5.25
             },
             "velocity": {
-              "vx": 18.6,
+              "vx": 23.0,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -853,15 +853,15 @@ expression: json
           "time": 4.6000000000000005,
           "cartesian": {
             "position": {
-              "x": 145.24,
+              "x": 126.815,
               "y": 5.25
             },
             "velocity": {
-              "vx": 17.8,
+              "vx": 23.3,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -871,15 +871,15 @@ expression: json
           "time": 4.7,
           "cartesian": {
             "position": {
-              "x": 146.98,
+              "x": 129.16,
               "y": 5.25
             },
             "velocity": {
-              "vx": 17.0,
+              "vx": 23.6,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -889,15 +889,15 @@ expression: json
           "time": 4.800000000000001,
           "cartesian": {
             "position": {
-              "x": 148.64,
+              "x": 131.535,
               "y": 5.25
             },
             "velocity": {
-              "vx": 16.2,
+              "vx": 23.9,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -907,15 +907,15 @@ expression: json
           "time": 4.9,
           "cartesian": {
             "position": {
-              "x": 150.22,
+              "x": 133.94,
               "y": 5.25
             },
             "velocity": {
-              "vx": 15.4,
+              "vx": 24.2,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -925,15 +925,15 @@ expression: json
           "time": 5.0,
           "cartesian": {
             "position": {
-              "x": 151.72,
+              "x": 136.375,
               "y": 5.25
             },
             "velocity": {
-              "vx": 14.6,
+              "vx": 24.5,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -943,15 +943,15 @@ expression: json
           "time": 5.1000000000000005,
           "cartesian": {
             "position": {
-              "x": 153.14,
+              "x": 138.84,
               "y": 5.25
             },
             "velocity": {
-              "vx": 13.8,
+              "vx": 24.8,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -961,15 +961,15 @@ expression: json
           "time": 5.2,
           "cartesian": {
             "position": {
-              "x": 154.48,
+              "x": 141.335,
               "y": 5.25
             },
             "velocity": {
-              "vx": 13.0,
+              "vx": 25.1,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -979,15 +979,15 @@ expression: json
           "time": 5.300000000000001,
           "cartesian": {
             "position": {
-              "x": 155.74,
+              "x": 143.86,
               "y": 5.25
             },
             "velocity": {
-              "vx": 12.2,
+              "vx": 25.4,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -997,15 +997,15 @@ expression: json
           "time": 5.4,
           "cartesian": {
             "position": {
-              "x": 156.92,
+              "x": 146.415,
               "y": 5.25
             },
             "velocity": {
-              "vx": 11.4,
+              "vx": 25.7,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1015,15 +1015,15 @@ expression: json
           "time": 5.5,
           "cartesian": {
             "position": {
-              "x": 158.02,
+              "x": 149.0,
               "y": 5.25
             },
             "velocity": {
-              "vx": 10.6,
+              "vx": 26.0,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1033,15 +1033,15 @@ expression: json
           "time": 5.6000000000000005,
           "cartesian": {
             "position": {
-              "x": 159.04,
+              "x": 151.615,
               "y": 5.25
             },
             "velocity": {
-              "vx": 9.8,
+              "vx": 26.3,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1051,15 +1051,15 @@ expression: json
           "time": 5.7,
           "cartesian": {
             "position": {
-              "x": 159.98,
+              "x": 154.26,
               "y": 5.25
             },
             "velocity": {
-              "vx": 9.0,
+              "vx": 26.6,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1069,15 +1069,15 @@ expression: json
           "time": 5.800000000000001,
           "cartesian": {
             "position": {
-              "x": 160.84,
+              "x": 156.935,
               "y": 5.25
             },
             "velocity": {
-              "vx": 8.2,
+              "vx": 26.9,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1087,15 +1087,15 @@ expression: json
           "time": 5.9,
           "cartesian": {
             "position": {
-              "x": 161.62,
+              "x": 159.64,
               "y": 5.25
             },
             "velocity": {
-              "vx": 7.4,
+              "vx": 27.2,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1105,15 +1105,15 @@ expression: json
           "time": 6.0,
           "cartesian": {
             "position": {
-              "x": 162.32,
+              "x": 162.375,
               "y": 5.25
             },
             "velocity": {
-              "vx": 6.6,
+              "vx": 27.5,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1123,15 +1123,15 @@ expression: json
           "time": 6.1000000000000005,
           "cartesian": {
             "position": {
-              "x": 162.94,
+              "x": 165.14,
               "y": 5.25
             },
             "velocity": {
-              "vx": 5.8,
+              "vx": 27.8,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1141,15 +1141,15 @@ expression: json
           "time": 6.2,
           "cartesian": {
             "position": {
-              "x": 163.48,
+              "x": 167.935,
               "y": 5.25
             },
             "velocity": {
-              "vx": 5.0,
+              "vx": 28.1,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1159,11 +1159,11 @@ expression: json
           "time": 6.300000000000001,
           "cartesian": {
             "position": {
-              "x": 163.94,
+              "x": 170.76,
               "y": 5.25
             },
             "velocity": {
-              "vx": 4.2,
+              "vx": 28.4,
               "vy": 0.0
             },
             "acceleration": {
@@ -1177,11 +1177,11 @@ expression: json
           "time": 6.4,
           "cartesian": {
             "position": {
-              "x": 164.32,
+              "x": 173.56,
               "y": 5.25
             },
             "velocity": {
-              "vx": 3.4,
+              "vx": 27.6,
               "vy": 0.0
             },
             "acceleration": {
@@ -1195,15 +1195,15 @@ expression: json
           "time": 6.5,
           "cartesian": {
             "position": {
-              "x": 164.62,
+              "x": 176.28,
               "y": 5.25
             },
             "velocity": {
-              "vx": 2.6,
+              "vx": 26.8,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1213,15 +1213,15 @@ expression: json
           "time": 6.6000000000000005,
           "cartesian": {
             "position": {
-              "x": 164.84,
+              "x": 178.975,
               "y": 5.25
             },
             "velocity": {
-              "vx": 1.8,
+              "vx": 27.1,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": -8.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1231,11 +1231,47 @@ expression: json
           "time": 6.7,
           "cartesian": {
             "position": {
-              "x": 164.98,
+              "x": 181.7,
               "y": 5.25
             },
             "velocity": {
-              "vx": 1.0,
+              "vx": 27.4,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 3.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 6.800000000000001,
+          "cartesian": {
+            "position": {
+              "x": 184.455,
+              "y": 5.25
+            },
+            "velocity": {
+              "vx": 27.7,
+              "vy": 0.0
+            },
+            "acceleration": {
+              "ax": 3.0,
+              "ay": 0.0
+            },
+            "lane": 1
+          }
+        },
+        {
+          "time": 6.9,
+          "cartesian": {
+            "position": {
+              "x": 187.24,
+              "y": 5.25
+            },
+            "velocity": {
+              "vx": 28.0,
               "vy": 0.0
             },
             "acceleration": {
@@ -1246,54 +1282,18 @@ expression: json
           }
         },
         {
-          "time": 6.800000000000001,
-          "cartesian": {
-            "position": {
-              "x": 165.04,
-              "y": 5.25
-            },
-            "velocity": {
-              "vx": 0.2,
-              "vy": 0.0
-            },
-            "acceleration": {
-              "ax": -2.0,
-              "ay": 0.0
-            },
-            "lane": 1
-          }
-        },
-        {
-          "time": 6.9,
-          "cartesian": {
-            "position": {
-              "x": 165.05,
-              "y": 5.25
-            },
-            "velocity": {
-              "vx": 0.0,
-              "vy": 0.0
-            },
-            "acceleration": {
-              "ax": 0.0,
-              "ay": 0.0
-            },
-            "lane": 1
-          }
-        },
-        {
           "time": 7.0,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 190.0,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 27.2,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1303,15 +1303,15 @@ expression: json
           "time": 7.1000000000000005,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 192.735,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 27.5,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1321,15 +1321,15 @@ expression: json
           "time": 7.2,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 195.5,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 27.8,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1339,15 +1339,15 @@ expression: json
           "time": 7.300000000000001,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 198.295,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 28.1,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1357,15 +1357,15 @@ expression: json
           "time": 7.4,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 201.12,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 28.4,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1375,15 +1375,15 @@ expression: json
           "time": 7.5,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 203.975,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 28.7,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1393,15 +1393,15 @@ expression: json
           "time": 7.6000000000000005,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 206.86,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 29.0,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1411,15 +1411,15 @@ expression: json
           "time": 7.7,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 209.775,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 29.3,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1429,15 +1429,15 @@ expression: json
           "time": 7.800000000000001,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 212.72,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 29.6,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1447,15 +1447,15 @@ expression: json
           "time": 7.9,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 215.695,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 29.9,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1465,15 +1465,15 @@ expression: json
           "time": 8.0,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 218.7,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 30.2,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1483,15 +1483,15 @@ expression: json
           "time": 8.1,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 221.735,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 30.5,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1501,15 +1501,15 @@ expression: json
           "time": 8.200000000000001,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 224.8,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 30.8,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1519,15 +1519,15 @@ expression: json
           "time": 8.3,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 227.895,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 31.1,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1537,15 +1537,15 @@ expression: json
           "time": 8.4,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 231.02,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 31.4,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1555,15 +1555,15 @@ expression: json
           "time": 8.5,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 234.175,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 31.7,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1573,15 +1573,15 @@ expression: json
           "time": 8.6,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 237.36,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 32.0,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1591,15 +1591,15 @@ expression: json
           "time": 8.700000000000001,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 240.575,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 32.3,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1609,15 +1609,15 @@ expression: json
           "time": 8.8,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 243.82,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 32.6,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1627,15 +1627,15 @@ expression: json
           "time": 8.9,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 247.095,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 32.9,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1645,15 +1645,15 @@ expression: json
           "time": 9.0,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 250.4,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 33.2,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1663,15 +1663,15 @@ expression: json
           "time": 9.1,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 253.735,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 33.5,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1681,15 +1681,15 @@ expression: json
           "time": 9.200000000000001,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 257.1,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 33.8,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1699,15 +1699,15 @@ expression: json
           "time": 9.3,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 260.495,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 34.1,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1717,15 +1717,15 @@ expression: json
           "time": 9.4,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 263.865,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 33.3,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1735,15 +1735,15 @@ expression: json
           "time": 9.5,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 267.155,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 32.5,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1753,15 +1753,15 @@ expression: json
           "time": 9.600000000000001,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 270.42,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 32.8,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1771,15 +1771,15 @@ expression: json
           "time": 9.700000000000001,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 273.715,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 33.1,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1789,15 +1789,15 @@ expression: json
           "time": 9.8,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 277.04,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 33.4,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1807,15 +1807,15 @@ expression: json
           "time": 9.9,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 280.395,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 33.7,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -1825,11 +1825,11 @@ expression: json
           "time": 10.0,
           "cartesian": {
             "position": {
-              "x": 165.05,
+              "x": 283.725,
               "y": 5.25
             },
             "velocity": {
-              "vx": 0.0,
+              "vx": 32.9,
               "vy": 0.0
             },
             "acceleration": {
@@ -1849,15 +1849,15 @@ expression: json
           "time": 0.0,
           "cartesian": {
             "position": {
-              "x": 60.0,
+              "x": 60.29431532165032,
               "y": 1.75
             },
             "velocity": {
-              "vx": 20.0,
+              "vx": 16.0,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -1867,15 +1867,15 @@ expression: json
           "time": 0.1,
           "cartesian": {
             "position": {
-              "x": 62.015,
+              "x": 61.854315321650326,
               "y": 1.75
             },
             "velocity": {
-              "vx": 20.3,
+              "vx": 15.2,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -1885,15 +1885,15 @@ expression: json
           "time": 0.2,
           "cartesian": {
             "position": {
-              "x": 64.06,
+              "x": 63.33431532165032,
               "y": 1.75
             },
             "velocity": {
-              "vx": 20.6,
+              "vx": 14.4,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -1903,15 +1903,15 @@ expression: json
           "time": 0.30000000000000004,
           "cartesian": {
             "position": {
-              "x": 66.135,
+              "x": 64.73431532165033,
               "y": 1.75
             },
             "velocity": {
-              "vx": 20.9,
+              "vx": 13.6,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -1921,15 +1921,15 @@ expression: json
           "time": 0.4,
           "cartesian": {
             "position": {
-              "x": 68.24,
+              "x": 66.05431532165032,
               "y": 1.75
             },
             "velocity": {
-              "vx": 21.2,
+              "vx": 12.8,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -1939,11 +1939,11 @@ expression: json
           "time": 0.5,
           "cartesian": {
             "position": {
-              "x": 70.375,
+              "x": 67.29431532165033,
               "y": 1.75
             },
             "velocity": {
-              "vx": 21.5,
+              "vx": 12.0,
               "vy": 0.0
             },
             "acceleration": {
@@ -1957,11 +1957,11 @@ expression: json
           "time": 0.6000000000000001,
           "cartesian": {
             "position": {
-              "x": 72.54,
+              "x": 68.50931532165032,
               "y": 1.75
             },
             "velocity": {
-              "vx": 21.8,
+              "vx": 12.3,
               "vy": 0.0
             },
             "acceleration": {
@@ -1975,11 +1975,11 @@ expression: json
           "time": 0.7000000000000001,
           "cartesian": {
             "position": {
-              "x": 74.735,
+              "x": 69.75431532165032,
               "y": 1.75
             },
             "velocity": {
-              "vx": 22.1,
+              "vx": 12.6,
               "vy": 0.0
             },
             "acceleration": {
@@ -1993,11 +1993,11 @@ expression: json
           "time": 0.8,
           "cartesian": {
             "position": {
-              "x": 76.96,
+              "x": 71.02931532165033,
               "y": 1.75
             },
             "velocity": {
-              "vx": 22.4,
+              "vx": 12.9,
               "vy": 0.0
             },
             "acceleration": {
@@ -2011,15 +2011,15 @@ expression: json
           "time": 0.9,
           "cartesian": {
             "position": {
-              "x": 79.215,
+              "x": 72.33431532165032,
               "y": 1.75
             },
             "velocity": {
-              "vx": 22.7,
+              "vx": 13.2,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": 2.445045015579896,
               "ay": 0.0
             },
             "lane": 0
@@ -2029,15 +2029,15 @@ expression: json
           "time": 1.0,
           "cartesian": {
             "position": {
-              "x": 81.5,
+              "x": 73.66654054672823,
               "y": 1.75
             },
             "velocity": {
-              "vx": 23.0,
+              "vx": 13.44450450155799,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -2047,15 +2047,15 @@ expression: json
           "time": 1.1,
           "cartesian": {
             "position": {
-              "x": 83.815,
+              "x": 74.97099099688403,
               "y": 1.75
             },
             "velocity": {
-              "vx": 23.3,
+              "vx": 12.64450450155799,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -2065,15 +2065,15 @@ expression: json
           "time": 1.2000000000000002,
           "cartesian": {
             "position": {
-              "x": 86.16,
+              "x": 76.19544144703981,
               "y": 1.75
             },
             "velocity": {
-              "vx": 23.6,
+              "vx": 11.84450450155799,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -2083,15 +2083,15 @@ expression: json
           "time": 1.3,
           "cartesian": {
             "position": {
-              "x": 88.535,
+              "x": 77.33989189719563,
               "y": 1.75
             },
             "velocity": {
-              "vx": 23.9,
+              "vx": 11.04450450155799,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -2101,15 +2101,15 @@ expression: json
           "time": 1.4000000000000001,
           "cartesian": {
             "position": {
-              "x": 90.94,
+              "x": 78.40434234735142,
               "y": 1.75
             },
             "velocity": {
-              "vx": 24.2,
+              "vx": 10.244504501557989,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -2119,11 +2119,11 @@ expression: json
           "time": 1.5,
           "cartesian": {
             "position": {
-              "x": 93.375,
+              "x": 79.38879279750722,
               "y": 1.75
             },
             "velocity": {
-              "vx": 24.5,
+              "vx": 9.44450450155799,
               "vy": 0.0
             },
             "acceleration": {
@@ -2137,11 +2137,11 @@ expression: json
           "time": 1.6,
           "cartesian": {
             "position": {
-              "x": 95.84,
+              "x": 80.34824324766302,
               "y": 1.75
             },
             "velocity": {
-              "vx": 24.8,
+              "vx": 9.744504501557989,
               "vy": 0.0
             },
             "acceleration": {
@@ -2155,15 +2155,15 @@ expression: json
           "time": 1.7000000000000002,
           "cartesian": {
             "position": {
-              "x": 98.335,
+              "x": 81.33769369781882,
               "y": 1.75
             },
             "velocity": {
-              "vx": 25.1,
+              "vx": 10.04450450155799,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -2173,15 +2173,15 @@ expression: json
           "time": 1.8,
           "cartesian": {
             "position": {
-              "x": 100.86,
+              "x": 82.30214414797462,
               "y": 1.75
             },
             "velocity": {
-              "vx": 25.4,
+              "vx": 9.244504501557989,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -2191,15 +2191,15 @@ expression: json
           "time": 1.9000000000000001,
           "cartesian": {
             "position": {
-              "x": 103.415,
+              "x": 83.18659459813041,
               "y": 1.75
             },
             "velocity": {
-              "vx": 25.7,
+              "vx": 8.44450450155799,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -2209,15 +2209,15 @@ expression: json
           "time": 2.0,
           "cartesian": {
             "position": {
-              "x": 106.0,
+              "x": 83.99104504828621,
               "y": 1.75
             },
             "velocity": {
-              "vx": 26.0,
+              "vx": 7.644504501557989,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -2227,15 +2227,15 @@ expression: json
           "time": 2.1,
           "cartesian": {
             "position": {
-              "x": 108.615,
+              "x": 84.71549549844201,
               "y": 1.75
             },
             "velocity": {
-              "vx": 26.3,
+              "vx": 6.8445045015579895,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -2245,15 +2245,15 @@ expression: json
           "time": 2.2,
           "cartesian": {
             "position": {
-              "x": 111.26,
+              "x": 85.35994594859781,
               "y": 1.75
             },
             "velocity": {
-              "vx": 26.6,
+              "vx": 6.04450450155799,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -2263,15 +2263,15 @@ expression: json
           "time": 2.3000000000000003,
           "cartesian": {
             "position": {
-              "x": 113.935,
+              "x": 85.9243963987536,
               "y": 1.75
             },
             "velocity": {
-              "vx": 26.9,
+              "vx": 5.24450450155799,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 0
@@ -2281,11 +2281,11 @@ expression: json
           "time": 2.4000000000000004,
           "cartesian": {
             "position": {
-              "x": 116.64,
+              "x": 86.4088468489094,
               "y": 1.75
             },
             "velocity": {
-              "vx": 27.2,
+              "vx": 4.444504501557989,
               "vy": 0.0
             },
             "acceleration": {
@@ -2299,11 +2299,11 @@ expression: json
           "time": 2.5,
           "cartesian": {
             "position": {
-              "x": 119.375,
+              "x": 86.8682972990652,
               "y": 1.75
             },
             "velocity": {
-              "vx": 27.5,
+              "vx": 4.74450450155799,
               "vy": 0.0
             },
             "acceleration": {
@@ -2317,11 +2317,11 @@ expression: json
           "time": 2.6,
           "cartesian": {
             "position": {
-              "x": 122.14,
+              "x": 87.357747749221,
               "y": 1.75
             },
             "velocity": {
-              "vx": 27.8,
+              "vx": 5.04450450155799,
               "vy": 0.0
             },
             "acceleration": {
@@ -2335,11 +2335,11 @@ expression: json
           "time": 2.7,
           "cartesian": {
             "position": {
-              "x": 124.935,
+              "x": 87.8771981993768,
               "y": 1.75
             },
             "velocity": {
-              "vx": 28.1,
+              "vx": 5.3445045015579895,
               "vy": 0.0
             },
             "acceleration": {
@@ -2353,11 +2353,11 @@ expression: json
           "time": 2.8000000000000003,
           "cartesian": {
             "position": {
-              "x": 127.76,
+              "x": 88.4266486495326,
               "y": 1.75
             },
             "velocity": {
-              "vx": 28.4,
+              "vx": 5.644504501557989,
               "vy": 0.0
             },
             "acceleration": {
@@ -2371,15 +2371,15 @@ expression: json
           "time": 2.9000000000000004,
           "cartesian": {
             "position": {
-              "x": 130.615,
+              "x": 89.0060990996884,
               "y": 1.75
             },
             "velocity": {
-              "vx": 28.7,
+              "vx": 5.944504501557989,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 1.5,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 0
@@ -2389,16 +2389,16 @@ expression: json
           "time": 3.0,
           "cartesian": {
             "position": {
-              "x": 133.4925,
+              "x": 89.6155495498442,
               "y": 1.75
             },
             "velocity": {
-              "vx": 28.85,
+              "vx": 6.24450450155799,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 3.0,
-              "ay": 2.0
+              "ax": 0.0,
+              "ay": 0.18084490740734374
             },
             "lane": 0
           }
@@ -2407,16 +2407,16 @@ expression: json
           "time": 3.1,
           "cartesian": {
             "position": {
-              "x": 136.3925,
-              "y": 1.76
+              "x": 90.24,
+              "y": 1.7509042245370368
             },
             "velocity": {
-              "vx": 29.15,
-              "vy": 0.2
+              "vx": 6.24450450155799,
+              "vy": 0.018084490740734375
             },
             "acceleration": {
-              "ax": 3.0,
-              "ay": 2.0
+              "ax": 0.0,
+              "ay": 0.3616898148146875
             },
             "lane": 0
           }
@@ -2425,12 +2425,12 @@ expression: json
           "time": 3.2,
           "cartesian": {
             "position": {
-              "x": 139.3225,
-              "y": 1.79
+              "x": 90.8644504501558,
+              "y": 1.7545211226851836
             },
             "velocity": {
-              "vx": 29.45,
-              "vy": 0.4
+              "vx": 6.24450450155799,
+              "vy": 0.05425347222220312
             },
             "acceleration": {
               "ax": 3.0,
@@ -2443,12 +2443,12 @@ expression: json
           "time": 3.3000000000000003,
           "cartesian": {
             "position": {
-              "x": 142.2825,
-              "y": 1.84
+              "x": 91.5039009003116,
+              "y": 1.769946469907404
             },
             "velocity": {
-              "vx": 29.75,
-              "vy": 0.6
+              "vx": 6.54450450155799,
+              "vy": 0.2542534722222031
             },
             "acceleration": {
               "ax": 3.0,
@@ -2461,12 +2461,12 @@ expression: json
           "time": 3.4000000000000004,
           "cartesian": {
             "position": {
-              "x": 145.2725,
-              "y": 1.91
+              "x": 92.1733513504674,
+              "y": 1.8053718171296242
             },
             "velocity": {
-              "vx": 30.05,
-              "vy": 0.8
+              "vx": 6.8445045015579895,
+              "vy": 0.45425347222220314
             },
             "acceleration": {
               "ax": 3.0,
@@ -2479,12 +2479,12 @@ expression: json
           "time": 3.5,
           "cartesian": {
             "position": {
-              "x": 148.2925,
-              "y": 2.0
+              "x": 92.8728018006232,
+              "y": 1.8607971643518446
             },
             "velocity": {
-              "vx": 30.35,
-              "vy": 1.0
+              "vx": 7.144504501557989,
+              "vy": 0.6542534722222031
             },
             "acceleration": {
               "ax": 3.0,
@@ -2497,12 +2497,12 @@ expression: json
           "time": 3.6,
           "cartesian": {
             "position": {
-              "x": 151.3425,
-              "y": 2.11
+              "x": 93.602252250779,
+              "y": 1.9362225115740648
             },
             "velocity": {
-              "vx": 30.65,
-              "vy": 1.2
+              "vx": 7.444504501557989,
+              "vy": 0.8542534722222032
             },
             "acceleration": {
               "ax": 3.0,
@@ -2515,16 +2515,16 @@ expression: json
           "time": 3.7,
           "cartesian": {
             "position": {
-              "x": 154.4225,
-              "y": 2.24
+              "x": 94.3617027009348,
+              "y": 2.031647858796285
             },
             "velocity": {
-              "vx": 30.95,
-              "vy": 1.4
+              "vx": 7.74450450155799,
+              "vy": 1.0542534722222032
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": 2.0
+              "ay": 1.5242220301149532
             },
             "lane": 0
           }
@@ -2533,16 +2533,16 @@ expression: json
           "time": 3.8000000000000003,
           "cartesian": {
             "position": {
-              "x": 157.5325,
-              "y": 2.39
+              "x": 95.1511531510906,
+              "y": 2.14469431616908
             },
             "velocity": {
-              "vx": 31.25,
-              "vy": 1.5999999999999999
+              "vx": 8.04450450155799,
+              "vy": 1.2066756752336982
             },
             "acceleration": {
-              "ax": -6.5,
-              "ay": 2.0
+              "ax": 3.0,
+              "ay": 0.45
             },
             "lane": 0
           }
@@ -2551,16 +2551,16 @@ expression: json
           "time": 3.9000000000000004,
           "cartesian": {
             "position": {
-              "x": 160.625,
-              "y": 2.56
+              "x": 95.9706036012464,
+              "y": 2.26761188369245
             },
             "velocity": {
-              "vx": 30.6,
-              "vy": 1.8
+              "vx": 8.34450450155799,
+              "vy": 1.2516756752336986
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": 2.0
+              "ay": 0.45
             },
             "lane": 0
           }
@@ -2569,16 +2569,16 @@ expression: json
           "time": 4.0,
           "cartesian": {
             "position": {
-              "x": 163.7,
-              "y": 2.75
+              "x": 96.82005405140218,
+              "y": 2.39502945121582
             },
             "velocity": {
-              "vx": 30.9,
-              "vy": 2.0
+              "vx": 8.64450450155799,
+              "vy": 1.2966756752336985
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": -2.0
+              "ay": 0.45
             },
             "lane": 0
           }
@@ -2587,16 +2587,16 @@ expression: json
           "time": 4.1000000000000005,
           "cartesian": {
             "position": {
-              "x": 166.805,
-              "y": 2.94
+              "x": 97.699504501558,
+              "y": 2.5269470187391896
             },
             "velocity": {
-              "vx": 31.2,
-              "vy": 1.8
+              "vx": 8.94450450155799,
+              "vy": 1.3416756752336985
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": -2.0
+              "ay": 0.45
             },
             "lane": 0
           }
@@ -2605,16 +2605,16 @@ expression: json
           "time": 4.2,
           "cartesian": {
             "position": {
-              "x": 169.94,
-              "y": 3.11
+              "x": 98.60895495171378,
+              "y": 2.66336458626256
             },
             "velocity": {
-              "vx": 31.5,
-              "vy": 1.5999999999999999
+              "vx": 9.244504501557989,
+              "vy": 1.3866756752336986
             },
             "acceleration": {
-              "ax": 3.0,
-              "ay": -2.0
+              "ax": 2.554954984420104,
+              "ay": 0.09167583600676563
             },
             "lane": 0
           }
@@ -2623,16 +2623,16 @@ expression: json
           "time": 4.3,
           "cartesian": {
             "position": {
-              "x": 173.105,
-              "y": 3.26
+              "x": 99.54618017679168,
+              "y": 2.802490532965963
             },
             "velocity": {
-              "vx": 31.8,
-              "vy": 1.4000000000000001
+              "vx": 9.5,
+              "vy": 1.3958432588343752
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": -2.0
+              "ay": 0.0
             },
             "lane": 0
           }
@@ -2641,16 +2641,16 @@ expression: json
           "time": 4.4,
           "cartesian": {
             "position": {
-              "x": 176.3,
-              "y": 3.39
+              "x": 100.51118017679168,
+              "y": 2.942074858849401
             },
             "velocity": {
-              "vx": 32.1,
-              "vy": 1.2
+              "vx": 9.8,
+              "vy": 1.3958432588343752
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": -2.0
+              "ay": 0.0
             },
             "lane": 0
           }
@@ -2659,70 +2659,70 @@ expression: json
           "time": 4.5,
           "cartesian": {
             "position": {
-              "x": 179.525,
-              "y": 3.5
+              "x": 101.50618017679169,
+              "y": 3.081659184732838
             },
             "velocity": {
-              "vx": 32.4,
-              "vy": 1.0
+              "vx": 10.1,
+              "vy": 1.3958432588343752
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": -0.325
+              "ay": 0.0
             },
-            "lane": 1
+            "lane": 0
           }
         },
         {
           "time": 4.6000000000000005,
           "cartesian": {
             "position": {
-              "x": 182.78,
-              "y": 3.598375
+              "x": 102.53118017679168,
+              "y": 3.221243510616276
             },
             "velocity": {
-              "vx": 32.7,
-              "vy": 0.9675
+              "vx": 10.4,
+              "vy": 1.3958432588343752
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": 2.0
+              "ay": 0.0
             },
-            "lane": 1
+            "lane": 0
           }
         },
         {
           "time": 4.7,
           "cartesian": {
             "position": {
-              "x": 186.065,
-              "y": 3.705125
+              "x": 103.58618017679169,
+              "y": 3.360827836499713
             },
             "velocity": {
-              "vx": 33.0,
-              "vy": 1.1675
+              "vx": 10.7,
+              "vy": 1.3958432588343752
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": 2.0
+              "ay": -0.08243247663015625
             },
-            "lane": 1
+            "lane": 0
           }
         },
         {
           "time": 4.800000000000001,
           "cartesian": {
             "position": {
-              "x": 189.38,
-              "y": 3.831875
+              "x": 104.67118017679168,
+              "y": 3.5
             },
             "velocity": {
-              "vx": 33.3,
-              "vy": 1.3675
+              "vx": 11.0,
+              "vy": 1.3876000111713593
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": 2.0
+              "ay": -0.086193611
             },
             "lane": 1
           }
@@ -2731,16 +2731,16 @@ expression: json
           "time": 4.9,
           "cartesian": {
             "position": {
-              "x": 192.725,
-              "y": 3.978625
+              "x": 105.78618017679169,
+              "y": 3.638329033
             },
             "velocity": {
-              "vx": 33.6,
-              "vy": 1.5675000000000001
+              "vx": 11.3,
+              "vy": 1.3789806496875
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": 2.0
+              "ay": -0.920796084
             },
             "lane": 1
           }
@@ -2749,16 +2749,16 @@ expression: json
           "time": 5.0,
           "cartesian": {
             "position": {
-              "x": 196.1,
-              "y": 4.145375
+              "x": 106.93118017679168,
+              "y": 3.7716231176
             },
             "velocity": {
-              "vx": 33.9,
-              "vy": 1.7675
+              "vx": 11.6,
+              "vy": 1.28690104125
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": 0.325
+              "ay": -2.0
             },
             "lane": 1
           }
@@ -2767,12 +2767,12 @@ expression: json
           "time": 5.1000000000000005,
           "cartesian": {
             "position": {
-              "x": 199.505,
-              "y": 4.32375
+              "x": 108.10618017679168,
+              "y": 3.8903132218
             },
             "velocity": {
-              "vx": 34.2,
-              "vy": 1.8
+              "vx": 11.9,
+              "vy": 1.0869010415625
             },
             "acceleration": {
               "ax": 3.0,
@@ -2785,16 +2785,16 @@ expression: json
           "time": 5.2,
           "cartesian": {
             "position": {
-              "x": 202.94,
-              "y": 4.49375
+              "x": 109.31118017679168,
+              "y": 3.9890033259
             },
             "velocity": {
-              "vx": 34.5,
-              "vy": 1.5999999999999999
+              "vx": 12.2,
+              "vy": 0.8869010409375
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": -2.0
+              "ay": 2.0
             },
             "lane": 1
           }
@@ -2803,15 +2803,15 @@ expression: json
           "time": 5.300000000000001,
           "cartesian": {
             "position": {
-              "x": 206.405,
-              "y": 4.64375
+              "x": 110.54618017679168,
+              "y": 4.0876934301
             },
             "velocity": {
-              "vx": 34.8,
-              "vy": 1.4000000000000001
+              "vx": 12.5,
+              "vy": 1.086901040625
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": 0.0,
               "ay": -2.0
             },
             "lane": 1
@@ -2821,16 +2821,16 @@ expression: json
           "time": 5.4,
           "cartesian": {
             "position": {
-              "x": 209.9,
-              "y": 4.77375
+              "x": 111.79618017679168,
+              "y": 4.1863835343
             },
             "velocity": {
-              "vx": 35.1,
-              "vy": 1.2
+              "vx": 12.5,
+              "vy": 0.8869010406250001
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": -2.0
+              "ay": 2.0
             },
             "lane": 1
           }
@@ -2839,16 +2839,16 @@ expression: json
           "time": 5.5,
           "cartesian": {
             "position": {
-              "x": 213.425,
-              "y": 4.88375
+              "x": 113.06118017679168,
+              "y": 4.2850736384
             },
             "velocity": {
-              "vx": 35.4,
-              "vy": 1.0
+              "vx": 12.8,
+              "vy": 1.086901040625
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": -2.0
+              "ay": 1.6769808871
             },
             "lane": 1
           }
@@ -2857,16 +2857,16 @@ expression: json
           "time": 5.6000000000000005,
           "cartesian": {
             "position": {
-              "x": 216.98,
-              "y": 4.97375
+              "x": 114.35618017679168,
+              "y": 4.402148647
             },
             "velocity": {
-              "vx": 35.7,
-              "vy": 0.7999999999999999
+              "vx": 13.1,
+              "vy": 1.2545991296875
             },
             "acceleration": {
-              "ax": 3.0,
-              "ay": -2.0
+              "ax": -6.0,
+              "ay": 1.528614552
             },
             "lane": 1
           }
@@ -2875,15 +2875,15 @@ expression: json
           "time": 5.7,
           "cartesian": {
             "position": {
-              "x": 220.565,
-              "y": 5.04375
+              "x": 115.63618017679168,
+              "y": 4.5352516328
             },
             "velocity": {
-              "vx": 36.0,
-              "vy": 0.6
+              "vx": 12.5,
+              "vy": 1.4074605843749999
             },
             "acceleration": {
-              "ax": 3.0,
+              "ax": -8.0,
               "ay": -2.0
             },
             "lane": 1
@@ -2893,16 +2893,16 @@ expression: json
           "time": 5.800000000000001,
           "cartesian": {
             "position": {
-              "x": 224.18,
-              "y": 5.09375
+              "x": 116.84618017679168,
+              "y": 4.6659976914
             },
             "velocity": {
-              "vx": 36.3,
-              "vy": 0.39999999999999997
+              "vx": 11.7,
+              "vy": 1.2074605846875
             },
             "acceleration": {
-              "ax": 3.0,
-              "ay": -2.0
+              "ax": -8.0,
+              "ay": 0.5503012387
             },
             "lane": 1
           }
@@ -2911,16 +2911,16 @@ expression: json
           "time": 5.9,
           "cartesian": {
             "position": {
-              "x": 227.825,
-              "y": 5.12375
+              "x": 117.97618017679169,
+              "y": 4.7894952561
             },
             "velocity": {
-              "vx": 36.6,
-              "vy": 0.19999999999999998
+              "vx": 10.9,
+              "vy": 1.2624907087500001
             },
             "acceleration": {
-              "ax": 3.0,
-              "ay": -2.0
+              "ax": 1.0,
+              "ay": -1.0773029279
             },
             "lane": 1
           }
@@ -2929,16 +2929,16 @@ expression: json
           "time": 6.0,
           "cartesian": {
             "position": {
-              "x": 231.5,
-              "y": 5.13375
+              "x": 119.07118017679169,
+              "y": 4.9103578125
             },
             "velocity": {
-              "vx": 36.9,
-              "vy": 0.0
+              "vx": 11.0,
+              "vy": 1.15476041625
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": -0.125
+              "ay": -2.0
             },
             "lane": 1
           }
@@ -2947,16 +2947,16 @@ expression: json
           "time": 6.1000000000000005,
           "cartesian": {
             "position": {
-              "x": 235.205,
-              "y": 5.133125
+              "x": 120.18618017679168,
+              "y": 5.0158338541
             },
             "velocity": {
-              "vx": 37.2,
-              "vy": -0.012499999999999999
+              "vx": 11.3,
+              "vy": 0.9547604165625001
             },
             "acceleration": {
               "ax": 3.0,
-              "ay": 2.0
+              "ay": -2.0
             },
             "lane": 1
           }
@@ -2965,16 +2965,16 @@ expression: json
           "time": 6.2,
           "cartesian": {
             "position": {
-              "x": 238.94,
-              "y": 5.141875
+              "x": 121.33118017679169,
+              "y": 5.1013098958
             },
             "velocity": {
-              "vx": 37.5,
-              "vy": 0.18750000000000003
+              "vx": 11.6,
+              "vy": 0.7547604159375001
             },
             "acceleration": {
-              "ax": 0.0,
-              "ay": 2.0
+              "ax": 3.0,
+              "ay": -2.0
             },
             "lane": 1
           }
@@ -2983,16 +2983,16 @@ expression: json
           "time": 6.300000000000001,
           "cartesian": {
             "position": {
-              "x": 242.69,
-              "y": 5.170625
+              "x": 122.50618017679169,
+              "y": 5.1667859375
             },
             "velocity": {
-              "vx": 37.5,
-              "vy": 0.3875
+              "vx": 11.9,
+              "vy": 0.5547604162499999
             },
             "acceleration": {
-              "ax": 0.0,
-              "ay": 0.125
+              "ax": 3.0,
+              "ay": -2.0
             },
             "lane": 1
           }
@@ -3001,16 +3001,16 @@ expression: json
           "time": 6.4,
           "cartesian": {
             "position": {
-              "x": 246.44,
-              "y": 5.21
+              "x": 123.71118017679169,
+              "y": 5.2122619791
             },
             "velocity": {
-              "vx": 37.5,
-              "vy": 0.4
+              "vx": 12.2,
+              "vy": 0.35476041656249996
             },
             "acceleration": {
-              "ax": 0.0,
-              "ay": -2.0
+              "ax": 3.0,
+              "ay": -1.5476041666
             },
             "lane": 1
           }
@@ -3019,15 +3019,15 @@ expression: json
           "time": 6.5,
           "cartesian": {
             "position": {
-              "x": 250.19,
+              "x": 124.94618017679169,
               "y": 5.24
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 12.5,
               "vy": 0.2
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": -8.0,
               "ay": -2.0
             },
             "lane": 1
@@ -3037,15 +3037,15 @@ expression: json
           "time": 6.6000000000000005,
           "cartesian": {
             "position": {
-              "x": 253.94,
+              "x": 126.15618017679168,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 11.7,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3055,15 +3055,15 @@ expression: json
           "time": 6.7,
           "cartesian": {
             "position": {
-              "x": 257.69,
+              "x": 127.28618017679169,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 10.9,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3073,15 +3073,15 @@ expression: json
           "time": 6.800000000000001,
           "cartesian": {
             "position": {
-              "x": 261.44,
+              "x": 128.3361801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 10.1,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3091,15 +3091,15 @@ expression: json
           "time": 6.9,
           "cartesian": {
             "position": {
-              "x": 265.19,
+              "x": 129.30618017679168,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 9.3,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3109,15 +3109,15 @@ expression: json
           "time": 7.0,
           "cartesian": {
             "position": {
-              "x": 268.94,
+              "x": 130.19618017679167,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 8.5,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3127,15 +3127,15 @@ expression: json
           "time": 7.1000000000000005,
           "cartesian": {
             "position": {
-              "x": 272.69,
+              "x": 131.00618017679167,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 7.7,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3145,15 +3145,15 @@ expression: json
           "time": 7.2,
           "cartesian": {
             "position": {
-              "x": 276.44,
+              "x": 131.7361801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 6.9,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3163,15 +3163,15 @@ expression: json
           "time": 7.300000000000001,
           "cartesian": {
             "position": {
-              "x": 280.19,
+              "x": 132.44118017679168,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 7.2,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3181,15 +3181,15 @@ expression: json
           "time": 7.4,
           "cartesian": {
             "position": {
-              "x": 283.94,
+              "x": 133.1761801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 7.5,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3199,15 +3199,15 @@ expression: json
           "time": 7.5,
           "cartesian": {
             "position": {
-              "x": 287.69,
+              "x": 133.94118017679168,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 7.8,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3217,15 +3217,15 @@ expression: json
           "time": 7.6000000000000005,
           "cartesian": {
             "position": {
-              "x": 291.44,
+              "x": 134.7361801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 8.1,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3235,15 +3235,15 @@ expression: json
           "time": 7.7,
           "cartesian": {
             "position": {
-              "x": 295.19,
+              "x": 135.56118017679168,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 8.4,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3253,15 +3253,15 @@ expression: json
           "time": 7.800000000000001,
           "cartesian": {
             "position": {
-              "x": 298.94,
+              "x": 136.41618017679167,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 8.7,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3271,15 +3271,15 @@ expression: json
           "time": 7.9,
           "cartesian": {
             "position": {
-              "x": 302.69,
+              "x": 137.3011801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 9.0,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3289,15 +3289,15 @@ expression: json
           "time": 8.0,
           "cartesian": {
             "position": {
-              "x": 306.44,
+              "x": 138.21618017679168,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 9.3,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3307,15 +3307,15 @@ expression: json
           "time": 8.1,
           "cartesian": {
             "position": {
-              "x": 310.19,
+              "x": 139.16118017679167,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 9.6,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3325,15 +3325,15 @@ expression: json
           "time": 8.200000000000001,
           "cartesian": {
             "position": {
-              "x": 313.94,
+              "x": 140.1361801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 9.9,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3343,15 +3343,15 @@ expression: json
           "time": 8.3,
           "cartesian": {
             "position": {
-              "x": 317.69,
+              "x": 141.1411801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 10.2,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3361,15 +3361,15 @@ expression: json
           "time": 8.4,
           "cartesian": {
             "position": {
-              "x": 321.44,
+              "x": 142.1761801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 10.5,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3379,15 +3379,15 @@ expression: json
           "time": 8.5,
           "cartesian": {
             "position": {
-              "x": 325.19,
+              "x": 143.2411801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 10.8,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3397,15 +3397,15 @@ expression: json
           "time": 8.6,
           "cartesian": {
             "position": {
-              "x": 328.94,
+              "x": 144.3361801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 11.1,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3415,15 +3415,15 @@ expression: json
           "time": 8.700000000000001,
           "cartesian": {
             "position": {
-              "x": 332.69,
+              "x": 145.4611801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 11.4,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3433,15 +3433,15 @@ expression: json
           "time": 8.8,
           "cartesian": {
             "position": {
-              "x": 336.44,
+              "x": 146.6161801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 11.7,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3451,15 +3451,15 @@ expression: json
           "time": 8.9,
           "cartesian": {
             "position": {
-              "x": 340.19,
+              "x": 147.8011801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 12.0,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3469,15 +3469,15 @@ expression: json
           "time": 9.0,
           "cartesian": {
             "position": {
-              "x": 343.94,
+              "x": 149.0161801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 12.3,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3487,15 +3487,15 @@ expression: json
           "time": 9.1,
           "cartesian": {
             "position": {
-              "x": 347.69,
+              "x": 150.2611801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 12.6,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3505,15 +3505,15 @@ expression: json
           "time": 9.200000000000001,
           "cartesian": {
             "position": {
-              "x": 351.44,
+              "x": 151.5361801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 12.9,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3523,15 +3523,15 @@ expression: json
           "time": 9.3,
           "cartesian": {
             "position": {
-              "x": 355.19,
+              "x": 152.8411801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 13.2,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3541,15 +3541,15 @@ expression: json
           "time": 9.4,
           "cartesian": {
             "position": {
-              "x": 358.94,
+              "x": 154.1761801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 13.5,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3559,15 +3559,15 @@ expression: json
           "time": 9.5,
           "cartesian": {
             "position": {
-              "x": 362.69,
+              "x": 155.5411801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 13.8,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3577,15 +3577,15 @@ expression: json
           "time": 9.600000000000001,
           "cartesian": {
             "position": {
-              "x": 366.44,
+              "x": 156.9361801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 14.1,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": -8.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3595,15 +3595,15 @@ expression: json
           "time": 9.700000000000001,
           "cartesian": {
             "position": {
-              "x": 370.19,
+              "x": 158.3061801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 13.3,
               "vy": 0.0
             },
             "acceleration": {
-              "ax": 0.0,
+              "ax": 3.0,
               "ay": 0.0
             },
             "lane": 1
@@ -3613,11 +3613,11 @@ expression: json
           "time": 9.8,
           "cartesian": {
             "position": {
-              "x": 373.94,
+              "x": 159.6511801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 37.5,
+              "vx": 13.6,
               "vy": 0.0
             },
             "acceleration": {
@@ -3631,11 +3631,11 @@ expression: json
           "time": 9.9,
           "cartesian": {
             "position": {
-              "x": 377.65,
+              "x": 160.9711801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 36.7,
+              "vx": 12.8,
               "vy": 0.0
             },
             "acceleration": {
@@ -3649,11 +3649,11 @@ expression: json
           "time": 10.0,
           "cartesian": {
             "position": {
-              "x": 381.28,
+              "x": 162.2111801767917,
               "y": 5.25
             },
             "velocity": {
-              "vx": 35.9,
+              "vx": 12.0,
               "vy": 0.0
             },
             "acceleration": {
@@ -3667,7 +3667,7 @@ expression: json
     }
   ],
   "validation": {
-    "min_distance": 25.477500000000006,
+    "min_distance": 5.0,
     "all_constraints_satisfied": true,
     "safety_violations": [],
     "max_acceleration": 3.0,
