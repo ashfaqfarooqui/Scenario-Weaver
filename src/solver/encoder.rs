@@ -1199,19 +1199,78 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
 
 // === Optimizer-specific methods ===
 
+/// Candidate time-to-collision levels, in seconds, used by the `MinimizeTtc` and
+/// `MaximizeTtc` objectives (SW-14/M3).
+///
+/// TTC is `gap / closing_speed`. A *division* is non-linear, and the whole encoding is
+/// deliberately confined to QF_LRA, so no single linear term can rank scenarios by TTC:
+/// TTC is scale-invariant (`(d, v)` and `(λd, λv)` have the same TTC) and no linear
+/// function of `d` and `v` is. The previous encoding tried anyway — it minimised
+/// `d - dt·v` — and **inverted the ranking it claimed to produce**: with `dt = 0.5` it
+/// scored `(d = 2 m, v = 0)`, whose TTC is infinite, at 2.0 and `(d = 50 m, v = 20 m/s)`,
+/// whose TTC is 2.5 s, at 40.0, so *minimising* it preferred the infinite-TTC state.
+///
+/// The way out is that TTC only becomes non-linear when the threshold is a *variable*.
+/// For a **constant** `T`, both `ttc ≥ T` and `ttc ≤ T` are linear:
+///
+/// ```text
+/// ttc(d, v) ≥ T   ⟺   d ≥ T · v      (v > 0)
+/// ttc(d, v) ≤ T   ⟺   d ≤ T · v      (v > 0)
+/// ```
+///
+/// So the objective is expressed over a fixed ladder of constant levels: one Boolean per
+/// level saying "the whole trajectory clears this level" (for `MaximizeTtc`) or "some step
+/// falls below it" (for `MinimizeTtc`), and a linear pseudo-Boolean sum that reads the
+/// ladder off as a number of seconds. Every product is `constant × variable`, so the
+/// encoding stays in QF_LRA and `Optimize` keeps its decision procedure.
+///
+/// **What this costs:** the objective is a *grid-resolution* measurement of TTC, not an
+/// exact one, and the ladder is deliberately fine where TTC matters (0.25 s steps below
+/// 1 s) and coarse where it does not (10 s steps beyond 30 s). The objective value is
+/// therefore a **certified bound**, not an equality — see `encode_minimize_ttc_objective`
+/// and `encode_maximize_ttc_objective` for the exact direction of each bound.
+const TTC_LEVELS: [f64; 21] = [
+    0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 8.0, 10.0, 12.5, 15.0, 20.0,
+    25.0, 30.0, 40.0, 60.0,
+];
+
+/// Closing-speed floor, in m/s, below which a pair is not treated as approaching.
+///
+/// Mirrors the `epsilon = 0.01` in `compute_validation_metrics` above: the objective must
+/// define TTC over exactly the states the validator then measures it on, or the tool
+/// optimises one quantity and reports another.
+const TTC_CLOSING_SPEED_EPSILON: f64 = 0.01;
+
+/// One directed conflict: actor `follow` is behind actor `lead`, in the same lane, and
+/// gaining on it.
+///
+/// `gap` and `closing` are only meaningful under `guard`; outside it the pair contributes
+/// no TTC at all, exactly as in `compute_validation_metrics`.
+struct DirectedConflict {
+    /// `same_lane ∧ px_lead > px_follow ∧ (vx_follow - vx_lead) ≥ ε`
+    guard: Bool,
+    /// `px_lead - px_follow` — positive under `guard`
+    gap: Real,
+    /// `vx_follow - vx_lead` — at least `ε` under `guard`
+    closing: Real,
+}
+
 impl GenericEncoder<OptimizerBackend> {
     /// Encode optimization objective based on the target.
     ///
-    /// Each target uses a distinct single scalar LRA (linear real arithmetic) proxy
-    /// to avoid NRA from TTC division (`distance / speed`). The objectives are:
+    /// Every objective is Linear Real Arithmetic — the whole encoding is confined to
+    /// QF_LRA and `Optimize` has essentially no support for non-linear objectives — and
+    /// every one is scored over the *same* "same lane" predicate the validator uses when
+    /// it reports `min_distance` and `min_ttc`, so the quantity optimised is the quantity
+    /// reported (SW-14).
     ///
-    /// - **MinimizeDistance**: minimize the smallest same-lane longitudinal gap (pure geometry)
-    /// - **MinimizeTtc**: minimize `distance - dt * closing_speed` (blends gap and approach rate)
-    /// - **MinimizeSeverity**: maximize the highest same-lane closing speed (pure dynamics)
-    /// - **MaximizeTtc**: maximize the smallest same-lane longitudinal gap (safest scenario)
-    ///
-    /// **Limitation**: Each target optimizes a single scalar value. A future enhancement
-    /// could use Z3's lexicographic (multi-priority) objectives for richer optimization.
+    /// - **`MinimizeDistance`**: minimise the smallest same-lane longitudinal gap.
+    /// - **`MinimizeTtc`**: minimise the smallest same-lane time-to-collision, over the
+    ///   [`TTC_LEVELS`] ladder.
+    /// - **`MinimizeSeverity`**: **maximise** the highest same-lane closing speed. The
+    ///   variant name is a known misnomer — see its rustdoc in `src/dsl/types.rs`.
+    /// - **`MaximizeTtc`**: maximise the smallest same-lane time-to-collision, over the
+    ///   [`TTC_LEVELS`] ladder.
     pub fn encode_objective(&mut self) {
         let target = self.coord_encoder.backend().target();
         match target {
@@ -1225,7 +1284,7 @@ impl GenericEncoder<OptimizerBackend> {
                 self.encode_maximize_severity_objective();
             }
             OptimizationTarget::MaximizeTtc => {
-                self.encode_maximize_distance_objective();
+                self.encode_maximize_ttc_objective();
             }
         }
     }
@@ -1269,46 +1328,71 @@ impl GenericEncoder<OptimizerBackend> {
         self.coord_encoder.backend_mut().set_objective_var(obj);
     }
 
-    /// MinimizeTtc: find the scenario with the worst time-to-collision proxy.
+    /// MinimizeTtc: find the scenario with the smallest time-to-collision.
     ///
-    /// TTC = distance / closing_speed, but division is NRA. Instead, we minimize
-    /// `distance - dt * closing_speed` as a linear proxy. Lower values mean the gap
-    /// is small AND/OR the approach speed is high — i.e., less time before collision.
+    /// One Boolean `b_k` per level of [`TTC_LEVELS`], meaning "some same-lane approaching
+    /// pair, at some step, has `ttc ≤ T_k`":
     ///
-    /// The weight `dt` (time step duration) keeps units consistent: both terms
-    /// contribute in meters, balancing spatial proximity with temporal urgency.
+    /// ```text
+    /// b_k  ⇒  ⋁_{pair, t, direction} ( guard ∧ gap ≤ T_k · closing )
+    /// b_k  ⇒  b_{k+1}                       (levels are nested upwards)
+    /// obj  =  T_K − Σ_{k<K} (T_{k+1} − T_k) · [b_k]
+    /// ```
+    ///
+    /// With `b_k` true exactly for `k ≥ m` the sum telescopes and `obj = T_m`, so
+    /// minimising `obj` walks `m` down the ladder. Every coefficient is a constant, so
+    /// this is linear.
+    ///
+    /// **The bound is one-sided and that is deliberate.** `b_m` is only an implication, so
+    /// asserting it *forces* a step with `ttc ≤ T_m` to exist: the reported optimum is a
+    /// **certified upper bound** on the min-TTC of the trajectory that ships with it —
+    /// `measured min TTC ≤ optimal_value`. It is never an over-claim, only ever
+    /// pessimistic by less than one grid cell.
     fn encode_minimize_ttc_objective(&mut self) {
+        let conflicts = self.collect_directed_conflicts();
+        let levels = &TTC_LEVELS;
+        let top = levels[levels.len() - 1];
+
         let obj = Real::new_const("ttc_obj");
-        let big_val = Real::from_rational(9999, 1);
-        let neg_big = Real::from_rational(-9999, 1);
-        // Weight = dt (time_step), as an exact rational. Was
-        // `(time_step * 1000.0) as i64 / 1000`, the same truncating idiom as
-        // the rest of SW-08 in a different shape: it silently zeroed the whole
-        // closing-speed term for any `time_step` below 0.001.
-        let weight = real_from_f64(self.spec.time_step);
+        let mut terms: Vec<Real> = vec![real_from_f64(top)];
 
-        // obj can be negative (when closing speed term dominates)
-        self.coord_encoder.backend_mut().assert(&obj.ge(&neg_big));
+        for (k, &level) in levels.iter().enumerate().take(levels.len() - 1) {
+            let below = Bool::new_const(format!("ttc_below_{k}"));
 
-        let actor_ids: Vec<String> = self.spec.actors.iter().map(|a| a.id.clone()).collect();
-        let mut choices = Vec::new();
+            // below_k ⇒ ⋁ (guard ∧ gap ≤ T_k · closing)
+            let level_real = real_from_f64(level);
+            let witnesses: Vec<Bool> = conflicts
+                .iter()
+                .map(|c| Bool::and(&[&c.guard, &c.gap.le(&(&level_real * &c.closing))]))
+                .collect();
+            let witness_refs: Vec<&Bool> = witnesses.iter().collect();
+            let some_witness = if witness_refs.is_empty() {
+                Bool::from_bool(false)
+            } else {
+                Bool::or(&witness_refs)
+            };
+            self.coord_encoder
+                .backend_mut()
+                .assert(&below.implies(&some_witness));
 
-        for i in 0..actor_ids.len() {
-            for j in (i + 1)..actor_ids.len() {
-                for t in 0..=self.horizon {
-                    let proxy =
-                        self.compute_ttc_proxy(&actor_ids[i], &actor_ids[j], t, &weight, &big_val);
-                    // Lower bound: obj <= proxy at every (pair, time)
-                    self.coord_encoder.backend_mut().assert(&obj.le(&proxy));
-                    // Choice: obj can equal this particular proxy
-                    choices.push(obj.eq(&proxy));
-                }
+            // Nesting: falling below T_k means falling below every higher level too.
+            if k + 1 < levels.len() - 1 {
+                let next = Bool::new_const(format!("ttc_below_{}", k + 1));
+                self.coord_encoder
+                    .backend_mut()
+                    .assert(&below.implies(&next));
             }
+
+            // obj = T_K − Σ (T_{k+1} − T_k) · [below_k]
+            let step = real_from_f64(levels[k + 1] - level);
+            let zero = Real::from_rational(0, 1);
+            terms.push(-below.ite(&step, &zero));
         }
 
-        // At least one choice must hold
-        let refs: Vec<&Bool> = choices.iter().collect();
-        self.coord_encoder.backend_mut().assert(&Bool::or(&refs));
+        let term_refs: Vec<&Real> = terms.iter().collect();
+        self.coord_encoder
+            .backend_mut()
+            .assert(&obj.eq(Real::add(&term_refs)));
 
         self.coord_encoder.backend_mut().minimize(&obj);
         self.coord_encoder.backend_mut().set_objective_var(obj);
@@ -1316,10 +1400,16 @@ impl GenericEncoder<OptimizerBackend> {
 
     /// MinimizeSeverity: find the scenario with the highest same-lane closing speed.
     ///
-    /// Severity correlates with relative impact speed. We maximize the closing speed
-    /// (absolute relative velocity) when actors are in the same lane. Uses a "choice"
-    /// pattern: obj can equal any effective_closing_speed value, and Z3 maximizes it
-    /// by choosing scenario parameters that produce the highest approach speed.
+    /// **The variant name is a misnomer and this is a maximiser** — severity correlates
+    /// with relative impact speed, and this objective drives that up, which is what an
+    /// adversarial scenario generator wants. Renaming the variant to `MaximizeSeverity`
+    /// is SW-14's recommendation but reaches `src/lib.rs`, outside this issue's edit set;
+    /// every prose surface (CLI help, rustdoc, `docs/optimizer.md`, `docs/USER_GUIDE.md`)
+    /// now says "maximise" so that only the identifier is left lying.
+    ///
+    /// Uses a "choice" pattern: obj can equal any effective_closing_speed value, and Z3
+    /// maximizes it by choosing scenario parameters that produce the highest approach
+    /// speed.
     fn encode_maximize_severity_objective(&mut self) {
         let obj = Real::new_const("severity_obj");
         let zero = Real::from_rational(0, 1);
@@ -1347,30 +1437,76 @@ impl GenericEncoder<OptimizerBackend> {
         self.coord_encoder.backend_mut().set_objective_var(obj);
     }
 
-    /// MaximizeTtc: find the scenario where the minimum same-lane distance is largest.
+    /// MaximizeTtc: find the scenario with the largest time-to-collision.
     ///
-    /// Uses the standard lower-bound formulation: obj <= effective_dist at every
-    /// (pair, time), then maximize obj to push it up to the actual minimum.
-    fn encode_maximize_distance_objective(&mut self) {
-        let obj = Real::new_const("dist_obj");
-        let zero = Real::from_rational(0, 1);
-        let big_val = Real::from_rational(9999, 1);
-        self.coord_encoder.backend_mut().assert(&obj.ge(&zero));
+    /// The mirror of [`Self::encode_minimize_ttc_objective`]. One Boolean `g_k` per level
+    /// of [`TTC_LEVELS`], meaning "*every* same-lane approaching pair, at *every* step,
+    /// has `ttc ≥ T_k`":
+    ///
+    /// ```text
+    /// g_k  ⇒  ⋀_{pair, t, direction} ( guard ⇒ gap ≥ T_k · closing )
+    /// g_k  ⇒  g_{k−1}                       (levels are nested downwards)
+    /// obj  =  Σ_k (T_k − T_{k−1}) · [g_k]   with T_{−1} = 0
+    /// ```
+    ///
+    /// With `g_k` true exactly for `k ≤ M` the sum telescopes and `obj = T_M`. This is a
+    /// conjunction of implications rather than a disjunction, so it *propagates* rather
+    /// than branching (the lesson SW-11 recorded).
+    ///
+    /// The bound runs the other way from the minimiser: `g_M` forces every approaching
+    /// step to clear `T_M`, so the reported optimum is a **certified lower bound** —
+    /// `optimal_value ≤ measured min TTC`.
+    ///
+    /// Before SW-14 this target dispatched to a *distance* objective: it maximised the
+    /// minimum gap and called it TTC. On `examples/cut_in_left_optimize_max_ttc.yaml` that
+    /// reported a 113.50 m gap in cartesian and 126.88 m in bicycle — 12 % apart — while
+    /// the TTC it claimed to maximise came out 12.37 s and 44.76 s, a factor of 3.6.
+    fn encode_maximize_ttc_objective(&mut self) {
+        let conflicts = self.collect_directed_conflicts();
+        let levels = &TTC_LEVELS;
 
-        let actor_ids: Vec<String> = self.spec.actors.iter().map(|a| a.id.clone()).collect();
+        let obj = Real::new_const("ttc_obj");
+        let mut terms: Vec<Real> = Vec::new();
+        let mut previous = 0.0_f64;
 
-        for i in 0..actor_ids.len() {
-            for j in (i + 1)..actor_ids.len() {
-                for t in 0..=self.horizon {
-                    let effective_dist =
-                        self.compute_effective_dist(&actor_ids[i], &actor_ids[j], t, &big_val);
-                    // obj <= effective_dist at every (pair, time)
-                    self.coord_encoder
-                        .backend_mut()
-                        .assert(&obj.le(&effective_dist));
-                }
+        for (k, &level) in levels.iter().enumerate() {
+            let clears = Bool::new_const(format!("ttc_clears_{k}"));
+
+            // clears_k ⇒ ⋀ (guard ⇒ gap ≥ T_k · closing)
+            let level_real = real_from_f64(level);
+            let per_conflict: Vec<Bool> = conflicts
+                .iter()
+                .map(|c| c.guard.implies(c.gap.ge(&(&level_real * &c.closing))))
+                .collect();
+            let refs: Vec<&Bool> = per_conflict.iter().collect();
+            let all_clear = if refs.is_empty() {
+                Bool::from_bool(true)
+            } else {
+                Bool::and(&refs)
+            };
+            self.coord_encoder
+                .backend_mut()
+                .assert(&clears.implies(&all_clear));
+
+            // Nesting: clearing T_k means clearing every lower level too.
+            if k > 0 {
+                let lower = Bool::new_const(format!("ttc_clears_{}", k - 1));
+                self.coord_encoder
+                    .backend_mut()
+                    .assert(&clears.implies(&lower));
             }
+
+            // obj = Σ (T_k − T_{k−1}) · [clears_k], T_{−1} = 0
+            let step = real_from_f64(level - previous);
+            let zero = Real::from_rational(0, 1);
+            terms.push(clears.ite(&step, &zero));
+            previous = level;
         }
+
+        let term_refs: Vec<&Real> = terms.iter().collect();
+        self.coord_encoder
+            .backend_mut()
+            .assert(&obj.eq(Real::add(&term_refs)));
 
         self.coord_encoder.backend_mut().maximize(&obj);
         self.coord_encoder.backend_mut().set_objective_var(obj);
@@ -1378,17 +1514,85 @@ impl GenericEncoder<OptimizerBackend> {
 
     // === Helper methods for objective encoding ===
 
+    /// Every directed "A is behind B in the same lane and gaining" conflict in the
+    /// encoding, one per (unordered pair, step, direction).
+    ///
+    /// This is the encoder-side twin of the TTC block in `compute_validation_metrics`: the
+    /// same "same lane" predicate ([`encode_same_lane_constraint`] — discrete lane match
+    /// *or* lateral overlap), the same requirement that the follower be strictly behind,
+    /// and the same closing-speed floor. Sharing the predicate is the whole point: before
+    /// SW-14 the objectives tested `lane_i == lane_j` alone, so they scored a different
+    /// set of states than the validator measured, and the two diverged most in the bicycle
+    /// coordinate system, where a lane change spends many steps laterally overlapping
+    /// without a discrete lane match.
+    fn collect_directed_conflicts(&self) -> Vec<DirectedConflict> {
+        let lane_width = self.spec.get_lane_width();
+        let epsilon = real_from_f64(TTC_CLOSING_SPEED_EPSILON);
+        let actor_ids: Vec<String> = self.spec.actors.iter().map(|a| a.id.clone()).collect();
+
+        let mut conflicts = Vec::new();
+        for i in 0..actor_ids.len() {
+            for j in (i + 1)..actor_ids.len() {
+                for t in 0..=self.horizon {
+                    let same_lane = encode_same_lane_constraint(
+                        self.get_lane_var(&actor_ids[i], t),
+                        self.get_lane_var(&actor_ids[j], t),
+                        self.get_lateral_pos(&actor_ids[i], t),
+                        self.get_lateral_pos(&actor_ids[j], t),
+                        lane_width,
+                    );
+
+                    for (follow, lead) in [
+                        (&actor_ids[i], &actor_ids[j]),
+                        (&actor_ids[j], &actor_ids[i]),
+                    ] {
+                        let px_follow = self.get_longitudinal_pos(follow, t);
+                        let px_lead = self.get_longitudinal_pos(lead, t);
+                        let vx_follow = self.get_longitudinal_vel(follow, t);
+                        let vx_lead = self.get_longitudinal_vel(lead, t);
+
+                        let gap = px_lead - px_follow;
+                        let closing = vx_follow - vx_lead;
+                        let guard =
+                            Bool::and(&[&same_lane, &px_lead.gt(px_follow), &closing.ge(&epsilon)]);
+
+                        conflicts.push(DirectedConflict {
+                            guard,
+                            gap,
+                            closing,
+                        });
+                    }
+                }
+            }
+        }
+        conflicts
+    }
+
     /// Compute effective distance between two actors at time t.
-    /// Returns abs(px_i - px_j) if same lane, big_val otherwise.
+    ///
+    /// Returns `|px_i - px_j|` when the pair is in the same lane, `big_val` otherwise.
+    /// "Same lane" is [`encode_same_lane_constraint`] — the same predicate
+    /// `compute_validation_metrics` uses to decide which gaps enter the reported
+    /// `min_distance` (SW-14/M2). It was `lane_i == lane_j` alone, which scored a
+    /// narrower set of states than the tool then reported on.
     fn compute_effective_dist(&self, aid_i: &str, aid_j: &str, t: usize, big_val: &Real) -> Real {
-        let lane_i = self.get_lane_var(aid_i, t);
-        let lane_j = self.get_lane_var(aid_j, t);
         let px_i = self.get_longitudinal_pos(aid_i, t);
         let px_j = self.get_longitudinal_pos(aid_j, t);
 
-        let same_lane = lane_i.eq(lane_j);
+        let same_lane = self.same_lane_at(aid_i, aid_j, t);
         let abs_dist = px_i.gt(px_j).ite(&(px_i - px_j), &(px_j - px_i));
         same_lane.ite(&abs_dist, big_val)
+    }
+
+    /// The validator's "same lane" predicate, as a Z3 term.
+    fn same_lane_at(&self, aid_i: &str, aid_j: &str, t: usize) -> Bool {
+        encode_same_lane_constraint(
+            self.get_lane_var(aid_i, t),
+            self.get_lane_var(aid_j, t),
+            self.get_lateral_pos(aid_i, t),
+            self.get_lateral_pos(aid_j, t),
+            self.spec.get_lane_width(),
+        )
     }
 
     /// Compute closing speed (absolute relative velocity) between two actors at time t.
@@ -1401,41 +1605,16 @@ impl GenericEncoder<OptimizerBackend> {
         v_rel.gt(&zero).ite(&v_rel, &(-&v_rel))
     }
 
-    /// Compute TTC proxy: `distance - weight * closing_speed` when same lane, big_val otherwise.
-    ///
-    /// Lower values indicate worse TTC (small gap + fast approach).
-    fn compute_ttc_proxy(
-        &self,
-        aid_i: &str,
-        aid_j: &str,
-        t: usize,
-        weight: &Real,
-        big_val: &Real,
-    ) -> Real {
-        let lane_i = self.get_lane_var(aid_i, t);
-        let lane_j = self.get_lane_var(aid_j, t);
-        let px_i = self.get_longitudinal_pos(aid_i, t);
-        let px_j = self.get_longitudinal_pos(aid_j, t);
-
-        let same_lane = lane_i.eq(lane_j);
-        let abs_dist = px_i.gt(px_j).ite(&(px_i - px_j), &(px_j - px_i));
-        let closing_speed = self.compute_closing_speed(aid_i, aid_j, t);
-
-        // proxy = distance - weight * closing_speed (can be negative)
-        let proxy = abs_dist - weight * closing_speed;
-        same_lane.ite(&proxy, big_val)
-    }
-
     /// Compute effective closing speed: |vx_i - vx_j| when same lane, 0 otherwise.
     ///
-    /// Used by the severity objective to maximize approach speed.
+    /// Used by the severity objective to maximize approach speed. Same-lane is the
+    /// validator's predicate (see [`Self::compute_effective_dist`]).
     fn compute_effective_closing_speed(&self, aid_i: &str, aid_j: &str, t: usize) -> Real {
-        let lane_i = self.get_lane_var(aid_i, t);
-        let lane_j = self.get_lane_var(aid_j, t);
         let closing_speed = self.compute_closing_speed(aid_i, aid_j, t);
         let zero = Real::from_rational(0, 1);
 
-        lane_i.eq(lane_j).ite(&closing_speed, &zero)
+        self.same_lane_at(aid_i, aid_j, t)
+            .ite(&closing_speed, &zero)
     }
 
     /// Extract the optimal value from the Z3 model after solving.
@@ -2990,8 +3169,15 @@ mod tests {
         });
     }
 
+    /// The directed conflicts the TTC objectives are scored over (SW-14).
+    ///
+    /// Replaces `test_compute_ttc_proxy_same_lane`, which pinned the old
+    /// `|Δpx| − dt·|Δvx|` proxy at 47.5 — a quantity that was never a TTC and
+    /// that ranked an infinite TTC as worse than a 2.5 s one. What matters now
+    /// is that `gap` and `closing` are the two halves of the validator's own
+    /// TTC quotient, under the validator's own guard.
     #[test]
-    fn test_compute_ttc_proxy_same_lane() {
+    fn test_collect_directed_conflicts_matches_the_validator_quotient() {
         use crate::solver::backend::OptimizationTarget;
         use crate::solver::backend::OptimizerBackend;
         use z3::ast::Ast;
@@ -3004,20 +3190,26 @@ mod tests {
             encoder.create_variables();
             encoder.encode_initial_conditions();
 
-            let weight = Real::from_rational(1, 2);
-            let big_val = Real::from_rational(9999, 1);
-            let proxy = encoder.compute_ttc_proxy("ego", "npc", 0, &weight, &big_val);
+            let conflicts = encoder.collect_directed_conflicts();
+            assert!(
+                !conflicts.is_empty(),
+                "two actors over a horizon must yield directed conflicts"
+            );
 
-            // Same lane: proxy = |px_npc - px_ego| - weight * |vx_ego - vx_npc|
-            // = |100 - 50| - 0.5 * |20 - 15| = 50 - 2.5 = 47.5
-            let expected = Real::from_rational(475, 10);
-            encoder.assert_constraint(&proxy._eq(&expected));
+            // ego is at px=50 doing 20 m/s, npc at px=100 doing 15 m/s, same
+            // lane: ego is the follower and is gaining, so at t=0 the ego->npc
+            // conflict is guarded, with gap 50 m and closing speed 5 m/s —
+            // TTC 10 s, exactly what `compute_validation_metrics` would report.
+            let c = &conflicts[0];
+            encoder.assert_constraint(&c.guard);
+            encoder.assert_constraint(&c.gap._eq(&Real::from_rational(50, 1)));
+            encoder.assert_constraint(&c.closing._eq(&Real::from_rational(5, 1)));
 
-            let result = encoder.check();
             assert_eq!(
-                result,
+                encoder.check(),
                 SatResult::Sat,
-                "TTC proxy should be 47.5 (50 - 0.5*5)"
+                "the first directed conflict should be ego closing on npc with a 50 m gap \
+                 at 5 m/s"
             );
         });
     }

@@ -5,16 +5,21 @@ use clap::Parser;
 use std::path::PathBuf;
 use tracing::Level;
 
-/// Optimization target options
+/// Optimization target options.
+///
+/// These are the *CLI* spellings (kebab-case). The YAML field `optimization_target:` uses
+/// snake_case for the same set (`minimize_ttc`, ...); the two are not interchangeable.
 #[derive(Clone, Debug, clap::ValueEnum)]
 enum OptimizeTarget {
-    /// Minimize time-to-collision (find worst-case TTC)
+    /// Minimize the smallest same-lane time-to-collision (worst near-miss)
     MinTtc,
-    /// Minimize distance (find closest approach)
+    /// Minimize the smallest same-lane gap (closest approach)
     MinDistance,
-    /// Minimize both (weighted severity)
+    /// MAXIMIZES the highest same-lane closing speed (most severe interaction) - the name
+    /// is a known misnomer; use max-ttc if you want the safest scenario
     MinSeverity,
-    /// Maximize TTC (find safest scenario)
+    /// Maximize the smallest same-lane time-to-collision (safest scenario by TTC, which is
+    /// not the same as the largest gap)
     MaxTtc,
 }
 

@@ -1,7 +1,7 @@
 # ─── Scenario: Cut-in from Left (Optimizer: Max TTC) ───
 #
 # Uses the optimizer to find the safest possible scenario — the one
-# with the largest minimum gap between actors during the cut-in.
+# with the largest minimum time-to-collision between actors during the cut-in.
 #
 # Actors:
 #   - ego: lane 1, 14-16 m/s forward, position 0-55m
@@ -11,7 +11,10 @@
 # Duration: 10.0s at 0.5s time steps
 #
 # Optimizer Target: max-ttc
-#   Maximizes the minimum gap (safest scenario).
+#   Maximizes the minimum same-lane time-to-collision (safest scenario).
+#   Note this is TTC, not gap: the largest TTC is reached by matching speeds
+#   rather than by separating, so the returned scenario's minimum gap may be
+#   small. Before SW-14 this target maximised the gap and called it TTC.
 #
 # Run:
 #   cargo run --release -- -i examples/cut_in_left_optimize_max_ttc.yaml -o output/ --optimize max-ttc

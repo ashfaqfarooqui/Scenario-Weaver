@@ -521,12 +521,29 @@ Instead of finding any satisfying scenario, optimization mode finds the best (or
 cargo run --release -- -i spec.yaml -o output/ --optimize min-ttc
 ```
 
-| Target | What it finds |
-|--------|--------------|
-| `min-ttc` | Scenario with smallest time-to-collision (worst-case near-miss) |
-| `min-distance` | Scenario with closest approach distance |
-| `min-severity` | Minimizes both TTC and distance (weighted combination) |
-| `max-ttc` | Safest possible scenario (maximum TTC) |
+| CLI target | YAML value | What it finds |
+|--------|--------------|--------------|
+| `min-ttc` | `minimize_ttc` | Scenario with the smallest same-lane time-to-collision (worst-case near-miss) |
+| `min-distance` | `minimize_distance` | Scenario with the closest same-lane approach distance |
+| `min-severity` | `minimize_severity` | Scenario with the **highest** same-lane closing speed — this target *maximises*, see below |
+| `max-ttc` | `maximize_ttc` | Scenario with the largest same-lane time-to-collision (safest) |
+
+The CLI spelling is kebab-case and the YAML spelling is snake_case; they are not
+interchangeable, and a CLI spelling in a YAML file is a parse error.
+
+**`min-severity` is a maximiser.** It drives the highest same-lane closing speed *up*, not
+down — severity correlates with relative impact speed, and finding the most severe
+interaction is what it is for. The name is a known misnomer (`MaximizeSeverity` is the
+correct one); `docs/optimizer.md` records why it has not been renamed yet. **If you want
+the safest scenario, use `max-ttc`.**
+
+**`max-ttc` maximises TTC, not gap.** It used to maximise the minimum *gap* and report that
+as TTC. The largest TTC is reached by matching speeds rather than by separating, so the
+scenario it returns may have a much smaller gap than you expect.
+
+Both TTC targets measure TTC against a fixed ladder of levels rather than exactly — this is
+what keeps the objective linear — so the reported optimum is a bound, not an equality. See
+`docs/optimizer.md` for the exact direction of each bound.
 
 Optimization uses Z3's Optimize solver instead of the standard Solver. It may take longer than standard generation.
 

@@ -102,20 +102,45 @@ pub enum ConstraintMode {
     Ignore,
 }
 
-/// Optimization target for finding worst-case or best-case scenarios
+/// Optimization target for finding worst-case or best-case scenarios.
+///
+/// Every variant is scored over the same "same lane" predicate and closing-speed floor
+/// that `compute_validation_metrics` uses when it reports `min_distance` and `min_ttc`,
+/// so the quantity optimised is the quantity reported. `docs/optimizer.md` documents the
+/// encoding; the objective region of `src/solver/encoder.rs` implements it.
+///
+/// YAML spells these in `snake_case` (`minimize_ttc`); the CLI's `--optimize` spells the
+/// same set in `kebab-case` (`min-ttc`). The two are not interchangeable.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum OptimizationTarget {
     /// No optimization - find any satisfying solution (default, backward compatible)
     #[default]
     None,
-    /// Minimize TTC - find worst-case time-to-collision scenario
+    /// Minimize the smallest same-lane time-to-collision — the worst near-miss the
+    /// constraints allow.
+    ///
+    /// The reported optimum is a certified **upper** bound on the min-TTC of the
+    /// trajectory shipped with it.
     MinimizeTtc,
-    /// Minimize distance - find closest approach scenario
+    /// Minimize the smallest same-lane longitudinal gap — the closest approach.
     MinimizeDistance,
-    /// Minimize both TTC and distance (weighted combination)
+    /// **Maximize** the highest same-lane closing speed — the most severe interaction.
+    ///
+    /// **This variant is a maximiser and its name is a misnomer.** Severity correlates
+    /// with relative impact speed, and the encoder drives that *up*; there is no weighted
+    /// combination of TTC and distance anywhere, and never was. The correct name is
+    /// `MaximizeSeverity` (`maximize_severity` in YAML, `--optimize max-severity`);
+    /// renaming it reaches `src/lib.rs`, outside SW-14's edit set, so the identifier is
+    /// still wrong while every prose surface says "maximise". Use `MaximizeTtc` if what
+    /// you want is the *safest* scenario.
     MinimizeSeverity,
-    /// Maximize TTC - find safest scenario
+    /// Maximize the smallest same-lane time-to-collision — the safest scenario.
+    ///
+    /// This maximises **TTC**, not gap: the largest TTC is reached by matching speeds
+    /// rather than by separating, so the returned scenario may have a small gap. The
+    /// reported optimum is a certified **lower** bound on the min-TTC of the trajectory,
+    /// and saturates at the top of `TTC_LEVELS` (60 s).
     MaximizeTtc,
 }
 

@@ -127,7 +127,9 @@ done
 
 # ── Run optimizer examples ────────────────────────────────────────────────────
 # Optimizer examples have optimization_target in their YAML, but we also pass
-# --optimize on the CLI to demonstrate both approaches.
+# --optimize on the CLI to demonstrate both approaches. Note the two spellings
+# differ: YAML is snake_case (`minimize_ttc`), the CLI is kebab-case (`min-ttc`).
+# `min-severity` is a maximiser — see docs/optimizer.md.
 
 OPTIMIZER_EXAMPLES=(
     "cut_in_left_optimize_min_distance:min-distance"

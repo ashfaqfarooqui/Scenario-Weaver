@@ -11,7 +11,9 @@
 # Duration: 10.0s at 0.5s time steps
 #
 # Optimizer Target: min-severity
-#   Maximizes relative approach speed (most severe interaction).
+#   MAXIMIZES relative approach speed (most severe interaction). The target's
+#   name is a known misnomer — see docs/optimizer.md. Use max-ttc if you want
+#   the safest scenario.
 #
 # Run:
 #   cargo run --release -- -i examples/cut_in_left_optimize_min_severity.yaml -o output/ --optimize min-severity

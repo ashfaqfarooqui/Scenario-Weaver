@@ -1,7 +1,7 @@
 # ─── Scenario: Cut-in from Left (Optimizer: Min TTC) ───
 #
 # Uses the optimizer to find the scenario with the worst (lowest)
-# time-to-collision proxy during a cut-in manoeuvre.
+# time-to-collision during a cut-in manoeuvre.
 #
 # Actors:
 #   - ego: lane 1, 14-16 m/s forward, position 0-55m
@@ -11,7 +11,11 @@
 # Duration: 10.0s at 0.5s time steps
 #
 # Optimizer Target: min-ttc
-#   Minimizes a linear proxy of time-to-collision (small gap + fast approach).
+#   Minimizes the smallest same-lane time-to-collision. Since SW-14 this is a
+#   real TTC measured against a ladder of constant levels, not the old
+#   `distance - dt * closing_speed` proxy, which preferred an infinite TTC to a
+#   2.5 s one. The reported optimum is an upper bound on the trajectory's own
+#   min-TTC.
 #
 # Run:
 #   cargo run --release -- -i examples/cut_in_left_optimize_min_ttc.yaml -o output/ --optimize min-ttc

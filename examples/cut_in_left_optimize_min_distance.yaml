@@ -12,7 +12,10 @@
 # Duration: 10.0s at 0.5s time steps
 #
 # Optimizer Target: min-distance
-#   Minimizes the closest physical approach between actors.
+#   Minimizes the closest same-lane physical approach between actors. "Same
+#   lane" is the validator's own predicate (discrete lane match or lateral
+#   overlap within a lane width), so the objective scores exactly the states
+#   the reported `Min Distance` is measured over.
 #
 # Run:
 #   cargo run --release -- -i examples/cut_in_left_optimize_min_distance.yaml -o output/ --optimize min-distance
