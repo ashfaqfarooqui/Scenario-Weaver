@@ -1236,13 +1236,30 @@ impl ScenarioSpec {
                 // The encoder schedules the change at the midpoint of the
                 // declared start window (`collect_lane_change_data`); a
                 // midpoint past the horizon is a change that never happens.
+                //
+                // SW-25: the bound is `>=`, not `>`. Step `horizon` is the
+                // *last* state in the trajectory, so a change scheduled to
+                // begin there spans no simulated step at all — the same
+                // "requested manoeuvre disappeared" class this check exists
+                // to reject, and exactly what `CartesianEncoder::
+                // encode_smooth_lane_transition` discards with its own
+                // `start_step >= self.horizon` guard. With `>` the two
+                // disagreed on precisely one value, and a spec landing on it
+                // reached the encoder with a lane change that was dropped
+                // while the step it was scheduled for was left with no
+                // lateral constraint at all: `lane` floated free of `py`
+                // (`cut_in_right.yaml` truncated to `duration: 5.0` gave
+                // py = 5.00, inside lane 1, with lane = 0 at t = 10).
                 let start_step = usize::midpoint(
                     (lc.start_time.min() / self.time_step) as usize,
                     (lc.start_time.max() / self.time_step) as usize,
                 );
-                if start_step > horizon {
+                if start_step >= horizon {
                     return Err(format!(
-                        "Actor {}: lane change starts at step {} (t = {:.3} s), past the                          scenario horizon of {} steps ({} s)",
+                        "Actor {}: lane change starts at step {} (t = {:.3} s), at or past \
+                         the scenario horizon of {} steps ({} s) — the last step is the \
+                         final state, so the change would span no time step at all and \
+                         be discarded",
                         actor.id,
                         start_step,
                         start_step as f64 * self.time_step,
@@ -1457,6 +1474,31 @@ mod tests {
         assert!(
             err.contains("past the") && err.contains("horizon"),
             "error must say the change is past the horizon, got: {err}"
+        );
+    }
+
+    /// SW-25: the boundary case the SW-12 check let through.
+    ///
+    /// `start_step == horizon` schedules the change to begin at the *final*
+    /// state of the trajectory, so it spans no simulated step — the same
+    /// silently-discarded manoeuvre the check above rejects, and exactly what
+    /// `CartesianEncoder::encode_smooth_lane_transition` discards with its own
+    /// `start_step >= self.horizon` guard. The check said `>` and so disagreed
+    /// with the encoder on precisely this one value.
+    #[test]
+    fn test_validate_rejects_lane_change_starting_at_the_last_step() {
+        let mut spec = create_valid_spec();
+        // horizon = duration / time_step steps; put the change on the last one.
+        let horizon = spec.num_time_steps();
+        spec.actors[1].lane_changes[0].start_time =
+            ValueOrRange::Value(horizon as f64 * spec.time_step);
+
+        let err = spec
+            .validate()
+            .expect_err("a lane change beginning at the final state spans no time step");
+        assert!(
+            err.contains("past the") && err.contains("horizon"),
+            "error must say the change is at or past the horizon, got: {err}"
         );
     }
 

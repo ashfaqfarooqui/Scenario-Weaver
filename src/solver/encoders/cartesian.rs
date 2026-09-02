@@ -249,16 +249,34 @@ impl<B: Z3Backend> CartesianEncoder<B> {
     ///
     /// Constrains lateral position to gradually transition from source lane center
     /// to target lane center over the specified time window.
+    ///
+    /// Returns `true` if the window was encoded. `false` means the manoeuvre
+    /// spans no simulated step and nothing at all was asserted over
+    /// `[start_step, end_step]` — the caller must then cover those steps
+    /// itself (SW-25; see `encode_lane_coupling_with_lane_changes`).
     fn encode_smooth_lane_transition(
         &mut self,
         actor_id: &str,
         start_step: usize,
         end_step: usize,
         direction: &crate::dsl::types::LaneChangeDirection,
-    ) {
-        // Defense-in-depth: skip encoding if lane change is beyond horizon
+    ) -> bool {
+        // Defense-in-depth: skip encoding if lane change is beyond horizon.
+        //
+        // SW-25: this used to return `()`, so the caller could not tell an
+        // encoded window from a discarded one — and its stable-phase loops
+        // skip `[start_step, end_step]` either way. A discarded window
+        // therefore left those steps with *no* lateral constraint: `py` was
+        // held only by the kinematic chain and `lane` by nothing at all, so
+        // the two were free to disagree, which is what `cut_in_right.yaml`
+        // truncated to `duration: 5.0` did at its final step (py = 5.00,
+        // inside lane 1, lane = 0 — and the `MinimizeTtc` optimiser picked
+        // that lane precisely because a free `lane` let it claim to share the
+        // ego's). `ScenarioSpec::validate` now rejects that spec outright, so
+        // this branch should be unreachable from the public API; reporting it
+        // rather than silently swallowing it is what keeps it defensive.
         if start_step >= self.horizon || start_step >= end_step {
-            return;
+            return false;
         }
 
         let lane_width = self.spec.get_lane_width();
@@ -288,11 +306,9 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         let source_center = source_lane.to_real() * &lane_width_real + &half_width;
         let target_center = target_lane_int.to_real() * &lane_width_real + &half_width;
 
-        // Number of transition steps
-        let num_steps = end_step - start_step;
-        if num_steps == 0 {
-            return;
-        }
+        // (The `num_steps == 0` guard that used to sit here was dead: the
+        // `start_step >= end_step` return above already covers it, and it was
+        // the second of two early returns that told the caller nothing.)
 
         // Soft constraints: constrain lateral position near source at start and target at end
         // Allow Z3 to discover smooth curve trajectory instead of forcing linear interpolation
@@ -380,6 +396,8 @@ impl<B: Z3Backend> CartesianEncoder<B> {
         // lane-change window. Now that `ay` is chained to `vy` for every actor
         // (SW-09/C2) it is a real envelope everywhere, so `encode_kinematics`
         // applies it at every step and this window-local copy is gone.
+
+        true
     }
 }
 
@@ -570,12 +588,23 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                     // Process each lane change and intermediate phases
                     for (i, lc) in changes.iter().enumerate() {
                         // Encode smooth transition for this lane change
-                        self.encode_smooth_lane_transition(
+                        let encoded = self.encode_smooth_lane_transition(
                             &actor_id,
                             lc.start_step,
                             lc.end_step,
                             &lc.direction,
                         );
+
+                        // A window the transition declined to encode is not a
+                        // manoeuvre, so its steps belong to the surrounding
+                        // stable phase rather than to nobody (SW-25). Without
+                        // this the loops below skip them and they end up with
+                        // no lateral constraint at all.
+                        if !encoded {
+                            for t in lc.start_step..=lc.end_step.min(self.horizon) {
+                                self.encode_stable_lateral_state_at_time(&actor_id, t);
+                            }
+                        }
 
                         // After this lane change: enforce coupling until next change or end
                         let next_start = if i + 1 < changes.len() {

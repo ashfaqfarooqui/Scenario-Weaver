@@ -128,21 +128,17 @@ fn test_multi_lane_lateral_distance() {
 // Optimizer paths
 // ---------------------------------------------------------------------------
 
+/// `cut_in_right` under `MinimizeTtc`, at a horizon its manoeuvre fits in.
+///
+/// The horizon matters and is not free to shorten: the npc's lane change is
+/// scheduled at the midpoint of `start_time: [2.5, 7.5]`, i.e. t = 5.0 s, so
+/// 10 s at 0.5 s steps puts the whole window (steps 10..17) inside the
+/// trajectory. See `test_cut_in_right_truncated_to_its_start_step_is_infeasible`
+/// for the truncated variant this test used to carry.
 #[test]
-#[ignore = "SW-25 (new, found by SW-23): pre-existing vehicle-side Containment bug, \
-            unrelated to pedestrians. This spec shortens cut_in_right to duration=5.0 \
-            while the npc's scheduled lane change (start_time up to 7.5s) can still be \
-            in flight; at the final step py=5.0 (lane 1's centre) but the recorded lane \
-            is still 0 — the H2 lane-lag `check_containment`'s own doc comment already \
-            names. Invariant::Containment used to hide this (blanket-exempted for every \
-            actor); retiring the entry for pedestrians (SW-23) exposes it for vehicles \
-            too. Needs the lane-change scheduling in \
-            src/solver/encoders/cartesian.rs / src/solver/encoder.rs, out of SW-23's \
-            pedestrian-containment remit."]
 fn test_optimizer_minimize_ttc_cut_in_right() {
     let mut spec = common::parse_example("cut_in_right.yaml");
     spec.optimization_target = OptimizationTarget::MinimizeTtc;
-    spec.duration = 5.0;
     spec.time_step = 0.5;
 
     let scenario = common::generate_spec_or_fail(spec);
@@ -156,11 +152,45 @@ fn test_optimizer_minimize_ttc_cut_in_right() {
     let val = opt
         .optimal_value
         .expect("optimizer must report an optimal value");
-    // The objective is the linear proxy |Δpx| − dt·|Δvx|, which is negative when
-    // the closing-speed term dominates; it must still be a finite metre-scale value.
+    // Since SW-14 the objective is a TTC in seconds, not the old
+    // `|Δpx| − dt·|Δvx|` metre-scale proxy: a non-negative, finite time.
     assert!(
-        val.is_finite() && val.abs() < 1000.0,
-        "TTC proxy out of range: {val}"
+        val.is_finite() && val >= 0.0 && val < 1000.0,
+        "minimised TTC out of range: {val}"
+    );
+    // `min-ttc` is a certified lower bound (SW-14), so the trajectory the
+    // optimiser returned cannot be safer than the optimum it reported.
+    let measured = scenario
+        .validation
+        .min_ttc
+        .expect("cut_in_right must report a measured min_ttc");
+    assert!(
+        val <= measured + 1e-6,
+        "optimiser reported {val:.6} s but the trajectory's min_ttc is {measured:.6} s"
+    );
+}
+
+/// Truncating `cut_in_right` to 5 s puts the npc's lane change at step 10 of a
+/// 10-step horizon — it would begin at the final state and so span no simulated
+/// step at all. The cut-in can therefore not happen, and no model exists.
+///
+/// This spec used to produce a model, and a wrong one (SW-25). The transition
+/// encoder discarded the window while `encode_lane_coupling_with_lane_changes`
+/// skipped it as a lane change, so step 10 was left with *no* lateral
+/// constraint: the npc sat at `py = 5.00` — inside lane 1 — with `lane = 0`,
+/// and `MinimizeTtc` chose that lane precisely because a free `lane` let it
+/// claim to be sharing the ego's.
+#[test]
+fn test_cut_in_right_truncated_to_its_start_step_is_infeasible() {
+    let mut spec = common::parse_example("cut_in_right.yaml");
+    spec.optimization_target = OptimizationTarget::MinimizeTtc;
+    spec.duration = 5.0;
+    spec.time_step = 0.5;
+
+    common::assert_infeasible(
+        spec,
+        "the lane change is scheduled at t = 5.0 s, the final state of a 5 s horizon, \
+         so it spans no time step and the cut-in cannot occur",
     );
 }
 
