@@ -574,6 +574,15 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 ttc,
             } => self.encode_ttc_constraint(actor1, actor2, *ttc, time),
 
+            // Approaching(follower, leader): leader in front, follower gaining — the
+            // lane-free half of the state in which a TTC exists at all. See the
+            // proposition's doc comment (SW-22) for why `TTCGT` needs this to mean
+            // anything, and why the lane test is the caller's antecedent, not part of
+            // this atom.
+            Proposition::Approaching { follower, leader } => {
+                self.encode_approaching(follower, leader, time)
+            }
+
             // OnSidewalk(actor, side): -SIDEWALK_WIDTH <= py < 0 (left) or
             // road_width < py <= road_width + SIDEWALK_WIDTH (right).
             //
@@ -931,6 +940,71 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         let case2 = z3::ast::Bool::and(&[&same_lane, &collision_possible_2]).implies(&ttc_safe_2);
 
         z3::ast::Bool::and(&[&case1, &case2])
+    }
+
+    /// The single directed conflict `follower` → `leader` at step `time`.
+    ///
+    /// This is the one place the "a TTC exists here" predicate is built, and it is the
+    /// encoder-side twin of the TTC block in `compute_validation_metrics`: the same
+    /// "same lane" test ([`encode_same_lane_constraint`] — discrete lane match *or*
+    /// lateral overlap), the same requirement that the follower be strictly behind, and
+    /// the same closing-speed floor. Both [`Self::collect_directed_conflicts`] (the
+    /// optimizer objectives, SW-14) and the `Converging` proposition (SW-22) go through
+    /// it, so an objective, an assertion and a reported metric cannot drift apart.
+    ///
+    /// Every term is a difference of existing variables — no products, so QF_LRA.
+    fn directed_conflict(&self, follower: &str, leader: &str, time: usize) -> DirectedConflict {
+        let same_lane = encode_same_lane_constraint(
+            self.get_lane_var(follower, time),
+            self.get_lane_var(leader, time),
+            self.get_lateral_pos(follower, time),
+            self.get_lateral_pos(leader, time),
+            self.spec.get_lane_width(),
+        );
+
+        let px_follow = self.get_longitudinal_pos(follower, time);
+        let px_lead = self.get_longitudinal_pos(leader, time);
+        let gap = px_lead - px_follow;
+        let closing =
+            self.get_longitudinal_vel(follower, time) - self.get_longitudinal_vel(leader, time);
+
+        let approaching = self.encode_approaching(follower, leader, time);
+        let guard = Bool::and(&[&same_lane, &approaching]);
+
+        DirectedConflict {
+            guard,
+            gap,
+            closing,
+        }
+    }
+
+    /// The lane-free half of a directed conflict: `follower` is strictly behind `leader`
+    /// and gaining on it.
+    ///
+    /// Two inequalities between existing variables and nothing else — in particular **no
+    /// `same_lane` disjunction**, which is what makes it cheap enough to assert 101 times.
+    /// The lane test belongs in the *antecedent* of whatever implication uses this: a
+    /// disjunction in a consequent Z3 must satisfy is a choice it searches over, one per
+    /// step, while the same disjunction as a hypothesis is propagation (SW-11's lesson).
+    /// Measured on `cut_in_left`'s five scenarios against a 15.0 s pre-fix baseline: with
+    /// `same_lane` in the consequent, 103 s; with the lane match hoisted into the
+    /// antecedent, 14.1 s.
+    ///
+    /// Both comparisons are strict, matching `compute_validation_metrics`'s
+    /// `state1.x > state2.x` and `rel_vel > epsilon` exactly. A non-strict `>=` on the
+    /// closing floor would let Z3 answer *on* it, which the validator then declines to
+    /// measure — the same enforce-one-thing/report-another boundary mismatch SW-12 fixed
+    /// for `DistanceGT` and `METRIC_TOL` documents.
+    fn encode_approaching(&self, follower: &str, leader: &str, time: usize) -> Bool {
+        let px_follow = self.get_longitudinal_pos(follower, time);
+        let px_lead = self.get_longitudinal_pos(leader, time);
+        let closing =
+            self.get_longitudinal_vel(follower, time) - self.get_longitudinal_vel(leader, time);
+
+        Bool::and(&[
+            &px_lead.gt(px_follow),
+            &closing.gt(real_from_f64(TTC_CLOSING_SPEED_EPSILON)),
+        ])
     }
 
     /// Encode global max acceleration constraints (if specified)
@@ -1526,41 +1600,20 @@ impl GenericEncoder<OptimizerBackend> {
     /// coordinate system, where a lane change spends many steps laterally overlapping
     /// without a discrete lane match.
     fn collect_directed_conflicts(&self) -> Vec<DirectedConflict> {
-        let lane_width = self.spec.get_lane_width();
-        let epsilon = real_from_f64(TTC_CLOSING_SPEED_EPSILON);
         let actor_ids: Vec<String> = self.spec.actors.iter().map(|a| a.id.clone()).collect();
 
         let mut conflicts = Vec::new();
         for i in 0..actor_ids.len() {
             for j in (i + 1)..actor_ids.len() {
                 for t in 0..=self.horizon {
-                    let same_lane = encode_same_lane_constraint(
-                        self.get_lane_var(&actor_ids[i], t),
-                        self.get_lane_var(&actor_ids[j], t),
-                        self.get_lateral_pos(&actor_ids[i], t),
-                        self.get_lateral_pos(&actor_ids[j], t),
-                        lane_width,
-                    );
-
                     for (follow, lead) in [
                         (&actor_ids[i], &actor_ids[j]),
                         (&actor_ids[j], &actor_ids[i]),
                     ] {
-                        let px_follow = self.get_longitudinal_pos(follow, t);
-                        let px_lead = self.get_longitudinal_pos(lead, t);
-                        let vx_follow = self.get_longitudinal_vel(follow, t);
-                        let vx_lead = self.get_longitudinal_vel(lead, t);
-
-                        let gap = px_lead - px_follow;
-                        let closing = vx_follow - vx_lead;
-                        let guard =
-                            Bool::and(&[&same_lane, &px_lead.gt(px_follow), &closing.ge(&epsilon)]);
-
-                        conflicts.push(DirectedConflict {
-                            guard,
-                            gap,
-                            closing,
-                        });
+                        // SW-22 moved the body of this loop into
+                        // `directed_conflict`, so the `Converging` proposition and
+                        // these objectives assert the same predicate by construction.
+                        conflicts.push(self.directed_conflict(follow, lead, t));
                     }
                 }
             }

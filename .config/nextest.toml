@@ -26,15 +26,49 @@ filter = 'test(test_bicycle_vs_cartesian_both_generate)'
 slow-timeout = { period = "60s", terminate-after = 4 }
 
 # 30 proptest cases, each a full Z3 solve of a perturbed `cut_in_left`.
-# Measured 33.2s before SW-12 and 116.4s after: the forward-progress bound
-# (`px[horizon] - px[0] >= f * speed.min() * duration`) is a single linear row,
-# but it couples the two ends of a 101-step integration chain, so the LP can no
-# longer be decided locally. That cost is paid 30 times here.
+# Measured 33.2s before SW-12, 116.4s after, and 187.8s after SW-22. Two
+# separate costs, both paid 30 times here:
+#
+#   - SW-12's forward-progress bound (`px[horizon] - px[0] >= f * speed.min() *
+#     duration`) is a single linear row, but it couples the two ends of a
+#     101-step integration chain, so the LP can no longer be decided locally.
+#   - SW-22's cut-in conflict (`scenarios::cut_in_conflict`) requires the NPC to
+#     merge in *front* of an ego that is gaining, which removes the trivial
+#     "merge into empty road behind the ego" family of models. Measured on this
+#     test at the same commit by returning `LTLFormula::True` from
+#     `cut_in_conflict`: 92.1s without it, 187.8s with. That is this test's
+#     worst case, not the corpus's — over `examples/` SW-22 made the total
+#     *faster* (cut_in_right 60.0s -> 11.3s, cut_in_right_bicycle >400s -> 257s).
 #
 # Given its own budget rather than widening the global threshold, and rather
 # than cutting the case count — 30 cases is what makes this test worth having.
-# If a later issue makes forward progress cheaper, lower this back rather than
-# leaving the slack.
+#
+# `threads-required = "num-cpus"` schedules it alone. It is 30 *sequential* Z3
+# solves and the longest test in the suite, so run beside the other ~430 tests it
+# measures machine contention as much as solver work: the same test that takes
+# 187.8s alone was still running at the 360s kill when the suite scheduled it
+# against 15 other solves. Alone it is the tail of the run either way, so this
+# costs the wall clock almost nothing and makes the budget below mean something.
+# 90s x 4 = killed at 360s, roughly the headroom over the measured time that the
+# 60s period gave before SW-22. If a later issue makes either bound cheaper,
+# lower this back rather than leaving the slack.
 [[profile.default.overrides]]
-filter = 'test(envelope_and_extraction_agreement_hold_over_perturbed_cut_in_left)'
-slow-timeout = { period = "60s", terminate-after = 4 }
+filter = 'test(scenario_invariants_hold_over_perturbed_cut_in_left)'
+slow-timeout = { period = "90s", terminate-after = 4 }
+threads-required = "num-cpus"
+
+# A wall-clock assertion (`duration.as_secs() < 10`) on one `cut_in_left` solve.
+# It is the only test in the suite that asserts on elapsed time, so under the
+# default parallel schedule it measures machine contention rather than the
+# solver: measured in isolation at 2.13s before SW-22 and 4.44s after (SW-22's
+# cut-in conflict removes the trivial "merge into empty road behind the ego"
+# family of models, so the first solve of this spec costs more — across the five
+# scenarios the example declares it is a wash, 15.0s -> 14.2s, and over the rest
+# of the corpus it is a large win). Both are far inside the 10s the test asserts;
+# the 12.5s that failed the gate was 14 other Z3 solves running beside it.
+#
+# `threads-required = "num-cpus"` makes nextest schedule it alone, so the number
+# it measures is the one it claims to measure. The assertion itself is untouched.
+[[profile.default.overrides]]
+filter = 'test(test_solving_performance_with_ratio_constraint)'
+threads-required = "num-cpus"

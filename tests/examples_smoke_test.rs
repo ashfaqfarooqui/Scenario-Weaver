@@ -186,22 +186,22 @@ fn test_with_import_example_loads_from_its_own_directory() {
 /// `bicycle_lane_change`, `simple_bidirectional` and `unsafe_following` began
 /// reporting a measured TTC as a direct result.
 ///
-/// The 7 that remain fail for a different reason, and it is not a measurement
-/// bug: in the solution Z3 returns, no actor ever approaches another *in its
-/// own lane*, so TTC is genuinely undefined. Nothing in the encoding forces a
-/// conflict — `Always(TTCGT(...))` is an implication, vacuously true when
-/// nobody is closing — and on `cut_in_left` both vehicles simply brake to a
-/// standstill 98 m apart (`Invariant::ForwardProgress`, SW-12) while the npc's
-/// cut-in is executed perfectly and 63 m ahead. Making the declared conflict
-/// actually happen is SW-12's forward-progress work, not a same-lane test.
+/// The 7 that remained failed for a different reason, and it was not a
+/// measurement bug: nothing in the encoding required a conflict to *exist* —
+/// `Always(TTCGT(..))` is an implication, vacuously true when nobody is
+/// closing — so whether a TTC existed to measure was decided by which
+/// satisfying model Z3 happened to return. SW-22 closed that. Measured at
+/// `894409b`, every one of the remaining failures was a `cut_in_left` or
+/// `cut_in_right` spec, and the trajectories showed why: the ego *overtook*
+/// the NPC in the adjacent lane and the NPC then merged in behind it, slower —
+/// a lane change into empty road. `scenarios::cut_in_conflict` now requires
+/// the merge to happen in front of an ego that is gaining, as an implication
+/// guarded by a lane membership the template already forces, so the guard on
+/// `TTCGT` has something to bind to. This test is un-`#[ignore]`d as a result;
+/// it is the corpus-wide form of
+/// `constraint_modes_test::test_enforce_mode_respects_constraint` and exists so
+/// that a fixture there can never again quietly stop measuring anything.
 #[test]
-#[ignore = "SW-12: nothing forces a closing conflict, so Z3 answers with a scenario in \
-            which no actor ever approaches another in its own lane and TTC is genuinely \
-            undefined — on cut_in_left both vehicles brake to a standstill. The SW-10 half \
-            (lane lagging lateral position, so no same-lane step existed at all) is fixed: \
-            cut_in_left now spends 54 of 101 steps with both actors in lane 1 and reports a \
-            min_distance of 63.49 m measured over that window, where before the fix it \
-            reported 170.92 m measured over the handful of steps the lag left behind"]
 fn test_enforce_min_ttc_examples_produce_a_measured_ttc() {
     let mut failures: Vec<String> = Vec::new();
 

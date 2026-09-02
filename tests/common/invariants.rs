@@ -103,50 +103,49 @@ impl std::fmt::Display for Violation {
 // ---------------------------------------------------------------------------
 
 /// Invariants that no scenario in this repository satisfies today, each with
-/// the issue that owns the fix.
+/// the issue that owns the fix. **Empty since SW-22** — all six now hold across
+/// the corpus, and [`assert_scenario_invariants`] asserts all six at every call
+/// site.
 ///
 /// This is a **ratchet**, deliberately shaped like `scripts/check.sh`'s clippy
 /// baseline. [`assert_scenario_invariants`] is called from every test that
-/// generates a scenario; if it asserted all six it would fail on every one of
-/// them, so it would have to be `#[ignore]`d everywhere and would assert
-/// nothing at all. Instead it asserts everything *except* the entries below,
-/// which means the two properties that do hold today —
-/// [`Invariant::Envelope`] and [`Invariant::ExtractionAgreement`] — are
-/// enforced at every call site right now, and cannot regress unnoticed.
+/// generates a scenario; when all six were broken it would have failed on every
+/// one of them, so it would have had to be `#[ignore]`d everywhere and would
+/// have asserted nothing at all. Instead it asserts everything *except* the
+/// entries below, so each invariant becomes live the moment its entry goes.
 ///
 /// The list is not an escape hatch:
 ///
 /// - `test_known_broken_invariants_are_still_broken` fails if an entry stops
 ///   being violated anywhere in the corpus, forcing it to be deleted rather
-///   than left to rot.
+///   than left to rot. That is how each of the five retirements below was
+///   found — the ratchet fired first, and the firing *is* the proof.
 /// - `test_all_scenario_invariants` (ignored) asserts all six at full strength,
 ///   and its output is the standing record of what is broken.
 ///
 /// Never add an entry to silence a new failure. An entry means "an open issue
 /// owns this and the fix is scheduled".
 ///
-/// [`Invariant::ForwardProgress`] was retired by SW-12. Its entry described
-/// the pedestrian examples only ("on all three pedestrian examples the only
-/// vehicle brakes to a standstill and stays there for a majority of the
-/// horizon, pedestrian_crossing: 29 of 35 steps"), but SW-11 widened it to the
-/// vehicle examples: once H4's bogus `speed.max()` ceiling and the forced
-/// `a[t+1] == a[t]` were gone, nothing held a forward speed profile in place
-/// and the ego parked on `bicycle_lane_change` from t = 7.0 and on its
-/// cartesian twin from t = 2.0. `GenericEncoder::encode_forward_progress` now
-/// requires every vehicle to cover at least
-/// `MIN_FORWARD_PROGRESS_FRACTION * speed.min() * duration`, and
-/// `test_forward_progress_across_the_corpus` passes on all 21 examples:
-/// cut_in_left's ego went from 22 of 101 steps at `vx = 0` to none,
-/// bicycle_lane_change's from 32 of 101 to none, and pedestrian_crossing's
-/// from 29 of 35 to 14 of 35 — braking for the pedestrian, which is the point
-/// of that scenario, but no longer parked for the majority of it.
-pub const KNOWN_BROKEN_INVARIANTS: &[(Invariant, &str)] = &[(
-    Invariant::ConstraintModes,
-    "SW-12 (violate) and SW-10 (enforce): `violate` is satisfied by equality — \
-         cut_in_left_adversarial_all reports min_ttc = 3.0 against a threshold of exactly \
-         3.0 — and `enforce` passes on examples where the metric was never evaluated at \
-         all, because the lane variable lags lateral position so no same-lane step exists.",
-)];
+/// [`Invariant::ForwardProgress`] was retired by SW-12, [`Invariant::Kinematics`]
+/// by SW-09 and [`Invariant::Containment`] by SW-23.
+///
+/// [`Invariant::ConstraintModes`] was retired by SW-22 and the list is now
+/// **empty**: every invariant is asserted at every call site. Its two halves
+/// went separately. `violate`-at-equality was SW-12's (`DistanceGT` lowered
+/// strictly, so its negation was satisfied *at* the threshold the validator
+/// calls safe). `enforce`-on-an-unevaluated-metric was this one, and the entry
+/// text blamed the wrong thing: it said "the lane variable lags lateral
+/// position so no same-lane step exists", which SW-10 had already fixed. The
+/// real cause is that `Always(TTCGT(..))` is a guarded implication and nothing
+/// required a pair to converge, so `min_ttc` came back `None` — neither
+/// enforced nor violated — on every `cut_in_left` / `cut_in_right` example in
+/// the corpus. `scenarios::cut_in_conflict` supplies the missing antecedent.
+///
+/// Kept as an empty constant rather than deleted: it is the documented place a
+/// future agent would be tempted to add an entry, and the ratchet around it
+/// (`test_known_broken_invariants_are_still_broken`) is what makes adding one
+/// cost something.
+pub const KNOWN_BROKEN_INVARIANTS: &[(Invariant, &str)] = &[];
 
 /// True when `invariant` is on the known-broken baseline.
 #[must_use]

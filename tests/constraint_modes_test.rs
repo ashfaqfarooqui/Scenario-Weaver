@@ -303,31 +303,36 @@ fn test_violate_mode_negates_constraint() {
 /// `enforce` and both metrics are measured (TTC 4.85 s against a 2.0 s
 /// threshold, distance 23.31 m against 5.0 m).
 ///
-/// It is the *fourth* fixture this test has had to move to.
-/// `simple_bidirectional.yaml` stopped producing a measured TTC when SW-12
-/// added the forward-progress bound and Z3 moved to a different, equally valid
-/// model — as, in the same change, did `cut_in_right.yaml`, which was briefly
-/// its replacement; that had replaced `speed_limit_violation.yaml`, which stopped when
-/// SW-10 reconciled the encoder's and the validator's same-lane predicates;
-/// that had replaced `unsafe_following.yaml`, which stopped when SW-09 chained
-/// `vy` to `ay`; and that had replaced `overtake_with_opposite.yaml`, which
-/// stopped when SW-08 corrected the lane centres and the position integration.
-/// Every time, the mechanism is the same: nothing in the encoding *requires*
-/// the two actors to be closing on each other, so whether a TTC exists to
-/// measure is decided by which satisfying model Z3 happens to return.
+/// It is the *fourth* fixture this test has had to move to, and — SW-22 — it
+/// should be the last. `simple_bidirectional.yaml` stopped producing a measured
+/// TTC when SW-12 added the forward-progress bound and Z3 moved to a different,
+/// equally valid model — as, in the same change, did `cut_in_right.yaml`, which
+/// was briefly its replacement; that had replaced
+/// `speed_limit_violation.yaml`, which stopped when SW-10 reconciled the
+/// encoder's and the validator's same-lane predicates; that had replaced
+/// `unsafe_following.yaml`, which stopped when SW-09 chained `vy` to `ay`; and
+/// that had replaced `overtake_with_opposite.yaml`, which stopped when SW-08
+/// corrected the lane centres and the position integration. Every time, the
+/// mechanism was the same: nothing in the encoding *required* the two actors to
+/// be closing on each other, so whether a TTC existed to measure was decided by
+/// which satisfying model Z3 happened to return.
 ///
-/// **This will keep happening until a conflict is required rather than hoped
-/// for**, and SW-12 established that the obvious way to require one is not
-/// affordable: `F(some pair is closing)` is a disjunction over every step of
-/// the horizon, and adding it took `cut_in_left` from 4 s to over 500 s and
-/// `bicycle_lane_change` past 200 s. See the SW-12 report; the corpus-wide
-/// version of this test,
-/// `examples_smoke_test::test_enforce_min_ttc_examples_produce_a_measured_ttc`,
-/// remains `#[ignore]`d against it.
+/// **A conflict is now required rather than hoped for.** Every one of those five
+/// rotated-away fixtures is a `cut_in_left` or `cut_in_right` spec, and
+/// `scenarios::cut_in_conflict` (SW-22) makes the NPC merge in front of an ego
+/// that is gaining — an implication guarded by a lane membership the template
+/// already forces, not the `F(some pair is closing)` disjunction SW-12 measured
+/// at over 500 s on `cut_in_left`. All five report a measured TTC again:
+/// `simple_bidirectional` 3.00 s, `speed_limit_violation` 3.00 s,
+/// `unsafe_following` 3.00 s, `overtake_with_opposite` 3.00 s, `cut_in_right`
+/// 3.00 s (the smallest of its five scenarios). The corpus-wide form of this
+/// test, `examples_smoke_test::test_enforce_min_ttc_examples_produce_a_measured_ttc`,
+/// is no longer `#[ignore]`d and now covers all of them at once, so the next
+/// fixture rotation would be a test failure rather than a quiet edit here.
 ///
-/// `head_on_near_miss.yaml` is chosen for the one thing that has survived
-/// every previous rotation: its closing pair is **structural**. The ego and
-/// the oncoming actor travel in opposite directions down the same road, so
+/// `head_on_near_miss.yaml` stays as the fixture for the one thing that has
+/// survived every previous rotation: its closing pair is **structural**. The ego
+/// and the oncoming actor travel in opposite directions down the same road, so
 /// they approach each other in every model there is — no encoding choice can
 /// make that pair stop closing without making the example unsolvable. Its
 /// margins are comfortable too (TTC 4.85 s against 2.0 s, distance 23.31 m

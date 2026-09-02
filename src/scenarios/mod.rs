@@ -51,6 +51,103 @@ pub trait ScenarioModel: Send + Sync {
     }
 }
 
+/// The cut-in's *conflict*: while the NPC and the ego share the target lane, the NPC is
+/// in front and the ego is gaining on it.
+///
+/// **Why a scenario model asserts anything about closing at all (SW-22).** An `enforce`d
+/// `min_ttc` lowers to `G(TTCGT(ego, npc, T))`, and `TTCGT` is a *guarded implication* —
+/// "whenever this pair is converging, its TTC exceeds `T`". Nothing required a pair to
+/// converge, so Z3 was free to answer with traffic that never does, and
+/// `compute_validation_metrics` then reported `min_ttc: null`, "never evaluated".
+/// Measured at `894409b`, that was **every** example in the corpus missing a TTC: all ten
+/// were `cut_in_left` or `cut_in_right`, and no other scenario type was affected.
+///
+/// The trajectories say why. In `cut_in_left` the ego *overtook* the NPC in the adjacent
+/// lane and the NPC then merged in **behind** it, slower and finally stationary — a lane
+/// change into empty road, with no conflict anywhere in it. That is a defect in the
+/// scenario model, not in the TTC bound: `cut_in_left.rs`'s own module doc says the NPC
+/// "changes lanes to cut in front of the ego vehicle", and only the *initial*
+/// `Ahead(npc, ego)` ever said so.
+///
+/// **Why this shape and not `F(approaching)`.** SW-12 built the existential — a `Closing`
+/// proposition under `F(⋁ over pairs)` — and it worked and was unaffordable: `cut_in_left`
+/// 4 s → 12 s for one scenario, >500 s for the five it declares. A disjunction over the
+/// horizon asks Z3 to *search* for the instant. Here the antecedent is one the template
+/// already forces — `cut_in_behavior`'s `Until` makes `InLane(npc, target_lane)` true at
+/// some step, and the ego, which has no lane changes, holds its lane — so
+/// `G(antecedent → Approaching)` cannot be satisfied vacuously, and every conjunct is an
+/// implication Z3 *propagates* rather than a disjunct it chooses between. That is SW-11's
+/// speed-bucket lesson (guards that partition, not selectors Z3 picks) applied to the
+/// conflict itself.
+///
+/// **Both lane atoms are in the antecedent on purpose.** They are `Int` equalities, so as
+/// hypotheses they are free, and together they imply `encode_same_lane_constraint`'s
+/// discrete-match disjunct — which is what makes the validator measure a TTC here. Moving
+/// either into the consequent turns it into something Z3 must *satisfy*: with the full
+/// same-lane predicate as a consequent, `cut_in_left`'s five scenarios took 103 s against
+/// a 15.0 s pre-fix baseline; this way they take 14.1 s, i.e. the conflict is free.
+/// The price is a residual vacuity hole — an ego that left its lane would make the
+/// antecedent false — which no cut-in spec can reach today, since the templates give the
+/// ego no `lane_changes`, but which a future spec that did would silently re-open.
+///
+/// **Two cases add nothing, and both are deliberate.**
+///
+/// *The NPC does not end up in the ego's lane* (`target_lane != ego_lane`): then "cuts in
+/// front of the ego" has no referent, and asserting a conflict under a lane the ego is not
+/// in would be unsatisfiable rather than merely inapplicable. Such a spec leaves an
+/// `enforce`d `min_ttc` vacuous — the two actors never share a lane, so no TTC is ever
+/// defined — and nothing here can change that; it is a mis-specified cut-in, and
+/// `tests/bidirectional_test.rs::test_backward_lane_velocity` is one.
+///
+/// *The two actors travel in opposite directions*: then the ego is not following the NPC
+/// at all, it is meeting it, and the conflict is **structural** — an oncoming pair
+/// approaches in every model there is, which is exactly why `head_on_near_miss.yaml` has
+/// never needed help measuring a TTC. `initial_conditions` in both cut-in models already
+/// skips its `Ahead` atom for the same reason and says so. Asserting the following
+/// relation anyway makes those specs UNSAT: the ego and an oncoming NPC sharing a lane
+/// must cross, and after crossing `px_npc > px_ego` is false, so the NPC would have to
+/// leave the lane it was just required to merge into. Verified —
+/// `test_lane_direction_consistency` and `test_narrow_rural_road` both went UNSAT before
+/// this guard.
+///
+/// `direction` is the shared travel direction of the pair, `+1` or `-1`. The comparisons
+/// are made in the raw `+x` frame, matching `compute_validation_metrics`, so for a pair
+/// travelling in `-x` the *physically* following ego is the one at the larger `x` and the
+/// roles swap.
+fn cut_in_conflict(
+    ego_id: &str,
+    npc_id: &str,
+    ego_lane: usize,
+    target_lane: usize,
+    direction: i32,
+) -> LTLFormula {
+    if target_lane != ego_lane {
+        return LTLFormula::True;
+    }
+
+    let both_in_lane = LTLFormula::Atom(Proposition::InLane {
+        actor: npc_id.to_string(),
+        lane: target_lane,
+    })
+    .and(LTLFormula::Atom(Proposition::InLane {
+        actor: ego_id.to_string(),
+        lane: ego_lane,
+    }));
+
+    let (follower, leader) = if direction >= 0 {
+        (ego_id, npc_id)
+    } else {
+        (npc_id, ego_id)
+    };
+
+    both_in_lane
+        .implies(LTLFormula::Atom(Proposition::Approaching {
+            follower: follower.to_string(),
+            leader: leader.to_string(),
+        }))
+        .always()
+}
+
 /// Whether a safety atom already states the *safe* condition, or states the
 /// *unsafe* one (so the safe condition is its negation).
 ///

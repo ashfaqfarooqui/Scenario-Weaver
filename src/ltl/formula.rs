@@ -127,6 +127,34 @@ pub enum Proposition {
     /// Actor1 is laterally right of Actor2 (py1 < py2)
     OnRightOf { actor1: String, actor2: String },
 
+    /// `follower` is strictly behind `leader` and **actually gaining on it**:
+    ///
+    /// ```text
+    /// px_leader > px_follower  ∧  (vx_follower - vx_leader) > TTC_CLOSING_SPEED_EPSILON
+    /// ```
+    ///
+    /// Together with the pair sharing a lane, this is exactly the state in which
+    /// `compute_validation_metrics` evaluates a time-to-collision. It exists because
+    /// `TTCGT` alone cannot require one to be evaluated: `TTCGT` is a *guarded
+    /// implication* — "whenever this pair is converging, its TTC exceeds the threshold" —
+    /// so `G(TTCGT(..))` is satisfied vacuously by traffic that never converges, and an
+    /// `enforce`d `min_ttc` then constrains nothing (SW-22). `Approaching` is the missing
+    /// *antecedent*.
+    ///
+    /// Linear (QF_LRA): two comparisons between existing variables, no products.
+    ///
+    /// **Deliberately lane-free, and deliberately used as a consequent.** The lane test
+    /// (`encode_same_lane_constraint`) is a disjunction; in a consequent Z3 must satisfy
+    /// it, one choice per step, and on `cut_in_left` that cost 103 s against a 15 s
+    /// baseline; hoisting the lane match into the antecedent instead brought it to 14 s.
+    /// So state the lane condition as the
+    /// *hypothesis* — `G(InLane(..) → Approaching(..))`, with an antecedent the scenario
+    /// already forces true somewhere — rather than bundling it here or reaching for an
+    /// `F(Approaching)`, which is a disjunction over the whole horizon and is search.
+    /// See `scenarios::cut_in_conflict` for the canonical use and SW-11's speed buckets
+    /// for the general lesson.
+    Approaching { follower: String, leader: String },
+
     /// Relative longitudinal velocity exceeds threshold
     /// Linear constraint: |vx1 - vx2| > velocity
     RelativeVelocityGT {

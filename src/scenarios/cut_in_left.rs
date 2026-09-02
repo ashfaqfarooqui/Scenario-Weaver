@@ -92,7 +92,7 @@ impl CutInLeftModel {
         }
     }
 
-    fn cut_in_behavior(&self, spec: &ScenarioSpec, _ego_id: &str, npc_id: &str) -> LTLFormula {
+    fn cut_in_behavior(&self, spec: &ScenarioSpec, ego_id: &str, npc_id: &str) -> LTLFormula {
         let npc = spec.npcs()[0];
 
         let initial_lane = npc.lane;
@@ -115,14 +115,34 @@ impl CutInLeftModel {
         // Note: Lane persistence after cut-in is enforced by a direct Z3 constraint
         // in add_z3_constraints(), not in LTL, because F(G(...)) in bounded LTL
         // allows the solver to delay until the last time step.
-        LTLFormula::Atom(Proposition::InLane {
+        let merge = LTLFormula::Atom(Proposition::InLane {
             actor: npc_id.to_string(),
             lane: initial_lane,
         })
         .until(LTLFormula::Atom(Proposition::InLane {
             actor: npc_id.to_string(),
             lane: target_lane,
-        }))
+        }));
+
+        // A lane change alone is not a cut-in: SW-22 measured the NPC merging *behind*
+        // an ego that had already overtaken it, which satisfied every safety bound
+        // vacuously. `cut_in_conflict` requires the merge to happen in front of an ego
+        // that is closing. See its doc comment for why it is an implication and not an
+        // `F(..)`.
+        let Ok(ego) = spec.ego() else {
+            return merge;
+        };
+        if ego.direction != npc.direction {
+            return merge;
+        }
+
+        merge.and(crate::scenarios::cut_in_conflict(
+            ego_id,
+            npc_id,
+            ego.lane,
+            target_lane,
+            npc.direction,
+        ))
     }
 }
 

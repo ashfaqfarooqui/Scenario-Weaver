@@ -118,6 +118,16 @@ actors:
 min_ttc: 3.0
 min_distance: 5.0
 num_scenarios: 1
+# SW-22. As above, and one step further: the ego sits in lane 0 while the NPC
+# merges from lane 2 into lane 1, so this pair never shares a lane at all and
+# *neither* metric is ever evaluated. `min_distance: enforce` is as vacuous here
+# as `min_ttc: enforce`. A cut-in whose NPC does not enter the ego's lane is a
+# mis-specified cut-in; `scenarios::cut_in_conflict` returns `True` for it and
+# says so, because no encoding choice can manufacture an interaction between two
+# actors that stay in different lanes.
+constraint_modes:
+  min_ttc: ignore
+  min_distance: ignore
 "#;
 
     let scenario = common::generate_or_fail(yaml);
@@ -182,6 +192,27 @@ actors:
 min_ttc: 3.0
 min_distance: 5.0
 num_scenarios: 1
+# SW-22. These three specs are oncoming pairs, and an `enforce`d `min_ttc` on an
+# oncoming pair that must cross is only satisfiable *vacuously* — which is the
+# defect SW-22 removed, so it now shows up as an
+# `Invariant::ConstraintModes` breach rather than passing silently.
+#
+# Derivation, not trial and error: forward progress (SW-12) requires each vehicle
+# to cover `0.5 * speed.min() * duration`, so over the 10 s horizon the ego must
+# travel at least half its declared speed x 10 s, and likewise the NPC,
+# toward each other. Their initial separation is smaller than that sum, so they
+# *must* cross. While they share a lane, `min_ttc >= 3 s` demands
+# `gap >= 3 * closing`, and at the crossing the gap goes to zero with the closing
+# speed still positive — so the only models left are the ones where the pair does
+# not share a lane while approaching, and then TTC is never defined. Both
+# outcomes fail `enforce`; there is no satisfying model in between. Asserting the
+# conflict anyway made these UNSAT (measured).
+#
+# `ignore` is the mode this spec can actually honour. Nothing these tests assert
+# depends on it: they check that velocity sign follows lane direction. The
+# `enforce` was default boilerplate that had never been evaluated on this spec.
+constraint_modes:
+  min_ttc: ignore
 "#;
 
     let scenario = common::generate_or_fail(yaml);
@@ -364,6 +395,27 @@ actors:
 min_ttc: 3.0
 min_distance: 5.0
 num_scenarios: 1
+# SW-22. These three specs are oncoming pairs, and an `enforce`d `min_ttc` on an
+# oncoming pair that must cross is only satisfiable *vacuously* — which is the
+# defect SW-22 removed, so it now shows up as an
+# `Invariant::ConstraintModes` breach rather than passing silently.
+#
+# Derivation, not trial and error: forward progress (SW-12) requires each vehicle
+# to cover `0.5 * speed.min() * duration`, so over the 10 s horizon the ego must
+# travel at least half its declared speed x 10 s, and likewise the NPC,
+# toward each other. Their initial separation is smaller than that sum, so they
+# *must* cross. While they share a lane, `min_ttc >= 3 s` demands
+# `gap >= 3 * closing`, and at the crossing the gap goes to zero with the closing
+# speed still positive — so the only models left are the ones where the pair does
+# not share a lane while approaching, and then TTC is never defined. Both
+# outcomes fail `enforce`; there is no satisfying model in between. Asserting the
+# conflict anyway made these UNSAT (measured).
+#
+# `ignore` is the mode this spec can actually honour. Nothing these tests assert
+# depends on it: they check that velocity sign follows lane direction. The
+# `enforce` was default boilerplate that had never been evaluated on this spec.
+constraint_modes:
+  min_ttc: ignore
 "#;
 
     let scenario = common::generate_or_fail(yaml);
