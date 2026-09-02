@@ -40,6 +40,7 @@ use scenario_weaver::dsl::types::{
     PEDESTRIAN_MAX_DECELERATION, PEDESTRIAN_RUN_MAX_SPEED, PEDESTRIAN_WALK_MAX_SPEED,
 };
 use scenario_weaver::scenario::model::{ActorTrajectory, Scenario};
+use scenario_weaver::solver::encoder::SIDEWALK_WIDTH;
 
 /// Numeric tolerance for every comparison in this module.
 ///
@@ -139,35 +140,13 @@ impl std::fmt::Display for Violation {
 /// bicycle_lane_change's from 32 of 101 to none, and pedestrian_crossing's
 /// from 29 of 35 to 14 of 35 — braking for the pedestrian, which is the point
 /// of that scenario, but no longer parked for the majority of it.
-pub const KNOWN_BROKEN_INVARIANTS: &[(Invariant, &str)] = &[
-    (
-        Invariant::ConstraintModes,
-        "SW-12 (violate) and SW-10 (enforce): `violate` is satisfied by equality — \
+pub const KNOWN_BROKEN_INVARIANTS: &[(Invariant, &str)] = &[(
+    Invariant::ConstraintModes,
+    "SW-12 (violate) and SW-10 (enforce): `violate` is satisfied by equality — \
          cut_in_left_adversarial_all reports min_ttc = 3.0 against a threshold of exactly \
          3.0 — and `enforce` passes on examples where the metric was never evaluated at \
          all, because the lane variable lags lateral position so no same-lane step exists.",
-    ),
-    (
-        Invariant::Containment,
-        "SW-16 (E3): pedestrians only; vehicles are clean (SW-08's lane-centre rounding \
-         and SW-10's schedule-vs-py lag are both fixed, `lane` is derived from `py` at \
-         every step). This check compares `py` to the strict drivable surface \
-         `[0, num_lanes*lane_width]`, which is deliberate — a pedestrian legitimately \
-         leaves it, and SW-16 gave that a name: `src/solver/encoder.rs`'s `OnSidewalk` now \
-         bounds itself to a `SIDEWALK_WIDTH`-wide strip, and `xodr_exporter.rs` exports a \
-         matching (trajectory-widened) `LaneType::Sidewalk` so the artifact always \
-         describes wherever the pedestrian actually ends up — verified across the corpus in \
-         `tests/artifact_validation_test.rs::every_example_actors_stay_within_road_surface`, \
-         which SW-16 un-ignored. What remains broken, and keeps this entry, is that \
-         `OnSidewalk` is only ever used inside `eventually(...)`: it pins one instant to the \
-         sidewalk strip but nothing bounds `py` at any *other* instant, so the trajectory can \
-         (and does) drift further before or after — measured on this corpus at up to 0.6 m \
-         past the `OnSidewalk` bound on `pedestrian_wide_road`. A real fix needs an `always` \
-         bound on pedestrian `py` for every t, which belongs in \
-         `src/solver/encoders/pedestrian.rs` / `cartesian.rs` (out of SW-16's file list) — \
-         see its report for the concrete proposal.",
-    ),
-];
+)];
 
 /// True when `invariant` is on the known-broken baseline.
 #[must_use]
@@ -550,26 +529,54 @@ fn check_constraint_modes(scenario: &Scenario, spec: &ScenarioSpec, out: &mut Ve
 /// consumer keyed on `lane` — the TTC proposition's same-lane test,
 /// `compute_effective_dist`, `compute_validation_metrics` — then treats the two
 /// actors as separated during exactly the window a cut-in scenario is about.
+///
+/// # Pedestrians (SW-23)
+///
+/// A pedestrian legitimately leaves `[0, road_top]`: that is what
+/// `CrossingRoad`/`OnSidewalk` mean, and `src/solver/encoder.rs`'s
+/// `SIDEWALK_WIDTH` strip is the bound on how far. So a pedestrian's `py` is
+/// checked against `[-SIDEWALK_WIDTH, road_top + SIDEWALK_WIDTH]` instead —
+/// the same envelope `encode_pedestrian_lateral_containment`
+/// (`src/solver/encoders/pedestrian.rs`) now asserts at every step, and the
+/// same floor `xodr_exporter::sidewalk_widths` measures the `.xodr` against.
+/// The lane-centre check is skipped for pedestrians entirely: `lane` has no
+/// semantic meaning for them (`pedestrian_crossing.rs` pins it to 0
+/// throughout — only `py` carries position), so comparing it to a lane centre
+/// tests an artifact of the encoding, not a property of the scenario.
 fn check_containment(scenario: &Scenario, spec: &ScenarioSpec, out: &mut Vec<Violation>) {
     let w = spec.get_lane_width();
     let num_lanes = spec.get_num_lanes();
     let road_top = num_lanes as f64 * w;
 
     for traj in &scenario.actors {
+        let is_ped = spec_actor(spec, traj).is_some_and(|a| a.role == ActorRole::Pedestrian);
+        let (lower, upper) = if is_ped {
+            (-SIDEWALK_WIDTH, road_top + SIDEWALK_WIDTH)
+        } else {
+            (0.0, road_top)
+        };
+
         for st in &traj.states {
             let py = st.position().y;
             let lane = st.lane();
             let at = format!("{} at t={:.2}s", traj.id, st.time);
 
-            if py < -TOL || py > road_top + TOL {
+            if py < lower - TOL || py > upper + TOL {
                 push(
                     out,
                     Invariant::Containment,
                     format!(
-                        "{at}: py = {py:.9} outside the road surface [0, {road_top}] \
-                         ({num_lanes} lanes x {w} m)"
+                        "{at}: py = {py:.9} outside [{lower}, {upper}] \
+                         ({num_lanes} lanes x {w} m{})",
+                        if is_ped { " + sidewalk margin" } else { "" }
                     ),
                 );
+            }
+
+            if is_ped {
+                // `lane` carries no position information for pedestrians;
+                // only `py`, already checked above.
+                continue;
             }
 
             if lane >= num_lanes {

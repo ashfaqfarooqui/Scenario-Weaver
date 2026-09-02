@@ -21,7 +21,8 @@ use crate::solver::encoder_utils::{
 };
 use crate::solver::encoders::pedestrian::{
     encode_pedestrian_bounds_step, encode_pedestrian_initial_state,
-    encode_pedestrian_kinematics_step, extract_pedestrian_trajectory,
+    encode_pedestrian_kinematics_step, encode_pedestrian_lateral_containment,
+    extract_pedestrian_trajectory,
 };
 
 /// Cartesian coordinate system encoder
@@ -432,6 +433,10 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         let max_ay = real_from_f64(self.spec.max_lateral_acceleration);
         let neg_max_ay = real_from_f64(-self.spec.max_lateral_acceleration);
 
+        // Road width for the pedestrian lateral-containment bound below
+        // (SW-23): a per-spec constant, computed once for the whole horizon.
+        let road_width = self.spec.get_lane_width() * self.spec.get_num_lanes() as f64;
+
         for actor in &self.spec.actors {
             let actor_id = &actor.id;
             let is_pedestrian = actor.role == ActorRole::Pedestrian;
@@ -465,6 +470,19 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                     // to the road, the dominant case in this corpus, at
                     // 1.41 m/s instead of 2.0 (SW-12/M8).
                     encode_pedestrian_bounds_step(&self.backend, vx_t, vy_t, ax_t, ay_t, actor);
+
+                    // `py` bounded to the drivable surface plus the sidewalk
+                    // margin, at every step — not only where `OnSidewalk`
+                    // happens to pin one instant (SW-23). Without this, Z3 is
+                    // free to place a pedestrian arbitrarily far past the
+                    // sidewalk strip everywhere `OnSidewalk` isn't literally
+                    // asserted; SW-16 measured up to 2.60 m of drift with the
+                    // proposition-only bound in place.
+                    encode_pedestrian_lateral_containment(
+                        &self.backend,
+                        &self.positions_y[actor_id][t],
+                        road_width,
+                    );
                 } else {
                     self.backend.assert(&ax_t.ge(&ax_min_real));
                     self.backend.assert(&ax_t.le(&ax_max_real));

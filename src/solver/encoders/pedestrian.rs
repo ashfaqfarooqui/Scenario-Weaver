@@ -28,6 +28,7 @@ use crate::scenario::model::{
     Acceleration, ActorTrajectory, CartesianState, Position, State, Velocity,
 };
 use crate::solver::backend::Z3Backend;
+use crate::solver::encoder::SIDEWALK_WIDTH;
 use crate::solver::encoder_utils::{extract_int, extract_real, real_from_f64};
 
 /// The pedestrian's speed cap, selected by `behavior.walking_mode`.
@@ -222,6 +223,30 @@ pub fn encode_pedestrian_bounds_step<B: Z3Backend>(
     backend.assert(&diff.le(&diag_real));
     backend.assert(&(&Real::from_rational(0_i64, 1_i64) - &sum).le(&diag_real));
     backend.assert(&(&Real::from_rational(0_i64, 1_i64) - &diff).le(&diag_real));
+}
+
+/// Bound a pedestrian's lateral position to the drivable surface plus the
+/// sidewalk margin on either side, at a single step.
+///
+/// `-SIDEWALK_WIDTH <= py <= road_width + SIDEWALK_WIDTH`. Constants only
+/// (`road_width` is a per-spec constant the caller computes once from
+/// `lane_width * num_lanes`), so this stays in QF_LRA.
+///
+/// This closes the gap SW-16 found and could not close from
+/// `src/solver/encoder.rs`: `OnSidewalk` only appears inside `eventually(...)`,
+/// so it pins `py` into the `SIDEWALK_WIDTH` strip at one instant and leaves
+/// it unconstrained at every other. Reuses the same `SIDEWALK_WIDTH` the
+/// `.xodr` exporter's `sidewalk_widths` floors against, rather than a second
+/// copy of the constant (SW-23).
+pub fn encode_pedestrian_lateral_containment<B: Z3Backend>(
+    backend: &B,
+    py_t: &Real,
+    road_width: f64,
+) {
+    let lower = real_from_f64(-SIDEWALK_WIDTH);
+    let upper = real_from_f64(road_width + SIDEWALK_WIDTH);
+    backend.assert(&py_t.ge(&lower));
+    backend.assert(&py_t.le(&upper));
 }
 
 /// Extract a pedestrian's trajectory from the Z3 model.
