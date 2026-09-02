@@ -123,9 +123,25 @@ pub enum CoordinateSystem {
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LaneChangeDirection {
-    /// Move to the lane with a higher index (lower y-coordinate).
+    /// Move to the lane with a lower index (lower y-coordinate), for a
+    /// forward-travelling actor (`direction: 1`, the default). Lane position
+    /// is `y = lane * lane_width + lane_width / 2`
+    /// (`cartesian.rs::encode_lane_position_coupling_at_time`), so lane index
+    /// and y-coordinate move together — index 0 is always the lower-y lane.
+    /// For a backward-travelling actor this flips, since the actor's own
+    /// "left" is the opposite road-frame direction (see
+    /// `cartesian.rs::encode_smooth_lane_transition`, which maps
+    /// `Left => -actor.direction`).
+    ///
+    /// SW-17 E5: this used to claim the opposite (higher index / lower y);
+    /// it was corrected to match `cartesian.rs`, the encoder that actually
+    /// implements it, rather than the other way around.
     Left,
-    /// Move to the lane with a lower index (higher y-coordinate).
+    /// Move to the lane with a higher index (higher y-coordinate), for a
+    /// forward-travelling actor. See [`Left`](LaneChangeDirection::Left) for
+    /// the y-coordinate formula and the backward-actor caveat
+    /// (`cartesian.rs::encode_smooth_lane_transition` maps
+    /// `Right => actor.direction`).
     Right,
 }
 

@@ -175,13 +175,26 @@ Available variants: `Resolution::High` (1200×600), `Resolution::Medium` (900×4
 
 ## OpenLabel (.ol.json)
 
-OpenLabel 1.0.0 JSON metadata describing scenario semantics.
+OpenLabel 1.0.0 JSON annotations describing scenario semantics and per-timestep
+actor positions.
 
-- Scenario metadata (type, duration, time step)
-- Semantic tags: road type, scenario category, actor roles, behaviors
-- Frame-level object data with positions and velocities
-- Validation metadata (TTC, distance, constraint satisfaction)
+- Scenario metadata (`metadata.comment`, timestamps, generator info); custom
+  fields not in the ASAM OpenLABEL schema live under the namespaced
+  `metadata.scenario_weaver` object rather than as bare top-level keys
+- `objects`: one entry per actor, `name` matching the actor's id exactly as
+  used in the sibling `.xosc`'s `<ScenarioObject name="...">` — the two files
+  join on this name
+- `frames`: one entry per timestep, with each present actor's `(x, y)`
+  position under `object_data.vec`
+- Semantic tags: scenario category, lane-change direction, actor roles,
+  behaviors, lane count
 - Useful for scenario cataloging, search, and filtering
+
+Road-type tags (`RoadTypeMotorway`/`Distributor`/`Minor`) that used to be
+guessed from lane count and directionality alone have been removed — they
+were not derived from any real classification, and shipping a wrong guess is
+worse than shipping nothing. A travel-direction tag is now emitted only when
+every lane agrees on one direction; a bidirectional road gets none.
 
 **Programmatic export:**
 

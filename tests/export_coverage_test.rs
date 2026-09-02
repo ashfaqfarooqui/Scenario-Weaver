@@ -237,3 +237,74 @@ fn test_head_on_export_json() {
     let json = serde_json::to_string(&scenario).unwrap();
     assert!(json.contains("head_on"));
 }
+
+// ===========================================================================
+// SW-17 E4/D4: .ol.json <-> .xosc join by actor name
+// ===========================================================================
+
+/// The whole point of D4 (Route A): the `.ol.json` for a scenario must be
+/// joinable to its sibling `.xosc` by actor name. This reads the *real*
+/// exported `.xosc` back through `openscenario_rs::parse_from_str` (not a
+/// string/regex check — the SW-15/SW-18 lesson is that a comment claiming
+/// two artifacts agree is not a substitute for a test that reads both) and
+/// compares its `<ScenarioObject name="...">` set against the `.ol.json`
+/// `objects[*].name` set, for a 3-actor scenario (`head_on_near_miss.yaml`:
+/// ego, slow_npc, oncoming_npc — see `tests/head_on_test.rs`).
+#[test]
+fn test_openlabel_objects_join_xosc_entities_by_name() {
+    let scenario = generate_from_file("head_on_near_miss.yaml");
+
+    let xosc = export_scenario_to_xosc(&scenario).unwrap();
+    let doc = openscenario_rs::parse_from_str(&xosc)
+        .expect("head_on_near_miss.yaml: xosc did not round-trip through parse_from_str");
+    let entities = doc
+        .entities
+        .as_ref()
+        .expect("head_on_near_miss.yaml: round-tripped xosc has no <Entities>");
+    let mut xosc_names: Vec<String> = entities
+        .scenario_objects
+        .iter()
+        .map(|so| {
+            so.name
+                .as_literal()
+                .map(String::as_str)
+                .unwrap_or("")
+                .to_string()
+        })
+        .collect();
+    xosc_names.sort();
+
+    let ol_json_str = export_scenario_to_openlabel(&scenario).unwrap();
+    let ol_json: serde_json::Value = serde_json::from_str(&ol_json_str).unwrap();
+    let objects = ol_json["openlabel"]["objects"]
+        .as_object()
+        .expect("openlabel.objects must be present (SW-17 E4)");
+    let mut ol_names: Vec<String> = objects
+        .values()
+        .map(|o| o["name"].as_str().unwrap().to_string())
+        .collect();
+    ol_names.sort();
+
+    assert_eq!(
+        xosc_names, ol_names,
+        "head_on_near_miss.yaml: .ol.json object names must match .xosc \
+         ScenarioObject names exactly, or the two artifacts cannot be joined"
+    );
+    assert_eq!(
+        xosc_names.len(),
+        3,
+        "expected 3 actors (ego, slow_npc, oncoming_npc)"
+    );
+
+    // And the frames actually carry per-timestep data, not just object stubs.
+    let frames = ol_json["openlabel"]["frames"]
+        .as_object()
+        .expect("openlabel.frames must be present (SW-17 E4)");
+    assert!(!frames.is_empty(), "frames must not be empty");
+    let frame0 = frames.get("0").expect("frame 0 must exist");
+    assert_eq!(
+        frame0["objects"].as_object().unwrap().len(),
+        3,
+        "frame 0 must carry all 3 actors' positions"
+    );
+}

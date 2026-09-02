@@ -325,8 +325,12 @@ pub fn export_scenario_to_xodr(scenario: &Scenario) -> Result<String> {
 
 /// Export a scenario to OpenLabel 1.0.0 JSON format
 ///
-/// Generates a minimal OpenLabel file containing scenario metadata and
-/// semantic tags (road type, scenario category, actor roles, behaviors).
+/// Generates an OpenLabel file containing scenario metadata, one `objects`
+/// entry per actor (named identically to the corresponding `.xosc`
+/// `<ScenarioObject name="...">`, so the two files can be joined by name),
+/// one `frames` entry per timestep carrying each actor's position at that
+/// time, and semantic tags (scenario category, lane-change direction, actor
+/// roles, behaviors).
 ///
 /// # Example
 /// ```no_run
