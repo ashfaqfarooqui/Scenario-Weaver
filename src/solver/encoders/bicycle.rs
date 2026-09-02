@@ -66,7 +66,8 @@ use crate::solver::encoder_utils::{
 };
 use crate::solver::encoders::pedestrian::{
     encode_pedestrian_bounds_step, encode_pedestrian_initial_state,
-    encode_pedestrian_kinematics_step, extract_pedestrian_trajectory,
+    encode_pedestrian_kinematics_step, encode_pedestrian_lateral_containment,
+    extract_pedestrian_trajectory,
 };
 
 /// Width of a reference-speed bucket, m/s.
@@ -866,6 +867,10 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
         // Collect lane change data to determine stable vs transition phases
         let lane_changes_data = collect_lane_change_data(&self.spec, self.horizon);
 
+        // Same constant `cartesian.rs` computes for
+        // `encode_pedestrian_lateral_containment` below.
+        let road_width = self.spec.get_lane_width() * self.spec.get_num_lanes() as f64;
+
         // `max_lateral_acceleration` is a hard envelope with no `ConstraintMode`
         // of its own; it now bounds the acceleration that actually drives `vy`.
         let max_ay = real_from_f64(self.spec.max_lateral_acceleration);
@@ -899,6 +904,18 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
                     &self.accelerations_y[actor_id][t],
                     actor,
                 );
+
+                // `py` bounded to the drivable surface plus the sidewalk
+                // margin, at every step (SW-24, following SW-23's cartesian
+                // fix). Without this a bicycle-coordinate pedestrian drifts
+                // arbitrarily far past the sidewalk strip; measured up to
+                // py = 9.28 against a [-2, 9] envelope before this fix.
+                encode_pedestrian_lateral_containment(
+                    &self.backend,
+                    &self.positions_y[actor_id][t],
+                    road_width,
+                );
+
                 if t < self.horizon {
                     encode_pedestrian_kinematics_step(
                         &self.backend,
