@@ -66,6 +66,28 @@ pub const MIN_LANE_WIDTH: f64 = 1.0;
 /// Largest accepted lane width (m).
 pub const MAX_LANE_WIDTH: f64 = 20.0;
 
+/// Whether a lane change scheduled to start at `start_step` has anywhere to
+/// go within a `horizon`-step scenario (SW-25/SW-29).
+///
+/// `horizon` steps means the last valid index is `horizon`, but that index is
+/// the *final* state — nothing simulates past it — so a change starting there
+/// spans no time step at all and is discarded by the encoder
+/// (`CartesianEncoder::encode_smooth_lane_transition`'s own
+/// `start_step >= self.horizon` guard). The comparison is therefore `>=`, not
+/// `>`; SW-25 found the two disagreeing by exactly one between
+/// [`ScenarioSpec::validate`] and the encoder, with `collect_lane_change_data`
+/// in `solver::encoder_utils` a third, independently-drifted copy (still `>`
+/// until SW-29). `validate` and `collect_lane_change_data` now both call this
+/// function. `src/solver/encoders/cartesian.rs` is outside SW-29's file list
+/// (`src/solver/encoders/` is fenced off entirely), so its own
+/// `start_step >= self.horizon` is left as a separate literal — numerically
+/// identical to this predicate today, but a fourth call site should route
+/// through it too if that fence is ever lifted.
+#[must_use]
+pub const fn lane_change_start_past_horizon(start_step: usize, horizon: usize) -> bool {
+    start_step >= horizon
+}
+
 /// Fraction of the distance implied by an actor's declared initial speed that
 /// a vehicle must actually cover over the scenario duration (SW-12/M5).
 ///
@@ -1254,7 +1276,7 @@ impl ScenarioSpec {
                     (lc.start_time.min() / self.time_step) as usize,
                     (lc.start_time.max() / self.time_step) as usize,
                 );
-                if start_step >= horizon {
+                if lane_change_start_past_horizon(start_step, horizon) {
                     return Err(format!(
                         "Actor {}: lane change starts at step {} (t = {:.3} s), at or past \
                          the scenario horizon of {} steps ({} s) — the last step is the \

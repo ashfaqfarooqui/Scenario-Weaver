@@ -133,7 +133,7 @@ fn test_multi_lane_lateral_distance() {
 /// The horizon matters and is not free to shorten: the npc's lane change is
 /// scheduled at the midpoint of `start_time: [2.5, 7.5]`, i.e. t = 5.0 s, so
 /// 10 s at 0.5 s steps puts the whole window (steps 10..17) inside the
-/// trajectory. See `test_cut_in_right_truncated_to_its_start_step_is_infeasible`
+/// trajectory. See `test_cut_in_right_truncated_to_its_start_step_is_rejected_by_validation`
 /// for the truncated variant this test used to carry.
 #[test]
 fn test_optimizer_minimize_ttc_cut_in_right() {
@@ -172,25 +172,34 @@ fn test_optimizer_minimize_ttc_cut_in_right() {
 
 /// Truncating `cut_in_right` to 5 s puts the npc's lane change at step 10 of a
 /// 10-step horizon — it would begin at the final state and so span no simulated
-/// step at all. The cut-in can therefore not happen, and no model exists.
+/// step at all. The cut-in can therefore not happen.
 ///
-/// This spec used to produce a model, and a wrong one (SW-25). The transition
-/// encoder discarded the window while `encode_lane_coupling_with_lane_changes`
-/// skipped it as a lane change, so step 10 was left with *no* lateral
-/// constraint: the npc sat at `py = 5.00` — inside lane 1 — with `lane = 0`,
-/// and `MinimizeTtc` chose that lane precisely because a free `lane` let it
-/// claim to be sharing the ego's.
+/// This spec used to reach the solver and produce a model, and a wrong one
+/// (SW-25): the transition encoder discarded the window while
+/// `encode_lane_coupling_with_lane_changes` skipped it as a lane change, so
+/// step 10 was left with *no* lateral constraint — the npc sat at `py = 5.00`
+/// (inside lane 1) with `lane = 0`, and `MinimizeTtc` chose that lane
+/// precisely because a free `lane` let it claim to be sharing the ego's.
+///
+/// SW-25's fix made the encoding total, so this spec then had to prove
+/// infeasible through the solver instead (`assert_infeasible`). SW-29 wires
+/// `ScenarioSpec::validate` into the generation path, and this is exactly the
+/// spec that check exists to catch: it now names the field before ever
+/// reaching the solver, which is why this asserts a validation rejection
+/// (`assert_invalid_spec`) rather than a solver UNSAT — a clearer error for
+/// the same "no model" fact. `optimization_target` is set anyway to keep this
+/// as close as possible to the optimizer test above it; validation rejects
+/// before the optimizer ever runs, so it has no bearing on the outcome here.
 #[test]
-fn test_cut_in_right_truncated_to_its_start_step_is_infeasible() {
+fn test_cut_in_right_truncated_to_its_start_step_is_rejected_by_validation() {
     let mut spec = common::parse_example("cut_in_right.yaml");
     spec.optimization_target = OptimizationTarget::MinimizeTtc;
     spec.duration = 5.0;
     spec.time_step = 0.5;
 
-    common::assert_infeasible(
+    common::assert_invalid_spec(
         spec,
-        "the lane change is scheduled at t = 5.0 s, the final state of a 5 s horizon, \
-         so it spans no time step and the cut-in cannot occur",
+        "lane change starts at step 10 (t = 5.000 s), at or past the scenario horizon",
     );
 }
 
@@ -198,7 +207,7 @@ fn test_cut_in_right_truncated_to_its_start_step_is_infeasible() {
 fn test_optimizer_minimize_distance_overtake() {
     // The full 12 s horizon is required: overtake_left's second lane change
     // starts at t ∈ [7.0, 8.0], so a shortened horizon is genuinely infeasible
-    // (see test_overtake_left_is_infeasible_below_its_manoeuvre_horizon).
+    // (see test_overtake_left_is_rejected_by_validation_below_its_manoeuvre_horizon).
     let mut spec = common::parse_example("overtake_left.yaml");
     spec.optimization_target = OptimizationTarget::MinimizeDistance;
 
@@ -235,16 +244,25 @@ fn test_optimizer_minimize_distance_overtake() {
 
 /// Truncating `overtake_left` to 5 s removes the window its second lane change
 /// needs (`start_time: [7.0, 8.0]`), so no model can exist. This used to be
-/// swallowed by an `Err(_) => println!` arm.
+/// swallowed by an `Err(_) => println!` arm, then (before SW-29) proved
+/// infeasible only by asking the solver.
+///
+/// SW-29 wires `ScenarioSpec::validate` into the generation path, and a lane
+/// change scheduled past the horizon is exactly what that check rejects, so
+/// this spec is now invalid before it ever reaches the solver. What this test
+/// was actually proving — that the second lane change's window doesn't fit —
+/// still holds: the rejection message names the same fact (step 15 at 7.5 s
+/// is at or past the 10-step / 5 s horizon), just earlier and more precisely
+/// than a solver UNSAT would have.
 #[test]
-fn test_overtake_left_is_infeasible_below_its_manoeuvre_horizon() {
+fn test_overtake_left_is_rejected_by_validation_below_its_manoeuvre_horizon() {
     let mut spec = common::parse_example("overtake_left.yaml");
     spec.duration = 5.0;
     spec.time_step = 0.5;
 
-    common::assert_infeasible(
+    common::assert_invalid_spec(
         spec,
-        "the second lane change starts at t ∈ [7.0, 8.0], past a 5 s horizon",
+        "lane change starts at step 15 (t = 7.500 s), at or past the scenario horizon",
     );
 }
 

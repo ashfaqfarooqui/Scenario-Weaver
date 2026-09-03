@@ -253,16 +253,23 @@ fn test_optimizer_pedestrian_crossing() {
 /// A single-step horizon leaves no room for `cut_in_left`'s lane change
 /// (`start_time: [2.5, 7.5]`), so no model can exist. Committed as an
 /// expectation rather than an "acceptable either way" branch.
+///
+/// SW-29 wires `ScenarioSpec::validate` into the generation path, and a lane
+/// change scheduled past the horizon is exactly the case that check rejects —
+/// so this spec is now invalid before it ever reaches the solver/optimizer.
+/// What this test was actually proving — that the lane change's window
+/// doesn't fit a 0.5 s horizon — still holds; the rejection message names the
+/// same fact more precisely than a solver UNSAT would.
 #[test]
-fn test_optimizer_minimal_horizon_is_infeasible() {
+fn test_optimizer_minimal_horizon_is_rejected_by_validation() {
     let mut spec = common::parse_example("cut_in_left.yaml");
     spec.optimization_target = OptimizationTarget::MinimizeDistance;
     spec.duration = 0.5;
     spec.time_step = 0.5;
 
-    common::assert_infeasible(
+    common::assert_invalid_spec(
         spec,
-        "a 0.5 s horizon cannot contain the lane change the scenario requires",
+        "lane change starts at step 4 (t = 2.000 s), at or past the scenario horizon",
     );
 }
 

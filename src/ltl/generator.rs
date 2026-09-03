@@ -1,7 +1,7 @@
 //! LTL formula generation from DSL specifications
 
 use crate::dsl::types::ScenarioSpec;
-use crate::error::Result;
+use crate::error::{Result, ScenarioGenError};
 
 /// Generates LTL formulas from a [`ScenarioSpec`] by combining behavioral
 /// constraints (from the scenario model) with safety constraints (TTC, distance, etc.).
@@ -16,9 +16,20 @@ impl LTLGenerator {
     ///
     /// **Canonical validation point.** All public generation paths
     /// (`generate_single_scenario_from_spec`, `generate_multiple_scenarios_from_spec`)
-    /// funnel through here, so validation runs exactly once per call.
+    /// funnel through here, so validation runs exactly once per call — on both
+    /// the full [`ScenarioSpec`] (`spec.validate()`, the DSL-level checks such
+    /// as lane bounds, horizon, and time-step limits) and the scenario-type
+    /// model (`model.validate()`, e.g. actor count and manoeuvre presence).
+    /// A spec parsed via `dsl::parser::parse_yaml`/`parse_yaml_file` was
+    /// already validated once there, so this re-validates it; that is
+    /// deliberate — a spec mutated after parsing (as `generate_single_scenario_from_spec`
+    /// callers and many tests do, e.g. overriding `spec.duration`) must not
+    /// bypass these checks, and re-running cheap arithmetic/string checks on
+    /// an already-valid spec costs nothing on the hot path.
     /// Callers must not call `model.validate()` themselves before invoking this.
     pub fn generate(spec: &ScenarioSpec) -> Result<crate::ltl::formula::LTLFormula> {
+        spec.validate().map_err(ScenarioGenError::InvalidSpec)?;
+
         let model = spec.scenario_type.get_model();
         model.validate(spec)?;
 
@@ -79,7 +90,12 @@ mod tests {
             ],
             min_ttc: 3.0,
             min_distance: 5.0,
-            road: None,
+            road: Some(RoadSpec {
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, 1],
+                road_length: None,
+            }),
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: ConstraintModes::default(),
@@ -156,7 +172,12 @@ mod tests {
             ],
             min_ttc: 3.0,
             min_distance: 5.0,
-            road: None,
+            road: Some(RoadSpec {
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, 1],
+                road_length: None,
+            }),
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: ConstraintModes::default(),
@@ -227,7 +248,12 @@ mod tests {
             ],
             min_ttc: 2.0,
             min_distance: 5.0,
-            road: None,
+            road: Some(RoadSpec {
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, 1],
+                road_length: None,
+            }),
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: ConstraintModes::default(),
@@ -378,7 +404,12 @@ mod tests {
             ],
             min_ttc: 2.0,
             min_distance: 2.0,
-            road: None,
+            road: Some(RoadSpec {
+                num_lanes: 2,
+                lane_width: 3.5,
+                lane_directions: vec![1, 1],
+                road_length: None,
+            }),
             lane_width: 3.5,
             num_scenarios: 1,
             constraint_modes: ConstraintModes::default(),

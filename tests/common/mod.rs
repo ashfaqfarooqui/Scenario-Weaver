@@ -189,6 +189,38 @@ pub fn assert_infeasible(spec: ScenarioSpec, why: &str) {
     }
 }
 
+/// Assert that a spec is rejected by `ScenarioSpec::validate` (SW-29's
+/// generation-path check), before it ever reaches the solver, and that the
+/// message contains `expected_substring`.
+///
+/// Distinct from [`assert_infeasible`]: that one proves a spec has no model by
+/// making the solver say so; this one proves a spec is malformed and never
+/// reaches the solver at all. A spec that used to need the solver to prove
+/// infeasible (e.g. a lane change scheduled past the horizon) is usually
+/// better tested here once `ScenarioSpec::validate` runs on the generation
+/// path — the message names the offending field, where UNSAT only says "no
+/// model".
+pub fn assert_invalid_spec(spec: ScenarioSpec, expected_substring: &str) {
+    match scenario_weaver::generate_single_scenario_from_spec(spec) {
+        Ok(scenario) => panic!(
+            "expected validation to reject the spec (message should contain {expected_substring:?}), \
+             but the solver produced one: {} actors, min_ttc={:?}, min_distance={:?}",
+            scenario.actors.len(),
+            scenario.validation.min_ttc,
+            scenario.validation.min_distance
+        ),
+        Err(ScenarioGenError::InvalidSpec(msg)) => {
+            assert!(
+                msg.contains(expected_substring),
+                "expected the validation message to contain {expected_substring:?}, got: {msg}"
+            );
+        }
+        Err(e) => panic!(
+            "expected a validation rejection (InvalidSpec) containing {expected_substring:?}, got: {e}"
+        ),
+    }
+}
+
 /// Run one spec against a committed [`Expect`], returning a one-line description
 /// of the outcome on success and an explanatory message on mismatch.
 ///

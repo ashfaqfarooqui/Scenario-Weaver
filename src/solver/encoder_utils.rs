@@ -7,7 +7,9 @@ use std::collections::HashMap;
 use z3::ast::{Bool, Int, Real};
 use z3::Model;
 
-use crate::dsl::types::{ActorRole, LaneChangeDirection, ScenarioSpec};
+use crate::dsl::types::{
+    lane_change_start_past_horizon, ActorRole, LaneChangeDirection, ScenarioSpec,
+};
 use crate::error::{Result, ScenarioGenError};
 
 /// Resolved lane change timing for an actor, expressed as discrete time-step indices.
@@ -245,8 +247,18 @@ pub fn collect_lane_change_data(
                     // Use midpoint for now (TODO: make solver variables)
                     let start_step = usize::midpoint(start_step_min, start_step_max);
 
-                    // Skip lane changes that begin beyond the scenario horizon
-                    if start_step > horizon {
+                    // Skip lane changes that begin beyond the scenario horizon.
+                    // SW-25/SW-29: this used to be `>`, one off from the `>=`
+                    // used by `ScenarioSpec::validate` and by
+                    // `CartesianEncoder::encode_smooth_lane_transition`'s own
+                    // `start_step >= self.horizon` guard. This call and
+                    // `ScenarioSpec::validate` now share
+                    // `lane_change_start_past_horizon` and cannot drift apart
+                    // again; `cartesian.rs` is out of this issue's file list
+                    // (`src/solver/encoders/` is fenced) so its copy is still
+                    // a separate `>=` literal — numerically identical today,
+                    // but not wired to the shared predicate.
+                    if lane_change_start_past_horizon(start_step, horizon) {
                         return None;
                     }
 

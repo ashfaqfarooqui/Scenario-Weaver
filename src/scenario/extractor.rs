@@ -277,38 +277,24 @@ mod tests {
 
     #[test]
     fn test_extract_scenario_no_road_spec() {
+        // SW-29: this used to reach the encoder and assert "either succeeds
+        // with defaults or errors — both are acceptable", which was true only
+        // because `LTLGenerator::generate` skipped `ScenarioSpec::validate`
+        // entirely; that omission is exactly the bug SW-29 fixes. `validate`
+        // has always rejected `road: None` outright ("road specification is
+        // required" is its very first check), so a spec with no road was
+        // never actually a "use sensible defaults" case — it is invalid, and
+        // now `generate` says so before ever reaching the encoder. This test
+        // now asserts that rejection instead of a vacuous "either is fine".
         let mut spec = create_test_spec();
         spec.road = None;
 
-        // With no road spec, extraction should still work using defaults
-        let cfg = Config::new();
-        z3::with_z3_config(&cfg, || {
-            let mut encoder = Z3Encoder::new(spec.clone());
-            encoder.create_variables();
-            encoder.encode_initial_conditions();
-            encoder.encode_kinematics();
-            encoder.encode_lane_velocity_constraints();
-            encoder.encode_lateral_velocity_bounds();
-
-            let ltl_formula = LTLGenerator::generate(&spec).unwrap();
-            encoder.encode_ltl(&ltl_formula);
-
-            let sat = encoder.check();
-            if sat == SatResult::Sat {
-                let model = encoder.get_model().unwrap();
-                let result = extract_scenario_from_model(&encoder, &model);
-                // Either succeeds with defaults or returns an error — both are acceptable
-                match result {
-                    Ok(scenario) => {
-                        // If it succeeds, road should have sensible defaults
-                        assert!(scenario.road.num_lanes > 0);
-                        assert!(scenario.road.lane_width > 0.0);
-                    }
-                    Err(_) => {
-                        // Error is also acceptable behavior for missing road spec
-                    }
-                }
-            }
-        });
+        let result = LTLGenerator::generate(&spec);
+        let err = result.expect_err("a spec with no road must be rejected by validation");
+        let err_str = format!("{err}");
+        assert!(
+            err_str.contains("road specification is required"),
+            "expected the road-missing message, got: {err_str}"
+        );
     }
 }
