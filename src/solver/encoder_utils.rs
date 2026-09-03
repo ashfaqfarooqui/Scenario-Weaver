@@ -265,10 +265,96 @@ pub fn collect_lane_change_data(
         .collect()
 }
 
+/// Rounding budget for evaluating the same-lane predicate in `f64`, in metres
+/// (SW-27).
+///
+/// # The boundary, decided
+///
+/// The predicate is `lane1 == lane2 || |py1 - py2| < lane_width`, and the
+/// boundary is **excluded**: two actors exactly one lane width apart laterally
+/// are in *adjacent* lanes, not the same one, so they are not a conflict pair.
+/// That is not an incidental case. `py = lane * lane_width + lane_width / 2`
+/// puts every pair of neighbouring lane centres at exactly `lane_width`, so the
+/// boundary is where the whole corpus sits whenever nobody is mid-manoeuvre.
+///
+/// # Which arithmetic is canonical
+///
+/// The **exact** one. [`encode_same_lane_constraint`] evaluates the predicate
+/// over Z3's rationals and the solver's model is ground truth; everything else
+/// — `Z3Encoder::compute_validation_metrics`, `tests/common/invariants.rs` —
+/// is *checking* that model from an extracted trajectory that has already been
+/// rounded to `f64`. So the exact side is left exactly as written, and the
+/// `f64` side is the one that has to be taught to reproduce it.
+///
+/// # Why the `f64` side needs a band
+///
+/// A bare `f64` `<` against `lane_width` disagrees with the exact evaluation
+/// *on the boundary*, and only there. At `lane_width = 3.2` the lane centres
+/// are 1.6 and 4.8: exact arithmetic gets `3.2 < 3.2` = false and asserts no
+/// `min_distance` for the pair, while `4.8 - 1.6` in `f64` is
+/// 3.1999999999999997, gets `true`, and reports the untouched gap as a breach.
+/// Measured on `examples/cut_in_left.yaml` with `lane_width = 3.2` at
+/// `93f2ab2`: `min_distance` 2.02 m against an enforced 5.0 m,
+/// `all_constraints_satisfied: false` — a constraint the solver never asserted,
+/// reported as violated.
+///
+/// So [`same_lane_f64`] compares against `lane_width - LANE_OVERLAP_EPS`. This
+/// is the same rounding budget, applied in the same one-sided way and for the
+/// same reason, as `Z3Encoder::METRIC_TOL` and `tests/common/invariants.rs::TOL`:
+/// the error it absorbs is rational-to-double rounding (~1e-15 here), nine
+/// orders below the band, not modelling slack.
+///
+/// # The residual, stated
+///
+/// The band makes the `f64` overlap set a strict *subset* of the exact one:
+/// they differ only for pairs whose lateral separation lies in
+/// `[lane_width - 1e-6, lane_width)`. That direction is deliberate. The
+/// validator can no longer report a breach on a pair the encoder left
+/// unconstrained, which is the defect above; what remains is that a `violate`
+/// scenario whose *only* conflicting steps sat inside a one-micrometre lateral
+/// band would go unreported — a state no example produces and none could
+/// meaningfully distinguish from adjacent lanes.
+///
+/// Shifting the exact side by the same epsilon was measured as the alternative
+/// and rejected: it turns every lane-width literal Z3 sees from `7/2` into
+/// `3499999/1000000` (against the whole rationale of [`MAX_DECIMAL_DIGITS`]),
+/// and it churned the model of nearly every example in `examples/` — a
+/// corpus-wide output change to fix a boundary nothing but the `f64` reader
+/// ever got wrong.
+pub const LANE_OVERLAP_EPS: f64 = 1e-6;
+
+/// The lateral distance below which two actors count as sharing a lane, as the
+/// `f64` side must test it.
+///
+/// See [`LANE_OVERLAP_EPS`]: the predicate's threshold is `lane_width` with the
+/// boundary excluded, and this is that threshold minus the `f64` rounding
+/// budget. Every `f64` evaluation of the predicate must go through
+/// [`same_lane_f64`] rather than re-typing the comparison.
+#[must_use]
+pub fn lane_overlap_threshold(lane_width: f64) -> f64 {
+    lane_width - LANE_OVERLAP_EPS
+}
+
+/// The `f64` twin of [`encode_same_lane_constraint`], for code holding an
+/// extracted trajectory rather than a Z3 model.
+///
+/// `lane1 == lane2 || |py1 - py2| < lane_overlap_threshold(lane_width)` — the
+/// same disjunction and the same boundary policy as the exact side, so the
+/// validator cannot report on a pair the encoder left unconstrained. See
+/// [`LANE_OVERLAP_EPS`] for the boundary decision and the residual.
+#[must_use]
+pub fn same_lane_f64(lane1: usize, lane2: usize, py1: f64, py2: f64, lane_width: f64) -> bool {
+    lane1 == lane2 || (py1 - py2).abs() < lane_overlap_threshold(lane_width)
+}
+
 /// Encode "same lane" check for two actors using y-position proximity
 ///
 /// This function creates a Z3 Bool that is true when two actors are in the
-/// same lateral space (i.e., |py1 - py2| < lane_width).
+/// same lateral space (i.e., |py1 - py2| < lane_width, boundary excluded).
+/// This is the **canonical** evaluation of the predicate, in exact rationals;
+/// [`same_lane_f64`] is the `f64` twin that has to agree with it, and
+/// [`LANE_OVERLAP_EPS`] documents the boundary and how the two are kept in
+/// step.
 ///
 /// IMPORTANT: This uses AND (not OR) to correctly check absolute value:
 /// |py1 - py2| < lane_width is equivalent to:
@@ -282,8 +368,12 @@ pub fn collect_lane_change_data(
 ///
 /// With AND:
 /// - Both conditions must be true
-/// - This correctly requires the actual distance to be less than lane_width
+/// - This correctly requires the actual distance to be less than the threshold
 pub fn encode_y_proximity_constraint(py1: &Real, py2: &Real, lane_width: f64) -> Bool {
+    // Strict, against `lane_width` itself: exact rationals need no guard band,
+    // and adjacent lane centres — which sit at exactly `lane_width` — are
+    // excluded by the strictness. `same_lane_f64` is what has to work to get
+    // the same answer. See `LANE_OVERLAP_EPS`.
     let lane_width_real = real_from_f64(lane_width);
     let py_diff_pos = py1 - py2;
     let py_diff_neg = py2 - py1;
@@ -300,7 +390,10 @@ pub fn encode_y_proximity_constraint(py1: &Real, py2: &Real, lane_width: f64) ->
 ///
 /// Returns true if actors are in the same lane either by:
 /// 1. Having the same discrete lane value, OR
-/// 2. Having lateral positions within one lane width of each other
+/// 2. Having lateral positions strictly within one lane width of each other
+///
+/// [`same_lane_f64`] is the `f64` twin of this predicate; the two must stay in
+/// lockstep — see [`LANE_OVERLAP_EPS`].
 pub fn encode_same_lane_constraint(
     lane1: &Int,
     lane2: &Int,
@@ -955,6 +1048,73 @@ mod tests {
             ));
             assert_eq!(solver.check(), SatResult::Unsat);
         });
+    }
+
+    /// SW-27: the exact predicate and its `f64` twin must return the same
+    /// answer for every lane centre in the corpus's lane-width range —
+    /// including the widths where `f64` subtraction of two lane centres
+    /// undershoots (3.2 is the one that broke: `4.8 - 1.6` is
+    /// 3.1999999999999997, so a bare `<` called adjacent lanes "same lane"
+    /// while Z3, in exact rationals, did not).
+    #[test]
+    fn test_same_lane_f64_agrees_with_exact_at_every_lane_centre() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            for width_tenths in 25_i64..=45 {
+                let w = width_tenths as f64 / 10.0;
+                for l1 in 0_usize..4 {
+                    for l2 in 0_usize..4 {
+                        let c1 = l1 as f64 * w + w / 2.0;
+                        let c2 = l2 as f64 * w + w / 2.0;
+
+                        let solver = Solver::new();
+                        let lane1 = Int::new_const("lane1");
+                        let lane2 = Int::new_const("lane2");
+                        let py1 = Real::new_const("py1");
+                        let py2 = Real::new_const("py2");
+                        solver.assert(&lane1._eq(&Int::from_i64(l1 as i64)));
+                        solver.assert(&lane2._eq(&Int::from_i64(l2 as i64)));
+                        // The exact lane centre, as the encoder pins it:
+                        // lane * w + w/2, not the f64 rounding of the product.
+                        solver.assert(&py1._eq(
+                            &(Real::from_int(&Int::from_i64(l1 as i64)) * real_from_f64(w)
+                                + real_from_f64(w / 2.0)),
+                        ));
+                        solver.assert(&py2._eq(
+                            &(Real::from_int(&Int::from_i64(l2 as i64)) * real_from_f64(w)
+                                + real_from_f64(w / 2.0)),
+                        ));
+                        solver.assert(&encode_same_lane_constraint(&lane1, &lane2, &py1, &py2, w));
+                        let exact = solver.check() == SatResult::Sat;
+
+                        assert_eq!(
+                            exact,
+                            same_lane_f64(l1, l2, c1, c2, w),
+                            "lane_width {w}: lanes {l1} (py {c1}) and {l2} (py {c2}) — \
+                             exact says {exact}, f64 disagrees"
+                        );
+                    }
+                }
+            }
+        });
+    }
+
+    /// The boundary itself, stated as a test: exactly one lane width apart is
+    /// *adjacent*, not same-lane, on both sides of the tool.
+    #[test]
+    fn test_same_lane_f64_excludes_exactly_one_lane_width() {
+        assert!(
+            !same_lane_f64(0, 1, 1.6, 4.8, 3.2),
+            "|4.8 - 1.6| is one lane width at 3.2 m: adjacent lanes, not a conflict pair"
+        );
+        assert!(
+            same_lane_f64(0, 1, 1.6, 4.79, 3.2),
+            "10 cm inside the lane width is an overlap"
+        );
+        assert!(
+            same_lane_f64(2, 2, 0.0, 100.0, 3.2),
+            "a discrete lane match is same-lane regardless of py"
+        );
     }
 
     #[test]

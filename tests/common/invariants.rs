@@ -41,6 +41,7 @@ use scenario_weaver::dsl::types::{
 };
 use scenario_weaver::scenario::model::{ActorTrajectory, Scenario};
 use scenario_weaver::solver::encoder::SIDEWALK_WIDTH;
+use scenario_weaver::solver::encoder_utils::same_lane_f64;
 
 /// Numeric tolerance for every comparison in this module.
 ///
@@ -687,15 +688,26 @@ fn check_extraction_agreement(scenario: &Scenario, spec: &ScenarioSpec, out: &mu
             let steps = a1.states.len().min(a2.states.len());
             for t in 0..steps {
                 let (s1, s2) = (&a1.states[t], &a2.states[t]);
-                // Mirrors `encoder_utils::encode_same_lane_constraint`, which
-                // is what both the encoder's propositions and
+                // The library's own `f64` twin of
+                // `encoder_utils::encode_same_lane_constraint`, which is what
+                // both the encoder's propositions and
                 // `compute_validation_metrics` use since SW-10:
-                //     lane1 == lane2  OR  |py1 - py2| < lane_width
+                //     lane1 == lane2  OR  |py1 - py2| < lane_overlap_threshold
                 // The discrete half alone misses an actor that is physically
                 // straddling the lane line mid-manoeuvre, and misses
                 // opposite-direction actors entirely (their lanes never match).
-                let same_lane = s1.lane() == s2.lane()
-                    || (s1.position().y - s2.position().y).abs() < spec.get_lane_width();
+                //
+                // Called rather than re-typed (SW-27): this check exists to
+                // catch the extractor disagreeing with the encoder, so writing
+                // out a third copy of the predicate here would make it a test
+                // of whether three hand-copies of one formula still match.
+                let same_lane = same_lane_f64(
+                    s1.lane(),
+                    s2.lane(),
+                    s1.position().y,
+                    s2.position().y,
+                    spec.get_lane_width(),
+                );
                 if !same_lane {
                     continue;
                 }

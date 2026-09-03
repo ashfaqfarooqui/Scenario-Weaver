@@ -3,13 +3,14 @@
 //! Perturbs `examples/cut_in_left.yaml` (a cartesian cut-in with a lane
 //! change) along one numeric axis at a time — lane width, ego speed, NPC
 //! speed, the longitudinal gap between them, `min_ttc` or `min_distance` —
-//! and asserts five of the six scenario invariants. It asserted only
+//! and asserts all six scenario invariants. It asserted only
 //! [`common::Invariant::Envelope`] and
 //! [`common::Invariant::ExtractionAgreement`] while the other four were on
 //! `tests/common/invariants.rs::KNOWN_BROKEN_INVARIANTS`; that list emptied
-//! with SW-22, so `Kinematics`, `Containment` and `ForwardProgress` are now
-//! live here too. `ConstraintModes` is the one held back, and the case that
-//! holds it back is a real defect off the corpus — see the test below.
+//! with SW-22, so `Kinematics`, `Containment` and `ForwardProgress` became
+//! live here too, and SW-27 fixed the exact-vs-`f64` same-lane divergence
+//! that had kept `ConstraintModes` filtered on the `LaneWidth(3.2)` axis —
+//! see the test below.
 //!
 //! ## Why perturb a real example rather than build a spec from scratch
 //!
@@ -72,7 +73,7 @@ use proptest::sample::select;
 
 use scenario_weaver::dsl::types::{ScenarioSpec, ValueOrRange};
 
-use common::{check_scenario_invariants, Invariant};
+use common::check_scenario_invariants;
 
 /// One axis of `examples/cut_in_left.yaml` to perturb, holding every other
 /// field at the base example's value.
@@ -180,38 +181,31 @@ proptest! {
 
     /// Every single-axis perturbation of `cut_in_left`, drawn from a vetted
     /// discrete value list per axis, solves — and its generated scenario
-    /// satisfies every scenario invariant except [`Invariant::ConstraintModes`].
+    /// satisfies **all six** scenario invariants.
     ///
-    /// It used to assert only [`Invariant::Envelope`] and
-    /// [`Invariant::ExtractionAgreement`], because the other four were on
+    /// It used to assert only [`common::Invariant::Envelope`] and
+    /// [`common::Invariant::ExtractionAgreement`], because the other four were on
     /// `tests/common/invariants.rs::KNOWN_BROKEN_INVARIANTS` and failed by
     /// construction. SW-22 emptied that list, so `Kinematics`, `Containment` and
     /// `ForwardProgress` became live here.
     ///
-    /// **Why `ConstraintModes` is filtered out, and why that is not a
-    /// weakening.** Turning it on here fails on exactly one axis value,
-    /// `LaneWidth(3.2)`, and it is a genuine pre-existing defect that the
-    /// baseline entry had been hiding — the same thing SW-23 found when it
-    /// retired `Containment`. At `lane_width = 3.2` the two lane centres are
-    /// 1.6 and 4.8, so adjacent-lane actors sit at `|Δpy| = lane_width`
-    /// *exactly*, which is the boundary of the shared "same lane" predicate
-    /// `lane1 == lane2 || |py1 - py2| < lane_width`. The encoder evaluates it
-    /// over Z3's exact rationals and gets `false`, so it asserts no
-    /// `min_distance` between them; `compute_validation_metrics` evaluates the
-    /// same expression in `f64`, where the subtraction lands on
-    /// 3.1999999999999997, gets `true`, and reports the gap as a breach. The
-    /// spec declares `min_distance: enforce` and the run reports
-    /// `min_distance: 1.82 m` with `all_constraints_satisfied: false`.
+    /// [`common::Invariant::ConstraintModes`] was the last one filtered, on the
+    /// `LaneWidth(3.2)` axis, and **SW-27 retired that filter** — this test is
+    /// that fix's ratchet, so the filter must not come back. The defect it held
+    /// back: at `lane_width = 3.2` the two lane centres are 1.6 and 4.8, so
+    /// adjacent-lane actors sit at `|Δpy| = lane_width` *exactly*, the boundary
+    /// of the shared "same lane" predicate. The encoder evaluated it over Z3's
+    /// exact rationals and got `false`, so it asserted no `min_distance`
+    /// between them; `compute_validation_metrics` evaluated the same expression
+    /// in `f64`, where the subtraction lands on 3.1999999999999997, got `true`,
+    /// and reported the untouched gap as a breach — `min_distance: 2.02 m`
+    /// against an enforced 5.0 m, `all_constraints_satisfied: false`, measured
+    /// at `93f2ab2` (and 1.82 m at `894409b`, before SW-22's conflict
+    /// requirement, so it predated SW-22).
     ///
-    /// Measured both ways at `894409b` on `cut_in_left.yaml` with both
-    /// `lane_width` fields set to 3.2 and `num_scenarios: 1`: **1.82 m without
-    /// SW-22's conflict requirement, 2.02 m with it** — so the defect predates
-    /// SW-22 and is untouched by it. It is an exact-vs-float boundary
-    /// divergence in `encode_same_lane_constraint` and its `f64` twin, the same
-    /// class as the one `Z3Encoder::METRIC_TOL` documents, and the fix belongs
-    /// on both sides at once: `src/solver/encoder_utils.rs` was outside SW-22's
-    /// file list, and changing only the validator half would have made the two
-    /// disagree in the other direction. Raised for a new issue.
+    /// Both sides now compare against `encoder_utils::lane_overlap_threshold`,
+    /// one constant, with the boundary excluded: two actors exactly one lane
+    /// width apart are in adjacent lanes and are not a conflict pair.
     ///
     /// The corpus-wide ratchet is unaffected and stays at full strength:
     /// `examples_smoke_test::test_known_broken_invariants_are_still_broken`
@@ -235,7 +229,6 @@ proptest! {
 
         let found: Vec<String> = check_scenario_invariants(&scenario, &spec)
             .into_iter()
-            .filter(|v| v.invariant != Invariant::ConstraintModes)
             .map(|v| v.to_string())
             .collect();
         prop_assert!(

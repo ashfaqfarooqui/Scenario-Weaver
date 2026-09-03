@@ -6,7 +6,7 @@ use z3::SatResult;
 use crate::dsl::types::{CoordinateSystem, ScenarioSpec};
 use crate::solver::backend::{OptimizationTarget, OptimizerBackend, SolverBackend, Z3Backend};
 use crate::solver::coordinate_encoder::CoordinateEncoder;
-use crate::solver::encoder_utils::{encode_same_lane_constraint, real_from_f64};
+use crate::solver::encoder_utils::{encode_same_lane_constraint, real_from_f64, same_lane_f64};
 use crate::solver::encoders::bicycle::BicycleEncoder;
 use crate::solver::encoders::cartesian::CartesianEncoder;
 
@@ -1104,9 +1104,23 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         //     lane1 == lane2  OR  |py1 - py2| < lane_width
         // — the discrete match alone misses actors that are laterally
         // overlapping mid-manoeuvre or travelling in opposite directions.
+        //
+        // SW-27: it is not enough to write the same formula here; it has to
+        // be the same *function*. Re-typed as a bare `f64` `<`, this
+        // disagreed with the exact evaluation on the boundary — exactly where
+        // adjacent lane centres sit — and reported gaps the encoder had never
+        // constrained as breaches. `same_lane_f64` is the one `f64` reading of
+        // the predicate, with the rounding budget the exact side does not
+        // need; see `encoder_utils::LANE_OVERLAP_EPS`.
         let lane_width = self.spec.get_lane_width();
         let same_lane = |s1: &crate::scenario::model::State, s2: &crate::scenario::model::State| {
-            s1.lane() == s2.lane() || (s1.position().y - s2.position().y).abs() < lane_width
+            same_lane_f64(
+                s1.lane(),
+                s2.lane(),
+                s1.position().y,
+                s2.position().y,
+                lane_width,
+            )
         };
 
         // Compute pairwise metrics for all actor combinations
