@@ -781,7 +781,19 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             }
 
             // LateralDistanceGT: Lateral distance between actors exceeds threshold
-            // Linear constraint: |py1 - py2| > distance
+            // Linear constraint: |py1 - py2| >= distance
+            //
+            // SW-30. Same defect SW-12 fixed for `DistanceGT`, in the one
+            // proposition it did not touch. `compute_validation_metrics`
+            // reports a breach only at `lateral < min_lat - METRIC_TOL`
+            // (encoder.rs, `compute_validation_metrics`), i.e. it calls
+            // `lateral >= min_lat` safe. This used to assert the strict `>`,
+            // so under `Violate` the negation `!(d > min_lat)` is `d <=
+            // min_lat`, satisfiable at `d == min_lat` exactly — a point the
+            // validator does not consider a breach. Non-strict here makes
+            // `Violate`'s negation `d < min_lat` strictly, matching the
+            // validator's own boundary exactly, as SW-12 did for
+            // `DistanceGT`.
             Proposition::LateralDistanceGT {
                 actor1,
                 actor2,
@@ -791,12 +803,12 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 let py2 = self.get_lateral_pos(actor2, time);
                 let dist_val = real_from_f64(*distance);
 
-                // |py1 - py2| > d is equivalent to: (py1 - py2 > d) OR (py2 - py1 > d)
+                // |py1 - py2| >= d is equivalent to: (py1 - py2 >= d) OR (py2 - py1 >= d)
                 let diff_pos = py1 - py2;
                 let diff_neg = py2 - py1;
 
-                let pos_case = diff_pos.gt(&dist_val);
-                let neg_case = diff_neg.gt(&dist_val);
+                let pos_case = diff_pos.ge(&dist_val);
+                let neg_case = diff_neg.ge(&dist_val);
 
                 z3::ast::Bool::or(&[&pos_case, &neg_case])
             }
@@ -1183,7 +1195,13 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                     // Compute TTC (only when in same lane and approaching)
                     // Use directed velocity matching Z3 encoding logic
                     if same_lane(state1, state2) {
-                        let epsilon = 0.01; // m/s threshold to avoid division by zero
+                        // `TTC_CLOSING_SPEED_EPSILON`, not a second `0.01` literal:
+                        // this file already carried both, and SW-30's sweep is the
+                        // reminder that a value repeated by hand is one edit away
+                        // from disagreeing with itself (see that constant's doc for
+                        // why `tests/common/invariants.rs` and `tests/optimizer_test.rs`
+                        // still carry their own copies rather than importing this one).
+                        let epsilon = TTC_CLOSING_SPEED_EPSILON;
 
                         // Case 1: state1 ahead, state2 behind, state2 faster (catching up)
                         if state1.position().x > state2.position().x {
@@ -2543,6 +2561,71 @@ mod tests {
                 lat_dist > 2.0,
                 "Lateral distance {} should be > 2.0",
                 lat_dist
+            );
+        });
+    }
+
+    /// SW-30. `min_lateral_distance` had SW-12's defect in the one
+    /// constraint SW-12 did not touch: `LateralDistanceGT` lowered to a
+    /// *strict* `|py1 - py2| > d`, so `Violate` mode asserted its negation
+    /// `|py1 - py2| <= d` — satisfiable **at exactly `d`**, a point
+    /// `compute_validation_metrics` (`lateral < min_lat - METRIC_TOL`) does
+    /// not consider a breach.
+    ///
+    /// `create_two_actor_diff_lane_spec` places ego in lane 1 and npc in lane
+    /// 0 on a 3.5 m-wide road, and with no `lane_changes` configured for
+    /// either actor, `py` is pinned to its lane centre at every time step
+    /// (`encode_lane_position_coupling_at_time`) rather than left free — so
+    /// `|py_ego - py_npc|` is exactly `3.5` by construction, not a value Z3
+    /// chooses. That rigidity is what makes this deterministic: the atom's
+    /// negation is tested at a distance equal to that fixed gap, so whether
+    /// it is satisfiable is entirely decided by whether the lowering is
+    /// strict or not, with no solver freedom to launder the result either
+    /// way.
+    ///
+    /// This is deliberately a single time step, not `eventually` over a full
+    /// scenario. Every scenario type wiring `min_lateral_distance` through
+    /// `generate_default_safety` (`CutInLeft`, `CutInRight`, `OvertakeLeft`,
+    /// `HeadOn`) also mandates at least one `lane_changes` entry, which
+    /// drives `|py1 - py2|` towards 0 regardless of this constraint — so a
+    /// corpus example cannot isolate this defect from that unrelated
+    /// convergence (see the SW-30 report for the sweep this comes from).
+    #[test]
+    fn test_lateral_distance_violate_mode_is_strict_at_the_boundary() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            let spec = create_two_actor_diff_lane_spec();
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            // ego (lane 1, py=5.25) and npc (lane 0, py=1.75) are exactly
+            // 3.5 m apart — the road's lane_width — at every time step.
+            let boundary = 3.5;
+
+            // `Violate` asserts the negation of `LateralDistanceGT`. Before
+            // SW-30 that negation was `|py1 - py2| <= boundary`, satisfied by
+            // the fixed 3.5 m gap exactly.
+            let formula = LTLFormula::Atom(Proposition::LateralDistanceGT {
+                actor1: "ego".to_string(),
+                actor2: "npc".to_string(),
+                distance: boundary,
+            })
+            .negate();
+            encoder.encode_ltl(&formula);
+
+            // Fixed: the negation is now `|py1 - py2| < boundary`, strict,
+            // which the rigid 3.5 m gap cannot satisfy — correctly UNSAT,
+            // rather than accepting the boundary as a violation the
+            // validator would go on to call safe.
+            assert_eq!(
+                encoder.check(),
+                SatResult::Unsat,
+                "SW-30: violate mode must not be satisfiable by the exact \
+                 threshold distance ({boundary:.4} m) — that is the boundary \
+                 the validator calls safe, not a breach"
             );
         });
     }
