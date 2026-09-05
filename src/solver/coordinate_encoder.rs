@@ -16,21 +16,43 @@ use crate::solver::backend::Z3Backend;
 /// Each coordinate system (Cartesian, Bicycle) implements this trait
 /// to provide its own variable creation, kinematics, and constraint encoding.
 ///
-/// # Method Usage Notes
+/// # Method usage notes (SW-20, verified against a fresh grep for call sites)
 ///
-/// Some methods defined in this trait are optional or may be no-ops depending
-/// on the coordinate system implementation:
+/// `encode_velocity_constraints()` and `encode_acceleration_constraints()` are
+/// both called unconditionally from every entry point that builds a
+/// `GenericEncoder` — `src/lib.rs` (the main generation path),
+/// `src/solver/multi_solve.rs`, and `src/solver/objectives.rs` (the optimizer
+/// paths) — precisely *because* `GenericEncoder` is coordinate-system-generic
+/// and none of those callers know or care which concrete encoder they hold.
+/// That is what the trait is for, and it is why leaving one implementor a
+/// no-op is not itself the defect: the defect this issue traces (H4) was a
+/// doc comment that called the same methods "not currently called", which
+/// hid that `BicycleEncoder`'s implementation was load-bearing.
 ///
-/// - `encode_velocity_constraints()`: Not currently called by the main encoder.
-///   CartesianEncoder duplicates this logic in `encode_lane_velocity_constraints()`.
-///   Implementations may leave this as a no-op.
+/// - `encode_velocity_constraints()`: a no-op for `CartesianEncoder` — the
+///   direction-sign half of velocity is asserted by
+///   `encode_lane_velocity_constraints()` instead, and the `max_velocity`
+///   ceiling (when the spec declares one) is enforced coordinate-system-
+///   agnostically as a `VelocityLT` proposition
+///   (`src/scenarios/mod.rs` lowers `spec.max_velocity`, `src/ltl/encode.rs`
+///   encodes it against `get_longitudinal_vel`, which both encoders
+///   implement). For `BicycleEncoder` this method asserts that same
+///   `max_velocity` ceiling directly on `speed_v` — redundant with the
+///   proposition when one fires, but this is the encoder's only unconditional
+///   enforcement of it, since not every spec reaches a `VelocityLT` atom.
 ///
-/// - `encode_acceleration_constraints()`: CartesianEncoder is a no-op because
-///   acceleration constraints are encoded in `encode_kinematics()`. BicycleEncoder
-///   uses this to enforce acceleration bounds separately.
+/// - `encode_acceleration_constraints()`: a no-op for `CartesianEncoder`,
+///   which asserts the acceleration band inline in `encode_kinematics()`
+///   instead. For `BicycleEncoder` this method is where that band is
+///   asserted; `encode_kinematics()` does not do it there.
 ///
-/// - `encode_lateral_velocity_bounds()`: BicycleEncoder is a no-op because lateral
-///   velocity is implicitly constrained by steering angle and heading bounds.
+/// - `encode_lateral_velocity_bounds()`: real in both implementors as of
+///   SW-11. `CartesianEncoder` applies a flat `|vy| <= 2.0` m/s cap.
+///   `BicycleEncoder` additionally derives a tighter bound from the heading
+///   coupling (`vy = v̄*θ`, `|θ| <= atan(0.15)`) before applying the same
+///   2.0 m/s absolute cap — it is not a no-op, and the claim that steering
+///   constraints alone handled this was false (H5): before SW-11 nothing
+///   related `θ`/`δ` to `vy` at all.
 pub trait CoordinateEncoder<B: Z3Backend> {
     // === Core Encoding ===
 
@@ -45,16 +67,18 @@ pub trait CoordinateEncoder<B: Z3Backend> {
 
     /// Encode velocity constraints (min/max bounds)
     ///
-    /// Note: This method is not currently called by the main encoder pipeline.
-    /// Velocity constraints are typically encoded in `encode_lane_velocity_constraints()`
-    /// or within `encode_kinematics()`. Implementations may leave this as a no-op.
+    /// Called unconditionally from every generation and optimizer entry
+    /// point. See the trait-level doc comment for what each implementor
+    /// actually does with it — it is not a no-op for either coordinate
+    /// system, only redundant with other enforcement for one of them.
     fn encode_velocity_constraints(&mut self);
 
     /// Encode acceleration constraints (min/max bounds)
     ///
-    /// Note: For CartesianEncoder, this is a no-op because acceleration constraints
-    /// are encoded within `encode_kinematics()`. For BicycleEncoder, this method
-    /// enforces acceleration bounds on the `accelerations` variable.
+    /// Called unconditionally from every generation and optimizer entry
+    /// point. A no-op for `CartesianEncoder` (asserted inline in
+    /// `encode_kinematics()` instead); for `BicycleEncoder` this is where
+    /// the acceleration band is asserted. See the trait-level doc comment.
     fn encode_acceleration_constraints(&mut self);
 
     // === Extraction ===
@@ -96,7 +120,9 @@ pub trait CoordinateEncoder<B: Z3Backend> {
 
     /// Encode lateral velocity bounds for realistic lane changes
     ///
-    /// Constrains lateral velocity to allow single-timestep lane changes
+    /// Constrains lateral velocity to allow single-timestep lane changes.
+    /// Real, and not a no-op, in both implementors — see the trait-level doc
+    /// comment (SW-11/H5).
     fn encode_lateral_velocity_bounds(&mut self);
 
     // === Backend Access ===
