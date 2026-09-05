@@ -7,6 +7,7 @@ use crate::dsl::types::{ActorRole, RoadSpec};
 use crate::error::Result;
 use crate::scenario::lane_ids::{lane_index_to_xodr_id, XODR_ROAD_ID};
 use crate::scenario::model::{Scenario, State};
+use crate::scenario::xodr_exporter::compute_road_geometry;
 use openscenario_rs::builder::actions::trajectory::TrajectoryBuilder;
 use openscenario_rs::builder::init::InitActionBuilder;
 use openscenario_rs::builder::positions::{LanePositionBuilder, PositionBuilder};
@@ -73,6 +74,12 @@ fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<S
     // Build scenario description for the header
     let description = build_scenario_description(scenario);
 
+    // The `.xodr`'s `s=0` is not always world `x=0` -- SW-16/M12 pulls the
+    // road's start back to cover a backward-direction actor's negative `x`.
+    // Every `LanePosition` below must subtract this same offset so its `s`
+    // means the same physical point the companion `.xodr` does.
+    let (road_start_x, _) = compute_road_geometry(scenario);
+
     // Create basic scenario structure with entities
     let header_builder = ScenarioBuilder::new()
         .with_header(&description, "ScenarioWeaver")
@@ -111,7 +118,7 @@ fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<S
     let mut storyboard_builder = StoryboardBuilder::new(builder);
 
     // Add init actions for all actors (position + speed)
-    let init_actions = build_init_actions(scenario)?;
+    let init_actions = build_init_actions(scenario, road_start_x)?;
     storyboard_builder = storyboard_builder.with_init_actions(init_actions);
 
     let mut story_builder = storyboard_builder.add_story_simple("main_story");
@@ -121,7 +128,7 @@ fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<S
     // are placed in the same ManeuverGroup, which causes esmini conflicts
     for actor in &scenario.actors {
         // Build trajectory from actor states
-        let trajectory = build_trajectory(actor, &scenario.road)?;
+        let trajectory = build_trajectory(actor, &scenario.road, road_start_x)?;
 
         // Create a separate act for this actor
         let act_name = format!("{}_trajectory_act", actor.id);
@@ -188,6 +195,7 @@ fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<S
 fn build_trajectory(
     actor: &crate::scenario::model::ActorTrajectory,
     road: &RoadSpec,
+    road_start_x: f64,
 ) -> Result<openscenario_rs::types::actions::movement::Trajectory> {
     let mut polyline_builder = TrajectoryBuilder::new()
         .name(&format!("{}_trajectory", actor.id))
@@ -203,6 +211,7 @@ fn build_trajectory(
             state.position().x,
             state.position().y,
             heading,
+            road_start_x,
         )?;
 
         polyline_builder = polyline_builder
@@ -232,21 +241,29 @@ fn build_trajectory(
 /// since `LanePosition` (unlike `WorldPosition`) has no direct heading
 /// attribute.
 ///
-/// `s` is the actor's raw world `x`. This is exact whenever the exported
-/// road's geometry starts at `x=0`, which `xodr_exporter::compute_road_geometry`
-/// (out of this issue's touch list — SW-16 owns that file) guarantees for
-/// every current example. A scenario with a backward-direction actor that
-/// reaches `x<0` pulls that road's start back to cover it (SW-16 M12), which
-/// would leave `s` here offset from the `.xodr`'s `s=0` by that same amount;
-/// none of the examples this issue was asked to verify (`simple_bidirectional`,
-/// `cut_in_left`) do this. Fixing it exactly would mean either duplicating
-/// `compute_road_geometry` a third time or exposing it from `xodr_exporter.rs`
-/// — flagged here rather than done, since that file is fenced to SW-16.
+/// `s` is the actor's world `x` relative to the exported road's own start:
+/// `xodr_exporter::compute_road_geometry` does not always put that start at
+/// `x=0` -- a backward-direction actor reaching `x<0` pulls it back to cover
+/// that excursion (SW-16/M12) -- so `s` here is `x - road_start_x`, the same
+/// offset the `.xodr` file's `s=0` sits at. `road_start_x` is `.0` of that
+/// same `compute_road_geometry` call, computed once in
+/// `export_to_xosc_impl` and threaded down here (SW-20), so this file cannot
+/// silently disagree with the `.xodr` it is meant to reference. This was
+/// previously flagged rather than fixed because `xodr_exporter.rs` was
+/// fenced to SW-16; SW-20's `lane_ids` addendum lifted that fence for this
+/// specific fix.
 ///
 /// `z` is never emitted: the exported road never carries an elevation
 /// profile (`xodr_exporter::export_to_xodr` always sets
 /// `elevation_profile: None`), so there is no elevation to encode.
-fn lane_position(road: &RoadSpec, lane: usize, x: f64, y: f64, heading: f64) -> Result<Position> {
+fn lane_position(
+    road: &RoadSpec,
+    lane: usize,
+    x: f64,
+    y: f64,
+    heading: f64,
+    road_start_x: f64,
+) -> Result<Position> {
     let xodr_lane_id = lane_index_to_xodr_id(road, lane);
     let lane_center = lane as f64 * road.lane_width + road.lane_width / 2.0;
     let offset = y - lane_center;
@@ -254,7 +271,7 @@ fn lane_position(road: &RoadSpec, lane: usize, x: f64, y: f64, heading: f64) -> 
     let mut position = LanePositionBuilder::new()
         .road(XODR_ROAD_ID)
         .lane(&xodr_lane_id.to_string())
-        .s(x)
+        .s(x - road_start_x)
         .offset(offset)
         .finish()
         .map_err(|e| {
@@ -311,7 +328,10 @@ fn compute_heading(state: &State) -> f64 {
 /// Creates Init section with Private actions for each actor:
 /// - TeleportAction: Sets initial world position
 /// - SpeedAction: Sets initial speed from velocity magnitude
-fn build_init_actions(scenario: &Scenario) -> Result<openscenario_rs::types::scenario::init::Init> {
+fn build_init_actions(
+    scenario: &Scenario,
+    road_start_x: f64,
+) -> Result<openscenario_rs::types::scenario::init::Init> {
     let mut init_builder = InitActionBuilder::new();
 
     for actor in &scenario.actors {
@@ -335,6 +355,7 @@ fn build_init_actions(scenario: &Scenario) -> Result<openscenario_rs::types::sce
             initial_state.position().x,
             initial_state.position().y,
             heading,
+            road_start_x,
         )?;
 
         // Add speed action first, then teleport (to match reference format)
@@ -516,6 +537,80 @@ mod tests {
         assert!(
             !xml.contains("WorldPosition"),
             "expected WorldPosition to be fully replaced by LanePosition"
+        );
+    }
+
+    /// SW-20 (`lane_ids` addendum): a backward-direction actor that reaches
+    /// `x<0` makes `xodr_exporter::compute_road_geometry` pull the exported
+    /// road's start back to cover it (SW-16/M12), so the `.xodr`'s `s=0` is
+    /// no longer world `x=0`. `LanePosition`'s `s` must follow that same
+    /// offset -- this is the case no example in `examples/` currently
+    /// exercises (none reaches negative `x`), so it is covered here
+    /// directly instead.
+    #[test]
+    fn test_lane_position_s_follows_road_start_for_negative_x() {
+        let road = crate::dsl::types::RoadSpec {
+            num_lanes: 1,
+            lane_width: 3.5,
+            lane_directions: vec![-1],
+            road_length: None,
+        };
+        let mut scenario = Scenario::new("backward_actor".to_string(), 0.5, 2.0, road.clone());
+
+        // A backward-direction (direction = -1) actor driving from x=5 to
+        // x=-10: reaches well past the origin.
+        let mut actor = ActorTrajectory::new("back".to_string(), "npc".to_string());
+        actor.add_state(State::new(
+            0.0,
+            Position::new(5.0, 1.75),
+            Velocity::new(-15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            0,
+        ));
+        actor.add_state(State::new(
+            1.0,
+            Position::new(-10.0, 1.75),
+            Velocity::new(-15.0, 0.0),
+            Acceleration::new(0.0, 0.0),
+            0,
+        ));
+        scenario.add_actor(actor);
+
+        let (road_start_x, _) = compute_road_geometry(&scenario);
+        assert!(
+            road_start_x < 0.0,
+            "a trajectory reaching x=-10 should pull the road start below 0, got {road_start_x}"
+        );
+
+        // `lane_position` is this file's single point of `s` computation;
+        // check it directly against the offset `compute_road_geometry` just
+        // reported, for both the point exactly at the pulled-back road start
+        // and one 5 m past it.
+        let heading = 0.0;
+        let at_start = lane_position(&road, 0, road_start_x, 1.75, heading, road_start_x)
+            .expect("lane_position should succeed");
+        let s_at_start = at_start
+            .lane_position
+            .as_ref()
+            .and_then(|lp| lp.s.as_literal())
+            .copied()
+            .expect("s should be a literal");
+        assert!(
+            (s_at_start - 0.0).abs() < 1e-9,
+            "world x == road_start_x must map to s=0, got {s_at_start}"
+        );
+
+        let past_start = lane_position(&road, 0, road_start_x + 5.0, 1.75, heading, road_start_x)
+            .expect("lane_position should succeed");
+        let s_past_start = past_start
+            .lane_position
+            .as_ref()
+            .and_then(|lp| lp.s.as_literal())
+            .copied()
+            .expect("s should be a literal");
+        assert!(
+            (s_past_start - 5.0).abs() < 1e-9,
+            "world x == road_start_x + 5 must map to s=5, got {s_past_start}"
         );
     }
 
