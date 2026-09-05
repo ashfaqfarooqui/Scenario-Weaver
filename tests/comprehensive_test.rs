@@ -10,6 +10,8 @@
 
 mod common;
 
+use scenario_weaver::dsl::types::ActorRole;
+
 // =========================================================================
 // Group 1: Scenario Type Coverage
 // =========================================================================
@@ -100,7 +102,7 @@ fn test_pedestrian_crossing_scenario() {
     let ped = scenario
         .actors
         .iter()
-        .find(|a| a.role == "pedestrian")
+        .find(|a| a.role == ActorRole::Pedestrian)
         .expect("Should have a pedestrian actor");
 
     assert!((scenario.duration - 10.0).abs() < 0.01);

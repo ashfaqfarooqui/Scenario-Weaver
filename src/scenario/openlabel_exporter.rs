@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use chrono::Utc;
 use serde::Serialize;
 
+use crate::dsl::types::ActorRole;
 use crate::error::{Result, ScenarioGenError};
 use crate::scenario::model::Scenario;
 
@@ -234,15 +235,23 @@ fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
     }
 
     // Vehicle types — only when at least one non-pedestrian actor exists
-    if scenario.actors.iter().any(|a| a.role != "pedestrian") {
+    if scenario
+        .actors
+        .iter()
+        .any(|a| a.role != ActorRole::Pedestrian)
+    {
         tags.push(simple_tag("VehicleCar"));
     }
 
     // Human roles — conditional on actor roles
-    if scenario.actors.iter().any(|a| a.role == "ego") {
+    if scenario.actors.iter().any(|a| a.role == ActorRole::Ego) {
         tags.push(simple_tag("HumanDriver"));
     }
-    if scenario.actors.iter().any(|a| a.role == "pedestrian") {
+    if scenario
+        .actors
+        .iter()
+        .any(|a| a.role == ActorRole::Pedestrian)
+    {
         tags.push(simple_tag("HumanPedestrian"));
     }
 
@@ -389,7 +398,7 @@ fn build_objects_and_frames(
             idx.to_string(),
             OpenLabelObject {
                 name: actor.id.clone(),
-                object_type: if actor.role == "pedestrian" {
+                object_type: if actor.role == ActorRole::Pedestrian {
                     "pedestrian"
                 } else {
                     "vehicle"

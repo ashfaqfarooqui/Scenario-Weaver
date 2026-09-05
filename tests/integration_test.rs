@@ -5,6 +5,7 @@
 mod common;
 
 use scenario_weaver::dsl;
+use scenario_weaver::dsl::types::ActorRole;
 use z3::*;
 
 #[test]
@@ -76,7 +77,7 @@ fn test_generate_single_scenario_integration() {
 
     // Verify ego actor
     let ego = scenario.get_actor("ego").expect("Should have ego actor");
-    assert_eq!(ego.role, "ego");
+    assert_eq!(ego.role, ActorRole::Ego);
     assert_eq!(ego.states.len(), 101); // 0..=100 time steps (10s / 0.1s)
 
     // Verify ego initial conditions (should be within ranges)
@@ -95,7 +96,7 @@ fn test_generate_single_scenario_integration() {
 
     // Verify NPC actor
     let npc = scenario.get_actor("npc").expect("Should have npc actor");
-    assert_eq!(npc.role, "npc");
+    assert_eq!(npc.role, ActorRole::Npc);
     assert_eq!(npc.states.len(), 101);
 
     // Verify NPC initial conditions

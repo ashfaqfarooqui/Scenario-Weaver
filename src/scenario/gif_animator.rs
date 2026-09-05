@@ -379,7 +379,7 @@ impl<'a> GifAnimator<'a> {
     /// Limited to MAX_TRAIL_LENGTH recent positions for performance
     fn draw_trajectory_trails(&self, image: &mut RgbImage, current_frame: usize) {
         for actor in &self.scenario.actors {
-            let trail_color = self.get_trail_color(&actor.role);
+            let trail_color = self.get_trail_color(&actor.role.to_string());
 
             // Draw trail from start to current frame, limited to MAX_TRAIL_LENGTH most recent positions
             let trail_start = current_frame.saturating_sub(MAX_TRAIL_LENGTH);
@@ -434,10 +434,10 @@ impl<'a> GifAnimator<'a> {
             }
 
             let state = &actor.states[frame_idx];
-            let color = self.get_actor_color(&actor.role);
+            let color = self.get_actor_color(&actor.role.to_string());
             let (px, py) = self.transform_coords(state.position().x, state.position().y);
-            let is_pedestrian =
-                visualization_common::classify_actor(&actor.role) == ActorVisualRole::Pedestrian;
+            let is_pedestrian = visualization_common::classify_actor(&actor.role.to_string())
+                == ActorVisualRole::Pedestrian;
 
             if is_pedestrian {
                 // Draw pedestrian as circle
@@ -631,6 +631,7 @@ impl<'a> GifAnimator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dsl::types::ActorRole;
     use crate::scenario::model::{
         Acceleration, ActorTrajectory, Position, Scenario, State, ValidationInfo, Velocity,
     };
@@ -684,12 +685,12 @@ mod tests {
             actors: vec![
                 ActorTrajectory {
                     id: "ego".to_string(),
-                    role: "ego".to_string(),
+                    role: ActorRole::Ego,
                     states: ego_states,
                 },
                 ActorTrajectory {
                     id: "npc".to_string(),
-                    role: "npc".to_string(),
+                    role: ActorRole::Npc,
                     states: npc_states,
                 },
             ],
@@ -744,11 +745,11 @@ mod tests {
     fn test_actor_id_ego_substring_does_not_override_npc_role() {
         let mut scenario = create_test_scenario();
         scenario.actors[1].id = "npc_ego_follower".to_string();
-        scenario.actors[1].role = "npc".to_string();
+        scenario.actors[1].role = ActorRole::Npc;
 
         let animator = GifAnimator::new(&scenario, Resolution::Medium).unwrap();
         assert_eq!(
-            animator.get_actor_color(&scenario.actors[1].role),
+            animator.get_actor_color(&scenario.actors[1].role.to_string()),
             COLOR_NPC
         );
     }

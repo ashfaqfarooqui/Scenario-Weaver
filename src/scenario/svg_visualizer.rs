@@ -332,7 +332,7 @@ impl<'a> SvgVisualizer<'a> {
             }
 
             // Draw trajectory path
-            let color = self.get_actor_path_color(&actor.role);
+            let color = self.get_actor_path_color(&actor.role.to_string());
             let path = Path::new()
                 .set("d", path_data)
                 .set("stroke", color)
@@ -392,9 +392,9 @@ impl<'a> SvgVisualizer<'a> {
         let mut group = Group::new().set("id", "vehicles");
 
         for actor in &self.scenario.actors {
-            let color = self.get_actor_color(&actor.role);
-            let is_pedestrian =
-                visualization_common::classify_actor(&actor.role) == ActorVisualRole::Pedestrian;
+            let color = self.get_actor_color(&actor.role.to_string());
+            let is_pedestrian = visualization_common::classify_actor(&actor.role.to_string())
+                == ActorVisualRole::Pedestrian;
 
             // Initial position
             if let Some(first_state) = actor.states.first() {
@@ -617,6 +617,7 @@ impl<'a> SvgVisualizer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dsl::types::ActorRole;
     use crate::scenario::model::{
         Acceleration, ActorTrajectory, Position, Scenario, State, ValidationInfo, Velocity,
     };
@@ -670,12 +671,12 @@ mod tests {
             actors: vec![
                 ActorTrajectory {
                     id: "ego".to_string(),
-                    role: "ego".to_string(),
+                    role: ActorRole::Ego,
                     states: ego_states,
                 },
                 ActorTrajectory {
                     id: "npc".to_string(),
-                    role: "npc".to_string(),
+                    role: ActorRole::Npc,
                     states: npc_states,
                 },
             ],
@@ -737,11 +738,11 @@ mod tests {
     fn test_actor_id_ego_substring_does_not_override_npc_role() {
         let mut scenario = create_test_scenario();
         scenario.actors[1].id = "npc_ego_follower".to_string();
-        scenario.actors[1].role = "npc".to_string();
+        scenario.actors[1].role = ActorRole::Npc;
 
         let visualizer = SvgVisualizer::new(&scenario);
         assert_eq!(
-            visualizer.get_actor_color(&scenario.actors[1].role),
+            visualizer.get_actor_color(&scenario.actors[1].role.to_string()),
             COLOR_NPC
         );
 

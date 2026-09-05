@@ -261,10 +261,10 @@ mod tests {
         assert_eq!(scenario.actors.len(), 2);
 
         let ego = scenario.get_actor("ego").unwrap();
-        assert_eq!(ego.role, "ego");
+        assert_eq!(ego.role, ActorRole::Ego);
 
         let npc = scenario.get_actor("npc").unwrap();
-        assert_eq!(npc.role, "npc");
+        assert_eq!(npc.role, ActorRole::Npc);
     }
 
     #[test]

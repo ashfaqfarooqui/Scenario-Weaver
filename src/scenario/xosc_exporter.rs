@@ -3,7 +3,7 @@
 //! Converts internal Scenario data structures to OpenSCENARIO XML format
 //! with complete trajectory-based actions using openscenario-rs builders.
 
-use crate::dsl::types::RoadSpec;
+use crate::dsl::types::{ActorRole, RoadSpec};
 use crate::error::Result;
 use crate::scenario::lane_ids::{lane_index_to_xodr_id, XODR_ROAD_ID};
 use crate::scenario::model::{Scenario, State};
@@ -90,7 +90,7 @@ fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<S
 
     // Add entities for each actor
     for actor in &scenario.actors {
-        if actor.role == "pedestrian" {
+        if actor.role == ActorRole::Pedestrian {
             builder = builder.add_pedestrian(&actor.id, |ped| {
                 ped.pedestrian().with_dimensions(
                     PEDESTRIAN_LENGTH_M,

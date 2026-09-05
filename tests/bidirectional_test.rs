@@ -2,6 +2,8 @@
 
 mod common;
 
+use scenario_weaver::dsl::types::ActorRole;
+
 #[test]
 fn test_simple_bidirectional_scenario() {
     // Test basic bidirectional road with forward lanes
@@ -50,7 +52,7 @@ num_scenarios: 1
 
     // Verify ego trajectory
     let ego = scenario.actors.iter().find(|a| a.id == "ego").unwrap();
-    assert_eq!(ego.role, "ego");
+    assert_eq!(ego.role, ActorRole::Ego);
 
     // All ego velocities should be positive (forward lane)
     for state in &ego.states {
@@ -63,7 +65,7 @@ num_scenarios: 1
 
     // Verify NPC trajectory
     let npc = scenario.actors.iter().find(|a| a.id == "npc").unwrap();
-    assert_eq!(npc.role, "npc");
+    assert_eq!(npc.role, ActorRole::Npc);
 
     // All NPC velocities should be positive (forward lane)
     for state in &npc.states {

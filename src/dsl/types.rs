@@ -590,6 +590,16 @@ pub enum ActorRole {
     Pedestrian,
 }
 
+impl std::fmt::Display for ActorRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ActorRole::Ego => write!(f, "ego"),
+            ActorRole::Npc => write!(f, "npc"),
+            ActorRole::Pedestrian => write!(f, "pedestrian"),
+        }
+    }
+}
+
 /// The type of driving scenario to generate.
 ///
 /// Each variant maps to a [`ScenarioModel`](crate::scenarios::ScenarioModel) implementation

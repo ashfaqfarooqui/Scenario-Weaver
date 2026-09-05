@@ -2,6 +2,7 @@
 
 mod common;
 
+use scenario_weaver::dsl::types::ActorRole;
 use scenario_weaver::scenario::model::Scenario;
 use scenario_weaver::{
     export_scenario_to_openlabel, export_scenario_to_svg, export_scenario_to_xodr,
@@ -41,7 +42,7 @@ fn test_head_on_near_miss_generation() {
 
     // Ego exists
     let ego = scenario.get_actor("ego").expect("Should have ego");
-    assert_eq!(ego.role, "ego");
+    assert_eq!(ego.role, ActorRole::Ego);
 
     // At least one actor has negative velocity (oncoming)
     let has_negative_vx = scenario

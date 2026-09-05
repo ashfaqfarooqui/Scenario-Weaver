@@ -31,7 +31,7 @@ mod common;
 
 use common::Invariant;
 use scenario_weaver::dsl::types::{
-    BicycleConfig, CoordinateSystem, PEDESTRIAN_RUN_MAX_SPEED, PEDESTRIAN_WALK_MAX_SPEED,
+    ActorRole, BicycleConfig, CoordinateSystem, PEDESTRIAN_RUN_MAX_SPEED, PEDESTRIAN_WALK_MAX_SPEED,
 };
 use scenario_weaver::scenario::model::Scenario;
 
@@ -51,7 +51,7 @@ fn test_pedestrian_crossing_generates_successfully() {
     let ped = scenario
         .get_actor("pedestrian")
         .expect("Should have pedestrian actor");
-    assert_eq!(ped.role, "pedestrian");
+    assert_eq!(ped.role, ActorRole::Pedestrian);
     assert!(!ped.states.is_empty());
 }
 
@@ -137,7 +137,7 @@ fn test_pedestrian_running_generates_successfully() {
     let ped = scenario
         .get_actor("runner")
         .expect("Should have runner actor");
-    assert_eq!(ped.role, "pedestrian");
+    assert_eq!(ped.role, ActorRole::Pedestrian);
 }
 
 #[test]
@@ -181,7 +181,7 @@ fn test_pedestrian_wide_road_generates_successfully() {
     let ped = scenario
         .get_actor("ped")
         .expect("Should have pedestrian actor");
-    assert_eq!(ped.role, "pedestrian");
+    assert_eq!(ped.role, ActorRole::Pedestrian);
 
     // Ego should be in middle lane
     let ego = scenario.get_actor("ego").expect("ego actor");

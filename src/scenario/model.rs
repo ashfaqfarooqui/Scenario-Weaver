@@ -3,7 +3,7 @@
 //! A [`Scenario`] contains actor trajectories (position, velocity, acceleration
 //! at each time step) plus validation metrics (TTC, distance, violations).
 
-use crate::dsl::types::RoadSpec;
+use crate::dsl::types::{ActorRole, RoadSpec};
 use serde::{Deserialize, Serialize};
 
 /// Complete scenario with all actor trajectories
@@ -42,7 +42,7 @@ pub struct ActorTrajectory {
     pub id: String,
 
     /// Actor role
-    pub role: String,
+    pub role: ActorRole,
 
     /// Sequence of states over time
     pub states: Vec<State>,
@@ -208,8 +208,26 @@ impl Scenario {
 }
 
 impl ActorTrajectory {
-    /// Create a new actor trajectory
+    /// Create a new actor trajectory.
+    ///
+    /// `role` is a string (`"ego"`/`"npc"`/`"pedestrian"`) rather than an
+    /// [`ActorRole`] directly so callers can keep passing the same string
+    /// [`crate::solver::coordinate_encoder::CoordinateEncoder::extract_actor_trajectory`]
+    /// already threads through; it is parsed here. An unrecognised string
+    /// (never produced by any caller in this crate) falls back to `Npc`
+    /// rather than panicking.
+    ///
+    /// `role` is taken by value, matching `id`, even though it is only read
+    /// via `as_str()` here: changing it to `&str` would ripple into every
+    /// coordinate encoder's `extract_actor_trajectory`, most of which are
+    /// outside this change's remit.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn new(id: String, role: String) -> Self {
+        let role = match role.as_str() {
+            "ego" => ActorRole::Ego,
+            "pedestrian" => ActorRole::Pedestrian,
+            _ => ActorRole::Npc,
+        };
         Self {
             id,
             role,

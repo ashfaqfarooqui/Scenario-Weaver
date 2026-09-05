@@ -1398,11 +1398,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             );
         }
 
-        let mut trajectory = ActorTrajectory {
-            id: actor_id.to_string(),
-            role: role.to_string(),
-            states: Vec::new(),
-        };
+        let mut trajectory = ActorTrajectory::new(actor_id.to_string(), role.to_string());
 
         let dt = self.spec.time_step;
 

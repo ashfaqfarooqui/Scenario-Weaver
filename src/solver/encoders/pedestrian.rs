@@ -912,7 +912,7 @@ mod tests {
             .unwrap();
 
             assert_eq!(trajectory.id, "ped1");
-            assert_eq!(trajectory.role, "pedestrian");
+            assert_eq!(trajectory.role, ActorRole::Pedestrian);
             assert_eq!(trajectory.states.len(), 3); // horizon+1
 
             // Check first state
@@ -1038,7 +1038,7 @@ mod tests {
             .unwrap();
 
             assert_eq!(trajectory.states.len(), horizon + 1);
-            assert_eq!(trajectory.role, "pedestrian");
+            assert_eq!(trajectory.role, ActorRole::Pedestrian);
 
             // Verify physics consistency: the extracted trajectory must satisfy
             // the exact constant-acceleration update on both axes, and the
