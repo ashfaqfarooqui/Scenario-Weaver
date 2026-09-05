@@ -1,0 +1,106 @@
+# ─── Scenario: Head-On Near Miss (Bicycle) ───
+#
+# Bicycle-model twin of `head_on_near_miss.yaml`: ego overtakes a slow vehicle
+# on a 2-lane bidirectional road, entering the oncoming lane, with an oncoming
+# NPC (direction: -1) creating head-on risk. Safety constraints are enforced —
+# the solver must find timing where ego completes the overtake before getting
+# dangerously close to the oncoming vehicle.
+#
+# This is the SW-37 regression example: it is the first (and, at the time of
+# writing, only) example combining the bicycle kinematic model with a
+# `direction: -1` actor. Every other bicycle example
+# (`bicycle_lane_change.yaml`, `cut_in_right_bicycle.yaml`) uses all-forward
+# lanes, which is why `BicycleEncoder::get_longitudinal_vel` returning an
+# unsigned, direction-locked speed instead of a signed velocity went
+# undetected: an oncoming actor is exactly the case where the two diverge.
+#
+# Actors:
+#   - ego: lane 0, 12 m/s forward, starting at 0m
+#         performs overtake: right lane change (lane 0 -> 1), left lane change (lane 1 -> 0)
+#   - slow_npc: lane 0, 6-8 m/s forward, starting at 30-50m (ahead of ego)
+#   - oncoming_npc: lane 1 (backward), 10-12 m/s, starting at 250-280m
+#
+# Road: 2 lanes, 3.5m wide, bidirectional [1, -1]
+# Coordinate System: bicycle
+# Duration: 12.0s at 0.2s time steps
+#
+# Key Features:
+#   - Ego overtakes slow vehicle by entering oncoming lane, using the bicycle
+#     kinematic model (wheelbase 2.7m, max steering 0.6 rad)
+#   - Must complete overtake before vehicles get too close
+#   - Safety enforced for ALL pairs (ego<->slow, ego<->oncoming, slow<->oncoming)
+#   - Near-miss: ego returns to own lane just in time
+#
+# Safety Constraints:
+#   - min TTC: 2.0s (enforced)
+#   - min distance: 5.0m (enforced)
+#
+# Run:
+#   cargo run --release -- -i examples/head_on_near_miss_bicycle.yaml -o output/
+#
+scenario_type: head_on
+coordinate_system: bicycle
+
+# Time configuration
+time_step: 0.2
+duration: 12.0
+
+# Bicycle model configuration (scenario-level defaults)
+bicycle_config:
+  default_wheelbase: 2.7              # meters (typical sedan)
+  default_max_steering_angle: 0.6     # radians (~34 deg); R_min = L/tan(delta_max) ~= 3.95 m
+  default_max_steering_rate: 0.5      # rad/s
+
+# 2-lane bidirectional road: lane 0 forward, lane 1 backward
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, -1]
+
+# Actors
+actors:
+  - id: ego
+    role: ego
+    lane: 0                     # Forward lane
+    position: 0.0               # Starting at x=0m
+    speed: 12.0                 # 12 m/s forward
+    direction: 1                # Forward (+x)
+    acceleration: [-8.0, 3.0]
+    lane_changes:
+      # First: enter oncoming lane (overtake). Timing window matches the
+      # 3.0-4.0s durations already proven SAT under the bicycle model's
+      # heading-coupling by bicycle_lane_change.yaml / cut_in_right_bicycle.yaml.
+      - direction: right
+        start_time: [1.5, 2.0]
+        duration: [3.0, 4.0]
+      # Second: return to own lane
+      - direction: left
+        start_time: [6.5, 7.5]
+        duration: [3.0, 4.0]
+
+  - id: slow_npc
+    role: npc
+    lane: 0                     # Same lane as ego (being overtaken)
+    position: [30.0, 50.0]     # Ahead of ego
+    speed: [6.0, 8.0]          # Slow vehicle motivating overtake
+    direction: 1                # Forward (+x)
+    acceleration: [-3.0, 1.0]
+
+  - id: oncoming_npc
+    role: npc
+    lane: 1                     # Oncoming lane (backward traffic)
+    position: [250.0, 280.0]   # Far enough to allow safe overtake
+    speed: [10.0, 12.0]        # Oncoming speed
+    direction: -1               # Backward (-x) - oncoming traffic
+    acceleration: [-2.0, 1.0]
+
+# Safety constraints - ENFORCE to maintain safety for all pairs
+min_ttc: 2.0
+min_distance: 5.0
+num_scenarios: 1
+
+constraint_modes:
+  min_ttc: enforce
+  min_distance: enforce
+
+# Expected: Ego completes overtake safely, returning to own lane before oncoming gets close

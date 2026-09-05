@@ -300,6 +300,7 @@ pub const EXAMPLE_EXPECTATIONS: &[(&str, Expect)] = &[
     ("cut_in_right_bicycle.yaml", Expect::Solvable),
     ("head_on_collision.yaml", Expect::Solvable),
     ("head_on_near_miss.yaml", Expect::Solvable),
+    ("head_on_near_miss_bicycle.yaml", Expect::Solvable),
     ("multi_lane_safety.yaml", Expect::Solvable),
     ("overtake_left.yaml", Expect::Solvable),
     ("overtake_with_opposite.yaml", Expect::Solvable),

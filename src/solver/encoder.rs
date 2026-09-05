@@ -668,6 +668,74 @@ mod tests {
         spec
     }
 
+    /// SW-37. Cartesian's `get_longitudinal_vel` returns a signed velocity
+    /// (`velocities_x`, `cartesian.rs:768`); Bicycle's returns `speed_v`, which
+    /// `bicycle.rs:1098` documents as non-negative and direction-locked. For a
+    /// `direction: 1` actor the two coincide, which is exactly why the two
+    /// shipped bicycle examples (`bicycle_lane_change.yaml`,
+    /// `cut_in_right_bicycle.yaml`, both `direction: 1` throughout) never
+    /// caught the divergence. This builds the *same* head-on situation — ego
+    /// forward, npc oncoming (`direction: -1`), same lane slot so `same_lane`
+    /// holds trivially — under both coordinate systems and checks that
+    /// `get_longitudinal_vel` agrees on the closing speed, `|vx_ego - vx_npc|`.
+    /// Physically that closing speed is `v_ego + v_npc` (they approach each
+    /// other), which is what the signed cartesian encoder gives; the bicycle
+    /// encoder must give the same number once its accessor returns a signed
+    /// velocity too.
+    fn oncoming_spec(coord: crate::dsl::types::CoordinateSystem) -> ScenarioSpec {
+        let mut spec = create_two_actor_same_lane_spec();
+        spec.coordinate_system = coord;
+        spec.actors[0].speed = ValueOrRange::Value(10.0);
+        spec.actors[0].direction = 1;
+        spec.actors[1].speed = ValueOrRange::Value(8.0);
+        spec.actors[1].direction = -1;
+        spec.actors[1].position = ValueOrRange::Value(100.0);
+        spec
+    }
+
+    /// `|vx_ego(0) - vx_npc(0)|` as reported through the `get_longitudinal_vel`
+    /// accessor, for the [`oncoming_spec`] built under `coord`.
+    fn oncoming_closing_speed(coord: crate::dsl::types::CoordinateSystem) -> f64 {
+        let cfg = Config::new();
+        let mut closing = None;
+        z3::with_z3_config(&cfg, || {
+            let spec = oncoming_spec(coord);
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            assert_eq!(encoder.check(), SatResult::Sat);
+            let model = encoder.get_model().unwrap();
+            let vx_ego = model
+                .eval(encoder.get_longitudinal_vel("ego", 0), true)
+                .unwrap();
+            let vx_npc = model
+                .eval(encoder.get_longitudinal_vel("npc", 0), true)
+                .unwrap();
+            let ego_v: f64 = crate::solver::backend::parse_z3_real_pub(&vx_ego.to_string());
+            let npc_v: f64 = crate::solver::backend::parse_z3_real_pub(&vx_npc.to_string());
+            closing = Some((ego_v - npc_v).abs());
+        });
+        closing.unwrap()
+    }
+
+    #[test]
+    fn test_bicycle_oncoming_closing_speed_matches_cartesian() {
+        let cartesian_closing =
+            oncoming_closing_speed(crate::dsl::types::CoordinateSystem::Cartesian);
+        assert!(
+            (cartesian_closing - 18.0).abs() < 1e-6,
+            "cartesian closing speed should be v_ego + v_npc = 18.0 m/s, got {cartesian_closing}"
+        );
+
+        let bicycle_closing = oncoming_closing_speed(crate::dsl::types::CoordinateSystem::Bicycle);
+        assert!(
+            (bicycle_closing - cartesian_closing).abs() < 1e-6,
+            "bicycle closing speed ({bicycle_closing}) must agree with cartesian's \
+             ({cartesian_closing}) for the same head-on situation: get_longitudinal_vel must \
+             return a signed velocity, not speed_v's unsigned magnitude"
+        );
+    }
+
     #[test]
     fn test_encoder_creation() {
         let cfg = Config::new();
