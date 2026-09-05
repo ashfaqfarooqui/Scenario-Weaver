@@ -56,7 +56,11 @@ done
 # targeted commands instead — they answer the same question in seconds:
 #
 #   cargo fmt --check
-#   cargo clippy --lib --bins 2>&1 | grep -c '^warning'   # ratchet: see below
+#   # ratchet (baseline LIB_BINS_BASELINE below); count it exactly this way --
+#   # a plain `grep -c '^warning'` also matches the "generated N warnings"
+#   # summary lines and reads 2 high:
+#   cargo clean -p scenario-weaver >/dev/null 2>&1
+#   cargo clippy --lib --bins 2>&1 | grep -E '^warning: ' | grep -vc 'generated .* warning'
 #   cargo nextest run -E 'test(<the test you changed>)'
 #   cargo nextest run -E 'test(test_kinematic_consistency_across_the_corpus)'
 #
