@@ -1311,6 +1311,40 @@ impl ScenarioSpec {
                 }
                 current_lane = target;
             }
+
+            // SW-28. `scenarios::cut_in_conflict` already detects a cut-in
+            // whose NPC never reaches the ego's lane and returns `True` for
+            // it — correctly declining to assert a conflict that cannot
+            // exist — but that leaves the spec's `enforce`d `min_ttc` /
+            // `min_distance` never evaluated for the pair: no metric is ever
+            // computed, so the scenario is reported as satisfying constraints
+            // that were never once tested. `current_lane` here is the same
+            // accumulated-delta target `cut_in_left.rs`/`cut_in_right.rs`'s
+            // `cut_in_behavior` computes to find the NPC's merge target, so
+            // this reuses that arithmetic instead of duplicating it.
+            if matches!(
+                self.scenario_type,
+                ScenarioType::CutInLeft | ScenarioType::CutInRight
+            ) && matches!(actor.role, ActorRole::Npc | ActorRole::Pedestrian)
+                && !actor.lane_changes.is_empty()
+            {
+                if let Ok(ego) = self.ego() {
+                    let ego_lane = i64::try_from(ego.lane).unwrap_or(i64::MAX);
+                    if current_lane != ego_lane {
+                        return Err(format!(
+                            "{} names a cut-in, but actor {}'s lane change(s) end in \
+                             lane {current_lane} while the ego is in lane {ego_lane} — \
+                             the two never share a lane, so no conflict is ever \
+                             asserted and min_ttc/min_distance are never evaluated for \
+                             this pair even when `enforce`d. Either change {}'s \
+                             lane_changes to end in lane {ego_lane} (to match the ego), \
+                             or move the ego to lane {current_lane} (to match where {} \
+                             actually ends up)",
+                            self.scenario_type, actor.id, actor.id, actor.id
+                        ));
+                    }
+                }
+            }
         }
 
         // Validate acceleration ranges

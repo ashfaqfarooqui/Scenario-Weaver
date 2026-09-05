@@ -97,7 +97,7 @@ road:
 actors:
   - id: ego
     role: ego
-    lane: 0
+    lane: 1
     position: 50.0
     speed: 15.0
     direction: 1
@@ -118,16 +118,23 @@ actors:
 min_ttc: 3.0
 min_distance: 5.0
 num_scenarios: 1
-# SW-22. As above, and one step further: the ego sits in lane 0 while the NPC
-# merges from lane 2 into lane 1, so this pair never shares a lane at all and
-# *neither* metric is ever evaluated. `min_distance: enforce` is as vacuous here
-# as `min_ttc: enforce`. A cut-in whose NPC does not enter the ego's lane is a
-# mis-specified cut-in; `scenarios::cut_in_conflict` returns `True` for it and
-# says so, because no encoding choice can manufacture an interaction between two
-# actors that stay in different lanes.
+# SW-28. This used to put the ego in lane 0 while the NPC's lane change
+# (lane 2 -> lane 1) never reached it, so the pair never shared a lane at
+# all and neither metric was ever evaluated — exactly the defect
+# `ScenarioSpec::validate` now rejects at parse time (see the check next to
+# the lane-change target computation in `dsl::types::ScenarioSpec::validate`).
+# The ego moved to lane 1 so the NPC's merge actually lands on it, which is
+# now a real (if oncoming) cut-in.
+#
+# That leaves the same structural conflict `test_lane_direction_consistency`
+# and `test_narrow_rural_road` document: an oncoming pair forced to cross by
+# `ForwardProgress` cannot carry a non-vacuous `enforce`d `min_ttc` (the gap
+# hits zero while still closing, the only escape is not sharing the lane
+# while approaching, and `TTCGT` is undefined there either way) — asserting
+# it made this UNSAT (measured). `min_distance` is unaffected by that and
+# stays `enforce`d, as in both sibling tests.
 constraint_modes:
   min_ttc: ignore
-  min_distance: ignore
 "#;
 
     let scenario = common::generate_or_fail(yaml);

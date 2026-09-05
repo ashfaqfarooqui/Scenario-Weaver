@@ -167,7 +167,25 @@ mod tests {
         spec.actors[1].lane = 1;
         spec.actors[1].position = ValueOrRange::Value(80.0);
         spec.actors[1].speed = ValueOrRange::Value(9.0);
-        spec.actors[1].lane_changes[0].direction = LaneChangeDirection::Left;
+        // Two lane changes that cancel. `CutInLeftModel::validate` requires
+        // the npc to declare at least one, and SW-28 now additionally
+        // requires them to *end* in the ego's lane. A single `Left` change
+        // satisfied the first rule and violated the second: it took the npc
+        // to lane 0 and left it there, so the pair this test measures never
+        // shared a lane after t = 0 — the metrics it asserts on were being
+        // computed from the t = 0 sample alone.
+        spec.actors[1].lane_changes = vec![
+            LaneChangeConfig {
+                direction: LaneChangeDirection::Left,
+                start_time: ValueOrRange::Value(2.0),
+                duration: ValueOrRange::Value(3.0),
+            },
+            LaneChangeConfig {
+                direction: LaneChangeDirection::Right,
+                start_time: ValueOrRange::Value(6.0),
+                duration: ValueOrRange::Value(3.0),
+            },
+        ];
         let scenario = run_extraction(&spec);
 
         let min_ttc = scenario
