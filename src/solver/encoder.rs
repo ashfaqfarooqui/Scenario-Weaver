@@ -715,6 +715,23 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             }
 
             // PedestrianTTCGT: Time-to-collision for perpendicular crossing
+            //
+            // SW-35. This is the SW-12/SW-30 boundary defect a third time,
+            // in a guarded implication rather than a plain comparison.
+            // `¬(A ⟹ B)` is `A ∧ ¬B`; the antecedent `A`
+            // (`ped_on_road ∧ approaching`) is unaffected by the strictness
+            // of the consequent, so the question reduces to the same one
+            // SW-12/SW-30 answered for `B` (`ttc_safe`) alone.
+            // `compute_validation_metrics` (below, the `pedestrian_pair`
+            // branch) calls `ttc == min_ttc` safe (it flags a violation only
+            // at `ttc < min_ttc - METRIC_TOL`). `ttc_safe` was the strict
+            // `distance > ttc * ego_vx`, so `Violate`'s negation
+            // `A ∧ ¬ttc_safe` had `¬ttc_safe` as the non-strict
+            // `distance <= ttc * ego_vx`, satisfiable at exactly
+            // `distance == ttc * ego_vx` — the boundary the validator calls
+            // safe. Non-strict here (`.ge`) makes `¬ttc_safe` strict
+            // (`distance < ttc * ego_vx`), matching the validator's boundary
+            // exactly, as SW-12/SW-30 did for their propositions.
             Proposition::PedestrianTTCGT {
                 ego,
                 pedestrian,
@@ -744,7 +761,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 // Safe if: (ped_px - ego_px) > ttc * ego_vx
                 let distance = ped_px - ego_px;
                 let ttc_val = real_from_f64(*ttc);
-                let ttc_safe = distance.gt(&(&ttc_val * ego_vx));
+                let ttc_safe = distance.ge(&(&ttc_val * ego_vx));
 
                 // Overall: NOT (ped_on_road AND approaching) OR ttc_safe
                 z3::ast::Bool::and(&[&ped_on_road, &approaching]).implies(&ttc_safe)
@@ -1318,11 +1335,11 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                         // PedestrianTTCGT: guarded by the pedestrian being on
                         // the road and the other actor behind it and moving
                         // forward — same guard as the encoder's `ped_on_road`
-                        // / `approaching`. `ttc_safe` there is strict (`.gt`,
-                        // not `.ge`), unlike the vehicle-vehicle `TTCGT`
-                        // (SW-12); reproduced as-is, not "fixed", since
-                        // changing that lowering is out of this file's
-                        // fenced scope for this issue.
+                        // / `approaching`. `ttc_safe` there is non-strict
+                        // (`.ge`, SW-35), matching this check's own boundary
+                        // (`ttc < min_ttc - METRIC_TOL` calls `ttc == min_ttc`
+                        // safe) the same way `.ge` already did for the
+                        // vehicle-vehicle `TTCGT` (SW-12).
                         let ped_on_road =
                             ped_state.position().y >= 0.0 && ped_state.position().y <= road_width;
                         let ego_behind = other_state.position().x < ped_state.position().x;
@@ -2867,6 +2884,121 @@ mod tests {
                 "SW-30: violate mode must not be satisfiable by the exact \
                  threshold distance ({boundary:.4} m) — that is the boundary \
                  the validator calls safe, not a breach"
+            );
+        });
+    }
+
+    /// SW-35. `PedestrianTTCGT` lowers to a guarded implication,
+    /// `ped_on_road ∧ approaching ⟹ ttc_safe`, and `ttc_safe` was the
+    /// strict `distance > ttc * ego_vx` (encoder.rs `encode_proposition`).
+    /// The guard changes the *shape* of the negation relative to SW-12
+    /// (`DistanceGT`) and SW-30 (`LateralDistanceGT`), which negate plain
+    /// comparisons, but not the conclusion: `¬(A ⟹ B)` is `A ∧ ¬B`, and the
+    /// antecedent `A` (`ped_on_road ∧ approaching`) is untouched by the
+    /// strictness of `B` (`ttc_safe`) — so once `A` holds, whether the
+    /// negation is satisfiable at the boundary reduces to exactly the same
+    /// question SW-12/SW-30 answered: is `¬ttc_safe` `<=` (non-strict,
+    /// satisfiable at the boundary) or `<` (strict, not)?
+    ///
+    /// `compute_validation_metrics` (encoder.rs, the `pedestrian_pair`
+    /// branch) flags a TTC violation only at `ttc < min_ttc - METRIC_TOL`,
+    /// i.e. it calls `ttc == min_ttc` safe. Pre-fix, `ttc_safe` was strict
+    /// `>`, so `Violate`'s negation `¬ttc_safe` was the non-strict
+    /// `distance <= ttc * ego_vx`, satisfiable at exactly `distance == ttc *
+    /// ego_vx` — the point the validator calls safe. Same defect, third
+    /// instance, different proposition shape.
+    ///
+    /// Every quantity here is pinned by `ValueOrRange::Value`, so the
+    /// antecedent (`ped_on_road`, `ego_behind`, `ego_moving_forward`) is true
+    /// by construction and the boundary is exact, with no solver freedom to
+    /// launder the result: ego at `px=0`, `vx=10`; pedestrian at `px=20`,
+    /// lane 0 (so `py = 1.75`, inside the 3.5 m road); `min_ttc = 2.0`, so
+    /// `distance (20) == ttc * ego_vx (2.0 * 10)` exactly.
+    #[test]
+    fn test_pedestrian_ttc_violate_mode_is_strict_at_the_boundary() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            let spec = ScenarioSpec {
+                scenario_type: ScenarioType::PedestrianCrossing,
+                time_step: 1.0,
+                duration: 1.0,
+                actors: vec![
+                    ActorSpec {
+                        id: "ego".to_string(),
+                        role: ActorRole::Ego,
+                        lane: 0,
+                        position: ValueOrRange::Value(0.0),
+                        speed: ValueOrRange::Value(10.0),
+                        acceleration: ValueOrRange::Range([-3.0, 2.0]),
+                        direction: 1,
+                        behavior: HashMap::new(),
+                        lane_changes: vec![],
+                        bicycle_params: None,
+                    },
+                    ActorSpec {
+                        id: "pedestrian".to_string(),
+                        role: ActorRole::Pedestrian,
+                        lane: 0,
+                        position: ValueOrRange::Value(20.0),
+                        speed: ValueOrRange::Value(1.0),
+                        acceleration: ValueOrRange::Range([-1.0, 1.0]),
+                        direction: 1,
+                        behavior: HashMap::new(),
+                        lane_changes: vec![],
+                        bicycle_params: None,
+                    },
+                ],
+                min_ttc: 2.0,
+                min_distance: 2.0,
+                road: Some(RoadSpec {
+                    num_lanes: 1,
+                    lane_width: 3.5,
+                    lane_directions: vec![1],
+                    road_length: None,
+                }),
+                lane_width: 3.5,
+                num_scenarios: 1,
+                constraint_modes: crate::dsl::types::ConstraintModes::default(),
+                optimization_target: crate::dsl::types::OptimizationTarget::None,
+                max_acceleration: None,
+                max_deceleration: None,
+                max_velocity: None,
+                min_velocity: None,
+                min_lateral_distance: None,
+                max_relative_velocity: None,
+                max_lateral_acceleration: 2.0,
+                coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
+                bicycle_config: None,
+            };
+
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            // `Violate` asserts the negation of `PedestrianTTCGT`. Before
+            // SW-35 that negation's `¬ttc_safe` half was
+            // `distance <= ttc * ego_vx`, satisfied by the pinned boundary
+            // (`20 <= 2.0 * 10`) exactly.
+            let formula = LTLFormula::Atom(Proposition::PedestrianTTCGT {
+                ego: "ego".to_string(),
+                pedestrian: "pedestrian".to_string(),
+                ttc: 2.0,
+            })
+            .negate();
+            encoder.encode_ltl(&formula);
+
+            // Fixed: `¬ttc_safe` is now `distance < ttc * ego_vx`, strict,
+            // which the pinned boundary (`20 == 2.0 * 10`) cannot satisfy —
+            // correctly UNSAT, rather than accepting the exact threshold as
+            // a violation the validator would go on to call safe.
+            assert_eq!(
+                encoder.check(),
+                SatResult::Unsat,
+                "SW-35: violate mode must not be satisfiable by the exact \
+                 TTC boundary — that is the boundary the validator calls \
+                 safe, not a breach"
             );
         });
     }
