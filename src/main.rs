@@ -79,9 +79,9 @@ fn main() -> Result<()> {
 
     // Apply CLI override for adversarial mode
     if cli.adversarial {
-        use scenario_weaver::dsl::types::ConstraintModes;
+        use scenario_weaver::dsl::types::{ConstraintModes, ConstraintShorthand};
         tracing::warn!("CLI override: Setting all constraints to VIOLATE mode");
-        spec.constraint_modes = ConstraintModes::Shorthand("violate_all".to_string());
+        spec.constraint_modes = ConstraintModes::Shorthand(ConstraintShorthand::ViolateAll);
     }
 
     // Apply CLI override for optimization target

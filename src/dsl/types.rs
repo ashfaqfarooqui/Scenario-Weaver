@@ -380,7 +380,26 @@ pub enum ConstraintModes {
         max_relative_velocity: ConstraintMode,
     },
     /// Bulk mode string: `"violate_all"`, `"ignore_all"`, or `"enforce_all"`.
-    Shorthand(String),
+    Shorthand(ConstraintShorthand),
+}
+
+/// The three bulk values `constraint_modes` accepts as a single string.
+///
+/// SW-19: previously the payload of `ConstraintModes::Shorthand` was a bare
+/// `String`. SW-21's custom `Deserialize` already turned a typo'd shorthand
+/// into a parse error naming the valid values, but the type still allowed
+/// constructing an invalid one directly (`ConstraintModes::Shorthand("bogus".into())`
+/// compiled fine); `mode_for`'s `Shorthand` arm below could only guard
+/// against that with a runtime `unreachable!()`. A three-variant enum makes
+/// the invalid state unrepresentable instead.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+pub enum ConstraintShorthand {
+    #[serde(rename = "violate_all")]
+    ViolateAll,
+    #[serde(rename = "ignore_all")]
+    IgnoreAll,
+    #[serde(rename = "enforce_all")]
+    EnforceAll,
 }
 
 /// Deserialization target for the `Detailed` mapping form only. Exists
@@ -432,8 +451,12 @@ impl<'de> Deserialize<'de> for ConstraintModes {
                 E: de::Error,
             {
                 match v {
-                    "violate_all" | "ignore_all" | "enforce_all" => {
-                        Ok(ConstraintModes::Shorthand(v.to_string()))
+                    "violate_all" => {
+                        Ok(ConstraintModes::Shorthand(ConstraintShorthand::ViolateAll))
+                    }
+                    "ignore_all" => Ok(ConstraintModes::Shorthand(ConstraintShorthand::IgnoreAll)),
+                    "enforce_all" => {
+                        Ok(ConstraintModes::Shorthand(ConstraintShorthand::EnforceAll))
                     }
                     other => Err(E::custom(format!(
                         "unknown constraint_modes value '{other}'. Valid values: \
@@ -521,21 +544,14 @@ impl ConstraintModes {
             // SW-21/D1: this used to be duplicated seven times, once per
             // accessor, with a `_ => ConstraintMode::Enforce` fallback that
             // made a typo'd shorthand silently enforce rather than error.
-            // `ConstraintModes`'s custom `Deserialize` above now rejects any
-            // string that is not one of these three at parse time, so by the
-            // time a `Shorthand` value exists, `s` is guaranteed to be one of
-            // them — this match has no `_` arm on purpose, so a future
-            // shorthand value nobody taught this function about is a compile
-            // error, not a silent `Enforce`.
-            ConstraintModes::Shorthand(s) => match s.as_str() {
-                "violate_all" => ConstraintMode::Violate,
-                "ignore_all" => ConstraintMode::Ignore,
-                "enforce_all" => ConstraintMode::Enforce,
-                other => unreachable!(
-                    "ConstraintModes::Shorthand must be violate_all/ignore_all/enforce_all, \
-                     got '{other}' — this indicates a ConstraintModes value was constructed \
-                     outside Deserialize without validation"
-                ),
+            // SW-19 finished the job: `ConstraintShorthand` has exactly these
+            // three variants, so this match is exhaustive with no `_` arm and
+            // no runtime fallback — a future shorthand value nobody taught
+            // this function about is a compile error, not a silent `Enforce`.
+            ConstraintModes::Shorthand(shorthand) => match shorthand {
+                ConstraintShorthand::ViolateAll => ConstraintMode::Violate,
+                ConstraintShorthand::IgnoreAll => ConstraintMode::Ignore,
+                ConstraintShorthand::EnforceAll => ConstraintMode::Enforce,
             },
         }
     }
@@ -1370,18 +1386,10 @@ impl ScenarioSpec {
             }
         }
 
-        // Validate shorthand constraint mode string
-        if let ConstraintModes::Shorthand(ref s) = self.constraint_modes {
-            match s.as_str() {
-                "violate_all" | "ignore_all" | "enforce_all" => {}
-                other => {
-                    return Err(format!(
-                        "Unknown constraint_modes shorthand '{}'. Valid values: violate_all, ignore_all, enforce_all",
-                        other
-                    ));
-                }
-            }
-        }
+        // A bad constraint_modes shorthand is now a compile-time-unrepresentable
+        // state (ConstraintShorthand, SW-19) enforced at parse time by
+        // ConstraintModes's custom Deserialize (SW-21), so there is nothing
+        // left to validate here.
 
         // Warn if violating constraints
         if self.constraint_modes.min_ttc() == ConstraintMode::Violate

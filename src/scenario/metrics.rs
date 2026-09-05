@@ -725,8 +725,9 @@ mod tests {
         z3::with_z3_config(&cfg, || {
             // Use adversarial mode: violate TTC
             let mut spec = create_test_spec();
-            spec.constraint_modes =
-                crate::dsl::types::ConstraintModes::Shorthand("violate_all".to_string());
+            spec.constraint_modes = crate::dsl::types::ConstraintModes::Shorthand(
+                crate::dsl::types::ConstraintShorthand::ViolateAll,
+            );
 
             let mut encoder = Z3Encoder::new(spec.clone());
             encoder.create_variables();
