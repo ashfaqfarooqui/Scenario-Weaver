@@ -140,14 +140,101 @@ The `EncoderAccessor` trait provides backend-agnostic access to Z3 variables (po
 3. Z3 `Optimize` searches for a satisfying assignment that extremizes the objective.
 4. The optimal value is extracted from the resulting Z3 model and reported alongside the generated scenario.
 
+## Scaling with the time horizon (SW-26)
+
+`--optimize` becomes unusable well before the step size the non-optimizer examples use.
+`examples/cut_in_left.yaml` ships with `time_step: 0.1` (101 steps); every
+`examples/*_optimize_*.yaml` is pinned at `time_step: 0.5` (21 steps), which is the only
+reason the feature looks usable. Nothing in the test suite optimizes at a small step.
+
+### Where the time goes
+
+Measured on `examples/cut_in_left.yaml`, `duration: 10.0`, one scenario, cartesian,
+`min-distance`, release build, Z3 4.16.0 (`z3` crate 0.19.7), AMD Ryzen AI MAX PRO 390,
+Linux. All times are seconds. Repeated runs agree to ±0.05 % on the `Optimize` column and
+±1 % on the others, so the differences below are real and not noise.
+
+| steps | `time_step` | plain `Solver`, no objective | `Optimize`, **no objective** | `Optimize` + objective |
+|---:|---:|---:|---:|---:|
+| 21 | 0.5   | 0.06 | 0.09 | 0.70 |
+| 41 | 0.25  | 0.28 | 0.49 | 2.45 |
+| 51 | 0.2   | 0.29 | 1.84 | 10.11 |
+| 81 | 0.125 | 0.52 | 5.69 | 46.95 |
+| 101 | 0.1  | 4.46 | 13.80 | 335.44 |
+
+Three things follow, and the first two rule out the obvious suspects.
+
+**Constraint construction is not the cost.** Building and asserting the entire encoding
+takes 2–8 ms at every horizon in the table, and building the objective takes under 1 ms.
+100 % of the growth is inside `check()` — Z3's search.
+
+**The objective's term count is not the cost either.** Asserting the same objective
+constraints on a plain `Solver` and doing one satisfiability check costs 5.6 s at 101
+steps, against 4.5 s without them — a factor of 1.26. The pairwise × per-step terms are
+cheap; it is optimizing over them that is not.
+
+**The cost is `Optimize`, in two independent factors.** With *no objective declared at
+all*, Z3's `Optimize` is 3–11× slower than `Solver` on a byte-identical constraint set
+(13.8 s vs 4.5 s at 101 steps). On top of that it runs a branch-and-bound loop — Z3's own
+statistics report `num checks: 8` at every horizon — and the later iterations, which must
+prove that no scenario beats the incumbent, are the expensive ones. The optimality *proof*
+is the work, not finding the optimum: on this spec the optimum is 5.00 m at every horizon,
+equal to the spec's `min_distance`, and a satisfying scenario at that value is found in the
+first check.
+
+The other three targets scale the same way, from the same cause (21 → 41 steps):
+`max-ttc` 1.05 → 24.1 s, `min-severity` 2.57 → 39.8 s, `min-ttc` 6.29 → 118.2 s.
+
+### What was tried and does not work
+
+Each of these was measured, not reasoned about:
+
+- **Plain `Solver` with a binary search on the objective bound.** Worse, in both forms. A
+  fresh encoder per probe: 202 s at 81 steps against `Optimize`'s 47 s. One incremental
+  solver with `push`/`pop` per probe: 80 s at 51 steps against `Optimize`'s 10 s. The
+  `UNSAT` probes dominate — a single one cost 117 s at 81 steps. `Optimize` shares solver
+  state across bounds and is already better than the naive alternative.
+- **Z3 optimizer parameters.** At 51 steps, against a 10.1 s baseline:
+  `opt.optsmt_engine=symba` 13.9 s, `opt.optsmt_engine=farkas` 14.0 s,
+  `opt.incremental=true` 48.0 s, `opt.enable_sat=false` 10.0 s. The default engine is the
+  best of them.
+- **Removing the `ite` terms from `min-distance` and hoisting the choice into Boolean
+  selectors** (SW-11's lesson: a disjunction in an antecedent propagates, in a consequent it
+  is searched). 51 steps 3.2 s against 10.1 s — but 41 steps 4.5 s against 2.45 s, and 81
+  steps did not finish in 570 s against 47 s.
+- **Handing `Optimize` the lower bound the encoding already implies** (`dist_obj >= 5.0`,
+  a logical consequence of the enforced `min_distance` constraint, which uses the same
+  same-lane predicate). 81 steps 6.5 s against 47.0 s — but 101 steps did not finish in
+  580 s against 335 s.
+
+The last two are the important ones. Both are strict structural improvements — fewer terms,
+strictly more information for the solver — and both make some horizons an order of magnitude
+faster and others an order of magnitude slower. Runtime here is not a smooth function of the
+encoding. Anyone proposing an encoding change for speed must measure it at **several**
+horizons; a win at one step size says nothing about the next.
+
+### Conclusion
+
+This is inherent to running Z3's `Optimize` on a QF_LRA problem of this size. The optimality
+proof requires case analysis over every (pair, step), which is linear in the horizon in term
+count and far worse than linear in search. There is no encoding-level fix that is reliably
+better across horizons, and the two candidates that looked most promising were each refuted
+by measurement above.
+
+Practical guidance: `--optimize` is usable up to roughly 50 steps. Past that, generate with
+the plain solver (which handles 101 steps in 4.5 s) and treat optimization as a tool for
+short or coarse horizons. Shortening `TTC_LEVELS` remains the lever for the two TTC targets
+specifically.
+
 ## Known Limitations
 
 - Each target optimizes a single scalar value.
 - The two TTC targets measure TTC at the resolution of the `TTC_LEVELS` ladder, and
   `max-ttc` saturates at its top level (60 s).
 - `MinimizeSeverity` is a maximiser; the identifier is a known misnomer.
-- The optimizer may be slower than plain SAT solving for complex scenarios with many actors
-  or long time horizons. `min-ttc` in particular adds one disjunction per ladder level
+- The optimizer does not scale past roughly 50 time steps; see
+  [Scaling with the time horizon](#scaling-with-the-time-horizon-sw-26) for the measured
+  numbers and the cause. `min-ttc` additionally adds one disjunction per ladder level
   (measured on `examples/cut_in_left_optimize_min_ttc.yaml`: 2 s → 6 s cartesian).
 
 ## Architecture
