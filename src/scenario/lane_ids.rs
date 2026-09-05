@@ -20,9 +20,9 @@
 //! `lane_directions` is a single forward-then-backward block, which is what
 //! makes the assignment well-defined (SW-16 E2).
 //!
-//! `xodr_exporter.rs` is not on this issue's touch list (SW-16 owns it), so
-//! it still computes this mapping inline rather than calling this function —
-//! see the SW-15 report for why that adoption did not happen here.
+//! `xodr_exporter::build_lane_section` calls this function directly (SW-20)
+//! rather than recomputing the mapping with its own counters, so the two
+//! files cannot drift apart again.
 
 use crate::dsl::types::RoadSpec;
 

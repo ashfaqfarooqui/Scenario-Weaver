@@ -6,6 +6,7 @@
 //! the companion .xosc file.
 
 use crate::error::{Result, ScenarioGenError};
+use crate::scenario::lane_ids::lane_index_to_xodr_id;
 use crate::scenario::model::Scenario;
 use crate::solver::encoder::SIDEWALK_WIDTH;
 use opendrive::{
@@ -138,7 +139,11 @@ pub fn export_to_xodr(scenario: &Scenario) -> Result<String> {
 ///   actor reaching `x<0` landed at a negative `s`, outside the road's
 ///   `[0, length]` range. Now the geometry's start `x` (and therefore `s=0`)
 ///   is pulled back to cover the most negative observed `x`, with padding.
-fn compute_road_geometry(scenario: &Scenario) -> (f64, f64) {
+///
+/// `pub(crate)` (SW-20) so `xosc_exporter::lane_position` can compute the same
+/// `s = world_x - start_x` the `.xodr`'s own `s=0` uses, instead of assuming
+/// `start_x == 0`.
+pub(crate) fn compute_road_geometry(scenario: &Scenario) -> (f64, f64) {
     let spec_length = scenario
         .road
         .road_length
@@ -318,22 +323,20 @@ fn build_lane_section(scenario: &Scenario) -> Result<LaneSection> {
     let mut right_lanes: Vec<RightLane> = Vec::new(); // forward (+1) → negative IDs
     let mut left_lanes: Vec<LeftLane> = Vec::new(); // backward (−1) → positive IDs
 
-    // Count forward lanes so IDs can be assigned outermost-first.
-    // OpenDRIVE ID -1 is innermost (closest to center/reference line),
-    // -n is outermost.  The scenario's lane 0 is at the lowest y (outermost
-    // right), so it gets the most negative ID.
-    let n_forward = road.lane_directions.iter().filter(|&&d| d == 1).count() as i64;
-    let mut right_id: i64 = -n_forward; // start outermost, count toward -1
-    let mut left_id: i64 = 1;
-
-    for &direction in &road.lane_directions {
+    // Id assignment now goes through `lane_ids::lane_index_to_xodr_id`
+    // (SW-20/SW-15) rather than a second, hand-rolled outermost-first
+    // counter: OpenDRIVE ID -1 is innermost (closest to the reference line),
+    // -n is outermost, and the scenario's lane 0 — at the lowest y, the
+    // outermost right lane — gets the most negative ID. This is the same
+    // assignment the `.xosc` exporter's `LanePosition` elements use, so the
+    // two files cannot disagree about which id names which physical lane.
+    for (i, &direction) in road.lane_directions.iter().enumerate() {
         let base = driving_lane(road.lane_width);
+        let id = lane_index_to_xodr_id(road, i);
         if direction == 1 {
-            right_lanes.push(RightLane { id: right_id, base });
-            right_id += 1; // move inward toward -1
+            right_lanes.push(RightLane { id, base });
         } else {
-            left_lanes.push(LeftLane { id: left_id, base });
-            left_id += 1;
+            left_lanes.push(LeftLane { id, base });
         }
     }
 

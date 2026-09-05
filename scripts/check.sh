@@ -81,7 +81,15 @@ if [[ "$FAST" -eq 0 ]]; then
   # `src/solver/encoders/bicycle.rs` are gone, one because the `match` around
   # `get_actor_bicycle_params` became a `let ... else`, the other because the
   # block that held it was rewritten. Nothing was suppressed or allow()d.
-  LIB_BINS_BASELINE=60
+  # 60 -> 59 in the SW-20 commit adopting `lane_ids::lane_index_to_xodr_id`
+  # in `xodr_exporter::build_lane_section`: the `n_forward as i64` cast in the
+  # hand-rolled counters it replaced was clippy::cast_possible_wrap; the
+  # helper's own `usize::try_into().unwrap_or(i64::MAX)` doesn't trigger it.
+  # Verified by diffing `cargo clippy --lib --bins` (each run preceded by
+  # `cargo clean -p scenario-weaver`) with and without this commit's change to
+  # `src/scenario/{xodr_exporter,xosc_exporter,lane_ids}.rs`: that one line is
+  # the only difference in the warning set, 60 lines vs 59.
+  LIB_BINS_BASELINE=59
 
   # Cargo fingerprints a clippy unit like any other build unit: on a warm cache
   # it reports "Finished" and re-emits NOTHING. Both clippy steps below then
