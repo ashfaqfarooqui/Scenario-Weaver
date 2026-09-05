@@ -10,6 +10,7 @@ pub mod encoder;
 pub mod encoder_utils;
 pub mod encoders;
 pub mod multi_solve;
+pub mod objectives;
 
 pub use backend::OptimizationTarget as BackendOptimizationTarget;
 pub use backend::{OptimizerBackend, SolverBackend, Z3Backend};

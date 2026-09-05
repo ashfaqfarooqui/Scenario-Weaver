@@ -54,7 +54,20 @@ let px = &encoder.positions_x["ego"][t];
 Thin facade that:
 - Holds `Box<dyn CoordinateEncoder<B>>`
 - Selects the concrete encoder at construction time based on `spec.coordinate_system`
-- Provides coordinate-agnostic methods: `encode_ltl()`, `encode_safety()`, `extract_scenario()`, `compute_validation_metrics()`
+- Delegates variable creation/kinematics/velocity encoding straight to the `CoordinateEncoder`
+- Provides `encode_ltl()`, which hands off to the bounded-LTL expansion in `src/ltl/encode.rs`
+- Provides `extract_scenario()`/`compute_validation_metrics()`, implemented as a second
+  `impl<B> GenericEncoder<B>` block in `src/scenario/metrics.rs`
+- Provides `encode_objective()` and friends on `GenericEncoder<OptimizerBackend>`,
+  implemented in `src/solver/objectives.rs`
+
+`encoder.rs` itself (SW-19) also keeps the handful of items shared by more than one of
+those split-out modules, since none of them is the sole owner: `encode_ttc_constraint`
+(the encoder-side TTC lowering used by `ltl/encode.rs`'s `TTCGT` proposition — note this
+is a distinct, deliberately-duplicated encoder from `CoordinateEncoder::encode_ttc_constraint`
+per coordinate system, tracked separately as SW-20), and `directed_conflict`/
+`encode_approaching`/`DirectedConflict`/`TTC_CLOSING_SPEED_EPSILON`, used by both
+`ltl/encode.rs`'s `Approaching` proposition and `solver/objectives.rs`'s TTC objectives.
 
 ### Coordinate-specific encoders (`src/solver/encoders/`)
 
@@ -144,13 +157,15 @@ src/
   ltl/
     formula.rs               LTL AST (Always, Eventually, And, Or, Proposition)
     generator.rs             LTL generation from ScenarioSpec
+    encode.rs                Bounded-LTL expansion + proposition -> Z3 lowering (SW-19)
   solver/
-    encoder.rs               GenericEncoder facade
+    encoder.rs               GenericEncoder facade + TTC/conflict helpers shared by encode.rs/objectives.rs
     coordinate_encoder.rs    CoordinateEncoder trait
     encoders/
       cartesian.rs           CartesianEncoder
       bicycle.rs             BicycleEncoder
     encoder_utils.rs         Shared helpers: lane change resolution, Z3 value extraction
+    objectives.rs            Optimizer objective encoding, impl GenericEncoder<OptimizerBackend> (SW-19)
     multi_solve.rs           Blocking-clause diversity
     backend.rs               SolverBackend / OptimizerBackend traits
   scenarios/
@@ -161,7 +176,8 @@ src/
     pedestrian_crossing.rs
   scenario/
     model.rs                 Scenario, ActorTrajectory, ValidationInfo
-    extractor.rs             Z3 model → trajectory + metrics
+    extractor.rs             Public wrapper around GenericEncoder::extract_scenario
+    metrics.rs               extract_scenario/extract_actor_trajectory/compute_validation_metrics (SW-19)
     xosc_exporter.rs         OpenSCENARIO export
     xodr_exporter.rs         OpenDRIVE export
     openlabel_exporter.rs    OpenLabel export

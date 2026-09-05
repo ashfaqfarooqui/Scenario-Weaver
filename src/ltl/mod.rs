@@ -4,6 +4,7 @@
 //! that converts a [`ScenarioSpec`](crate::dsl::types::ScenarioSpec) into temporal
 //! constraints suitable for bounded model checking over a finite time horizon.
 
+pub mod encode;
 pub mod formula;
 pub mod generator;
 
