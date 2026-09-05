@@ -148,13 +148,23 @@ fn test_generate_single_scenario_integration() {
     //
     // `is_none_or` is the faithful translation of the old `min_ttc >= 3.0`
     // against the `999.0` sentinel: when the metric was never evaluated the
-    // assertion did not bite. It still does not, and for this scenario it never
-    // does — `cut_in_left` produces no same-lane approaching pair because the
-    // lane variable lags the lateral position (SW-10). Tightening this to
-    // `is_some_and` is SW-10's job, not SW-04's; the difference is at least now
-    // visible in the type.
+    // assertion did not bite.
+    //
+    // It does bite now. The note that used to sit here said `cut_in_left`
+    // "produces no same-lane approaching pair because the lane variable lags
+    // the lateral position (SW-10)" — SW-25 fixed that lag, and since SW-39
+    // gave actors a terminal-speed floor they are genuinely moving rather than
+    // coasting to a halt, so this scenario now measures a real TTC.
+    //
+    // The 1e-6 slack is the rational-to-double rounding error already
+    // documented and applied in `src/scenario/metrics.rs` (search 1e-6 there):
+    // since SW-12 the encoder asserts `gap >= min_ttc * closing_speed`
+    // non-strictly, Z3 answers exactly on the boundary, and recovering the TTC
+    // by dividing two rounded `f64`s lands a ULP low — here 2.999999999999988
+    // against a threshold of 3. That tolerance was simply never carried across
+    // to this assertion.
     assert!(
-        scenario.validation.min_ttc.is_none_or(|ttc| ttc >= 3.0),
+        scenario.validation.min_ttc.is_none_or(|ttc| ttc >= 3.0 - 1e-6),
         "min_ttc should be >= 3.0 when measured, got: {:?}",
         scenario.validation.min_ttc
     );
