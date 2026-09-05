@@ -43,6 +43,44 @@ for arg in "$@"; do
   esac
 done
 
+# --- Gate ownership guard -------------------------------------------------
+#
+# This script takes 4-6 minutes (the full nextest suite dominates; the single
+# test `scenario_invariants_hold_over_perturbed_cut_in_left` alone runs 132-215s
+# against a 360s per-test timeout). That duration is exactly why it must not be
+# launched detached: a backgrounded run cannot be waited on usefully, and twelve
+# separate remediation sessions have stalled polling one.
+#
+# The gate is therefore owned by the human/orchestrator, not by task agents.
+# If you are working on a single SW issue, do NOT run this script. Use the
+# targeted commands instead — they answer the same question in seconds:
+#
+#   cargo fmt --check
+#   cargo clippy --lib --bins 2>&1 | grep -c '^warning'   # ratchet: see below
+#   cargo nextest run -E 'test(<the test you changed>)'
+#   cargo nextest run -E 'test(test_kinematic_consistency_across_the_corpus)'
+#
+# and ask the orchestrator to run the full gate when you believe you are done.
+#
+if [[ "${SCENARIO_WEAVER_GATE:-}" != "1" ]]; then
+  cat >&2 <<'GATE_EOF'
+check.sh: refusing to run.
+
+This is the full pre-commit gate (4-6 minutes) and it is owned by the
+orchestrator, not by per-issue task agents. It must never be backgrounded.
+
+If you are a task agent: do not run this script. Run the targeted commands
+documented at the top of the guard in scripts/check.sh, and ask the
+orchestrator to run the gate for you.
+
+If you are the orchestrator and you are running this in the FOREGROUND:
+
+    SCENARIO_WEAVER_GATE=1 scripts/check.sh
+
+GATE_EOF
+  exit 3
+fi
+
 # Each entry: "name|status|gating(0/1)|detail"
 declare -a RESULTS=()
 OVERALL_FAIL=0
