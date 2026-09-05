@@ -1101,10 +1101,75 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     const METRIC_TOL: f64 = 1e-6;
 
     /// Compute validation metrics from the scenario trajectories
+    ///
+    /// # Audit — every `Proposition` variant, what is encoded, what is measured (SW-31)
+    ///
+    /// This is the **only** place a generated scenario is checked against its
+    /// spec independently of the solver that produced it. Before this issue
+    /// it measured exactly three fields (`min_distance`, `min_ttc`,
+    /// `min_lateral_distance`); everything else a scenario model can lower a
+    /// [`Proposition`](crate::ltl::formula::Proposition) to went unchecked, so
+    /// `all_constraints_satisfied` was partly the encoder marking its own
+    /// homework. SW-32 is the reason every row below states *encoded* and
+    /// *measured* separately: a field can be lowered correctly and still be
+    /// measured generically (or not at all), and the two failures look
+    /// identical from the JSON output.
+    ///
+    /// | Proposition | Encoded (production caller) | Measured here | Verdict |
+    /// |---|---|---|---|
+    /// | `InLane` | every scenario type (lane bookkeeping) | — | not a spec field, no metric to check |
+    /// | `Ahead` | `cut_in_left.rs:86`, `cut_in_right.rs:81`, `overtake_left.rs:139,171` | — | structural ordering, not a spec field |
+    /// | `Approaching` | `scenarios/mod.rs:144` (`cut_in_conflict`) | — | structural antecedent for `TTCGT`'s reachability (SW-22); its effect shows up in the TTC measurement below |
+    /// | `OnSidewalk` / `CrossingRoad` | `pedestrian_crossing.rs:191,186` | — | LTL goals, not spec thresholds |
+    /// | **`DistanceGT`** | `scenarios/mod.rs:217`, `head_on.rs:248,258` | `min_distance` block below, `same_lane`-gated `\|dx\|`, non-strict boundary (SW-12) | **agrees** — same guard predicate ([`encode_same_lane_constraint`]/[`same_lane_f64`]), same boundary |
+    /// | **`TTCGT`** | `scenarios/mod.rs:206`, `head_on.rs:223,233` | `min_ttc` block below, `same_lane` + closing-speed gated, same `TTC_CLOSING_SPEED_EPSILON` | **agrees** |
+    /// | **`LateralDistanceGT`** | `scenarios/mod.rs:229`, `pedestrian_crossing.rs:117` | `min_lateral_distance` block, unguarded `\|dy\|`, non-strict boundary (SW-30) | **agrees** |
+    /// | **`VelocityLT`** (`max_velocity`) | `scenarios/mod.rs:262`, all actors, unguarded | *(new, this issue)* per-actor `\|vx\|` check | was **unmeasured** by this function (a test-only re-derivation existed in `tests/common/invariants.rs`, not in the shipped `scenario.validation`) — now measured |
+    /// | **`VelocityGT`** (`min_velocity`) | `scenarios/mod.rs:274`, all actors, unguarded | *(new)* per-actor `\|vx\|` check | was **unmeasured** here — now measured. No corpus example sets it; covered by a constructed test below |
+    /// | **`RelativeVelocityGT`** (`max_relative_velocity`) | `scenarios/mod.rs:245`, all pairs, unguarded, negated polarity | *(new)* per-pair `\|vx1-vx2\|` check | was **unmeasured anywhere**, not even in `tests/common/invariants.rs`. `unsafe_following.yaml` — an adversarial corpus example built to violate exactly this field — reported `all_constraints_satisfied: true` pre-fix. Highest-value gap this issue closes |
+    /// | **`RectangularDistanceGT`** (pedestrian `min_distance`) | `pedestrian_crossing.rs:75`, `Enforce` only | *(fixed, this issue)* box check for pairs containing a pedestrian; previously the generic `same_lane`-gated `\|dx\|` ran instead, because a pedestrian's lane is pinned to 0 (`pedestrian_crossing.rs:232`) and so is the ego's, making `same_lane` structurally true | was **measured differently** — see doc note on the pedestrian branch below |
+    /// | **`PedestrianTTCGT`** (pedestrian `min_ttc`) | `pedestrian_crossing.rs:128`, `Enforce` only | *(fixed)* guarded ego-behind/on-road TTC check, mirroring the encoder's own guard | was **measured differently**, same root cause as the row above |
+    /// | `Distance2DGT`, `ManhattanDistanceGT`, `OnLeftOf`, `OnRightOf` | no non-test caller in `src/scenarios/` | — | **unmeasured, and unemitted** — no scenario type currently lowers these, so per this issue's own priority ("a user-settable constraint that is never verified is the priority; a proposition no scenario type currently emits is not") they are left unmeasured. If a future scenario type starts emitting one, it needs a row here and a check above |
+    ///
+    /// ## The pedestrian branch, in detail
+    ///
+    /// `pedestrian_crossing.rs` only lowers `RectangularDistanceGT` /
+    /// `PedestrianTTCGT` when `min_distance`/`min_ttc` are `Enforce` (there is
+    /// no `Violate` lowering at all for either — flagged below, out of this
+    /// issue's scope since fixing it means editing a fenced file). The box's
+    /// thresholds (`min_distance / 2.0` longitudinal, `min_distance / 1.5`
+    /// lateral) are literals owned by `pedestrian_crossing.rs:78-79`, a file
+    /// this issue may not touch; this function reproduces them rather than
+    /// sharing them, which is a real duplication risk — **if
+    /// `pedestrian_crossing.rs` changes that ratio, this measurement goes
+    /// stale silently.** The correct long-term fix is a shared constant or
+    /// helper exported from that file; see the report for the proposed diff.
+    /// Reproducing the ratio here was still judged worth the risk over
+    /// leaving the mismatch in place, because leaving it in place is exactly
+    /// "coverage that is not": pre-fix, a pedestrian pair that only satisfied
+    /// the box's longitudinal branch (large `\|dx\|`, small `\|dy\|`) was
+    /// reported as a `min_distance` *violation* by the generic check even
+    /// though the encoded box was genuinely satisfied — a false positive, not
+    /// just a blind spot. See `test_pedestrian_box_is_measured_not_the_longitudinal_proxy`.
+    ///
+    /// The fix only changes which formula decides `safety_violations` /
+    /// `all_constraints_satisfied` for a pedestrian pair. The scalar
+    /// `scenario.validation.min_distance`/`min_ttc` fields still accumulate
+    /// from the generic same-lane longitudinal reading for *every* pair,
+    /// pedestrians included — changing that too would disagree with
+    /// `tests/common/invariants.rs::check_extraction_agreement`, which
+    /// independently re-derives those two scalars with the same generic
+    /// formula and asserts they match `scenario.validation` exactly. So for a
+    /// pure ego+pedestrian scenario the reported `min_distance` number is
+    /// still the longitudinal gap, not the box — a pre-existing scalar
+    /// ambiguity this issue did not have to touch to close the actual
+    /// violation-reporting gap.
     fn compute_validation_metrics(
         &self,
         scenario: &mut crate::scenario::model::Scenario,
     ) -> crate::error::Result<()> {
+        use crate::dsl::types::ActorRole;
+
         let mut min_ttc: Option<f64> = None;
         let mut min_distance: Option<f64> = None;
         let mut violations = Vec::new();
@@ -1135,15 +1200,32 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             )
         };
 
+        // Road width for the pedestrian `ped_on_road` guard below — the same
+        // `lane_width * num_lanes` formula `OnSidewalk`/`CrossingRoad`/
+        // `PedestrianTTCGT` all use elsewhere in this file (encoder.rs), not a
+        // value owned by a fenced file.
+        let road_width = lane_width * self.spec.get_num_lanes() as f64;
+
         // Compute pairwise metrics for all actor combinations
-        for (i, id1) in self.spec.actors.iter().map(|a| a.id.clone()).enumerate() {
-            for id2 in self.spec.actors.iter().skip(i + 1).map(|a| a.id.clone()) {
-                let traj1 = scenario.get_actor(&id1).ok_or_else(|| {
+        for (i, actor1) in self.spec.actors.iter().enumerate() {
+            for actor2 in self.spec.actors.iter().skip(i + 1) {
+                let id1 = &actor1.id;
+                let id2 = &actor2.id;
+                let traj1 = scenario.get_actor(id1).ok_or_else(|| {
                     crate::error::ScenarioGenError::ActorNotFound(format!("Actor {} missing", id1))
                 })?;
-                let traj2 = scenario.get_actor(&id2).ok_or_else(|| {
+                let traj2 = scenario.get_actor(id2).ok_or_else(|| {
                     crate::error::ScenarioGenError::ActorNotFound(format!("Actor {} missing", id2))
                 })?;
+
+                // `RectangularDistanceGT`/`PedestrianTTCGT` are the only
+                // propositions any scenario type lowers for a pair involving a
+                // pedestrian (see the audit above); the generic same-lane
+                // longitudinal model is the wrong one for a perpendicular
+                // crossing, so pairs like this take a different branch below
+                // rather than silently reusing it.
+                let pedestrian_pair =
+                    actor1.role == ActorRole::Pedestrian || actor2.role == ActorRole::Pedestrian;
 
                 for t in 0..=self.horizon {
                     let state1 = &traj1.states[t];
@@ -1152,13 +1234,117 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                     // Compute longitudinal distance
                     let distance = (state1.position().x - state2.position().x).abs();
 
-                    // Only consider distance when in same lane
+                    // `min_distance`/`min_ttc` are accumulated the same way
+                    // for every pair, pedestrians included — this is what
+                    // `tests/common/invariants.rs::check_extraction_agreement`
+                    // independently re-derives and compares against, so the
+                    // two scalar fields must keep meaning exactly what they
+                    // always have (a same-lane-gated longitudinal reading),
+                    // not the pedestrian box. What *does* change for a
+                    // pedestrian pair is which formula decides whether this
+                    // step is reported as a **violation** — see below.
                     if same_lane(state1, state2) {
                         min_distance =
                             Some(min_distance.map_or(distance, |m: f64| m.min(distance)));
 
+                        // `TTC_CLOSING_SPEED_EPSILON`, not a second `0.01` literal:
+                        // this file already carried both, and SW-30's sweep is the
+                        // reminder that a value repeated by hand is one edit away
+                        // from disagreeing with itself (see that constant's doc for
+                        // why `tests/common/invariants.rs` and `tests/optimizer_test.rs`
+                        // still carry their own copies rather than importing this one).
+                        let epsilon = TTC_CLOSING_SPEED_EPSILON;
+                        let rel_vel = if state1.position().x > state2.position().x {
+                            Some(state2.velocity().vx - state1.velocity().vx)
+                        } else if state2.position().x > state1.position().x {
+                            Some(state1.velocity().vx - state2.velocity().vx)
+                        } else {
+                            None
+                        };
+                        if let Some(rel_vel) = rel_vel {
+                            if rel_vel > epsilon {
+                                let ttc = distance / rel_vel;
+                                min_ttc = Some(min_ttc.map_or(ttc, |m: f64| m.min(ttc)));
+                            }
+                        }
+                    }
+
+                    if pedestrian_pair {
+                        // Mirrors `Proposition::RectangularDistanceGT`
+                        // (encoder.rs, `encode_proposition`) and
+                        // `Proposition::PedestrianTTCGT`, both lowered only by
+                        // `pedestrian_crossing.rs`. See the doc note above for
+                        // why the thresholds are reproduced rather than
+                        // shared. This *replaces* the generic longitudinal
+                        // violation check for this pair — the generic
+                        // `distance < min_distance` reading has no bearing on
+                        // whether the box the encoder actually asserted was
+                        // satisfied, and reporting it anyway is exactly the
+                        // false-positive this issue's deliverable 3 exists to
+                        // remove (see `test_pedestrian_box_is_measured_not_the_longitudinal_proxy`).
+                        let (ped_state, other_state, ped_id, other_id) =
+                            if actor1.role == ActorRole::Pedestrian {
+                                (state1, state2, id1, id2)
+                            } else {
+                                (state2, state1, id2, id1)
+                            };
+
+                        // Box: |dx| > min_distance/2 OR |dy| > min_distance/1.5.
+                        // Both comparisons are strict in the encoding (no
+                        // `.ge`), so — matching the tolerance direction used
+                        // everywhere else in this function — a measurement
+                        // within METRIC_TOL of clearing a side counts as
+                        // clearing it.
+                        let threshold_x = self.spec.min_distance / 2.0;
+                        let threshold_y = self.spec.min_distance / 1.5;
+                        let dx = (other_state.position().x - ped_state.position().x).abs();
+                        let dy = (other_state.position().y - ped_state.position().y).abs();
+                        let box_safe = dx > threshold_x - Self::METRIC_TOL
+                            || dy > threshold_y - Self::METRIC_TOL;
+                        if !box_safe {
+                            violations.push(format!(
+                                "Pedestrian distance-box violation at t={:.1}s: {}-{}: \
+                                 |dx|={:.2}m (limit {:.2}m), |dy|={:.2}m (limit {:.2}m)",
+                                t as f64 * self.spec.time_step,
+                                other_id,
+                                ped_id,
+                                dx,
+                                threshold_x,
+                                dy,
+                                threshold_y
+                            ));
+                        }
+
+                        // PedestrianTTCGT: guarded by the pedestrian being on
+                        // the road and the other actor behind it and moving
+                        // forward — same guard as the encoder's `ped_on_road`
+                        // / `approaching`. `ttc_safe` there is strict (`.gt`,
+                        // not `.ge`), unlike the vehicle-vehicle `TTCGT`
+                        // (SW-12); reproduced as-is, not "fixed", since
+                        // changing that lowering is out of this file's
+                        // fenced scope for this issue.
+                        let ped_on_road =
+                            ped_state.position().y >= 0.0 && ped_state.position().y <= road_width;
+                        let ego_behind = other_state.position().x < ped_state.position().x;
+                        let ego_vx = other_state.velocity().vx;
+                        if ped_on_road && ego_behind && ego_vx > TTC_CLOSING_SPEED_EPSILON {
+                            let ttc = dx / ego_vx;
+                            if ttc < self.spec.min_ttc - Self::METRIC_TOL {
+                                violations.push(format!(
+                                    "Pedestrian TTC violation at t={:.1}s: {}-{}: {:.2}s < {:.2}s",
+                                    t as f64 * self.spec.time_step,
+                                    other_id,
+                                    ped_id,
+                                    ttc,
+                                    self.spec.min_ttc
+                                ));
+                            }
+                        }
+                    } else {
                         // Check minimum distance violation
-                        if distance < self.spec.min_distance - Self::METRIC_TOL {
+                        if same_lane(state1, state2)
+                            && distance < self.spec.min_distance - Self::METRIC_TOL
+                        {
                             violations.push(format!(
                                 "Distance violation at t={:.1}s: {}-{}: {:.2}m < {:.2}m",
                                 t as f64 * self.spec.time_step,
@@ -1167,6 +1353,49 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                                 distance,
                                 self.spec.min_distance
                             ));
+                        }
+
+                        // TTC violation (only when in same lane and approaching).
+                        // The scalar `min_ttc` accumulation above already
+                        // recomputes the same directed relative velocity;
+                        // this only decides whether *this* step is reported.
+                        if same_lane(state1, state2) {
+                            let epsilon = TTC_CLOSING_SPEED_EPSILON;
+
+                            // Case 1: state1 ahead, state2 behind, state2 faster (catching up)
+                            if state1.position().x > state2.position().x {
+                                let rel_vel = state2.velocity().vx - state1.velocity().vx;
+                                if rel_vel > epsilon {
+                                    let ttc = distance / rel_vel;
+                                    if ttc < self.spec.min_ttc - Self::METRIC_TOL {
+                                        violations.push(format!(
+                                            "TTC violation at t={:.1}s: {}-{}: {:.2}s < {:.2}s",
+                                            t as f64 * self.spec.time_step,
+                                            id1,
+                                            id2,
+                                            ttc,
+                                            self.spec.min_ttc
+                                        ));
+                                    }
+                                }
+                            }
+                            // Case 2: state2 ahead, state1 behind, state1 faster (catching up)
+                            else if state2.position().x > state1.position().x {
+                                let rel_vel = state1.velocity().vx - state2.velocity().vx;
+                                if rel_vel > epsilon {
+                                    let ttc = distance / rel_vel;
+                                    if ttc < self.spec.min_ttc - Self::METRIC_TOL {
+                                        violations.push(format!(
+                                            "TTC violation at t={:.1}s: {}-{}: {:.2}s < {:.2}s",
+                                            t as f64 * self.spec.time_step,
+                                            id1,
+                                            id2,
+                                            ttc,
+                                            self.spec.min_ttc
+                                        ));
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -1177,7 +1406,9 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                     // looked at it, so `multi_lane_safety` could report
                     // `all_constraints_satisfied: true` with 0.000 m of
                     // lateral separation. Check exactly what the encoder
-                    // asserts: unguarded, at every step.
+                    // asserts: unguarded, at every step. Unconditional on
+                    // `pedestrian_pair` — this is one of the two rows the
+                    // audit above marks "agrees" regardless of actor role.
                     if let Some(min_lat) = self.spec.min_lateral_distance {
                         let lateral = (state1.position().y - state2.position().y).abs();
                         if lateral < min_lat - Self::METRIC_TOL {
@@ -1192,57 +1423,67 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                         }
                     }
 
-                    // Compute TTC (only when in same lane and approaching)
-                    // Use directed velocity matching Z3 encoding logic
-                    if same_lane(state1, state2) {
-                        // `TTC_CLOSING_SPEED_EPSILON`, not a second `0.01` literal:
-                        // this file already carried both, and SW-30's sweep is the
-                        // reminder that a value repeated by hand is one edit away
-                        // from disagreeing with itself (see that constant's doc for
-                        // why `tests/common/invariants.rs` and `tests/optimizer_test.rs`
-                        // still carry their own copies rather than importing this one).
-                        let epsilon = TTC_CLOSING_SPEED_EPSILON;
-
-                        // Case 1: state1 ahead, state2 behind, state2 faster (catching up)
-                        if state1.position().x > state2.position().x {
-                            let rel_vel = state2.velocity().vx - state1.velocity().vx;
-                            if rel_vel > epsilon {
-                                let ttc = distance / rel_vel;
-
-                                min_ttc = Some(min_ttc.map_or(ttc, |m: f64| m.min(ttc)));
-
-                                if ttc < self.spec.min_ttc - Self::METRIC_TOL {
-                                    violations.push(format!(
-                                        "TTC violation at t={:.1}s: {}-{}: {:.2}s < {:.2}s",
-                                        t as f64 * self.spec.time_step,
-                                        id1,
-                                        id2,
-                                        ttc,
-                                        self.spec.min_ttc
-                                    ));
-                                }
-                            }
+                    // `RelativeVelocityGT` (`max_relative_velocity`, SW-31).
+                    // `scenarios/mod.rs` lowers this for every pair,
+                    // unguarded by lane, with `Negated` polarity: the safe
+                    // condition is `|vx1 - vx2| <= max_relative_velocity`
+                    // (non-strict — the negation of the encoder's strict
+                    // `.gt`). Previously unmeasured anywhere in the tool,
+                    // including `tests/common/invariants.rs`; see
+                    // `unsafe_following.yaml` in the report, an adversarial
+                    // corpus example built to violate exactly this field that
+                    // reported `all_constraints_satisfied: true` pre-fix.
+                    if let Some(max_rel_vel) = self.spec.max_relative_velocity {
+                        let rel_vel = (state1.velocity().vx - state2.velocity().vx).abs();
+                        if rel_vel > max_rel_vel + Self::METRIC_TOL {
+                            violations.push(format!(
+                                "Relative velocity violation at t={:.1}s: {}-{}: {:.2}m/s > {:.2}m/s",
+                                t as f64 * self.spec.time_step,
+                                id1,
+                                id2,
+                                rel_vel,
+                                max_rel_vel
+                            ));
                         }
-                        // Case 2: state2 ahead, state1 behind, state1 faster (catching up)
-                        else if state2.position().x > state1.position().x {
-                            let rel_vel = state1.velocity().vx - state2.velocity().vx;
-                            if rel_vel > epsilon {
-                                let ttc = distance / rel_vel;
+                    }
+                }
+            }
+        }
 
-                                min_ttc = Some(min_ttc.map_or(ttc, |m: f64| m.min(ttc)));
+        // `VelocityLT`/`VelocityGT` (`max_velocity`/`min_velocity`, SW-31).
+        // `scenarios/mod.rs` lowers both per-actor, unguarded, for every
+        // actor including pedestrians (no scenario type currently sets
+        // either field for a pedestrian, but the lowering does not exclude
+        // one, so neither does this check). Both encoder-side comparisons
+        // are strict (no `.ge`/`.le`), matching the `+ TOL` boundary used
+        // here — a measurement within `METRIC_TOL` of the limit is not
+        // flagged, the same direction `check_envelope` in
+        // `tests/common/invariants.rs` already uses for the same fields.
+        // That test-side check only ever saw the raw trajectories; this is
+        // the first time either bound is measured into the shipped
+        // `scenario.validation` output.
+        for actor in &self.spec.actors {
+            let Some(traj) = scenario.get_actor(&actor.id) else {
+                continue;
+            };
+            for state in &traj.states {
+                let vx_abs = state.velocity().vx.abs();
+                let t = state.time;
 
-                                if ttc < self.spec.min_ttc - Self::METRIC_TOL {
-                                    violations.push(format!(
-                                        "TTC violation at t={:.1}s: {}-{}: {:.2}s < {:.2}s",
-                                        t as f64 * self.spec.time_step,
-                                        id1,
-                                        id2,
-                                        ttc,
-                                        self.spec.min_ttc
-                                    ));
-                                }
-                            }
-                        }
+                if let Some(max_vel) = self.spec.max_velocity {
+                    if vx_abs > max_vel + Self::METRIC_TOL {
+                        violations.push(format!(
+                            "Velocity violation at t={:.1}s: {}: |vx|={:.2}m/s > {:.2}m/s",
+                            t, actor.id, vx_abs, max_vel
+                        ));
+                    }
+                }
+                if let Some(min_vel) = self.spec.min_velocity {
+                    if vx_abs < min_vel - Self::METRIC_TOL {
+                        violations.push(format!(
+                            "Velocity violation at t={:.1}s: {}: |vx|={:.2}m/s < {:.2}m/s",
+                            t, actor.id, vx_abs, min_vel
+                        ));
                     }
                 }
             }
@@ -2993,6 +3234,206 @@ mod tests {
                 // UNSAT is acceptable for adversarial — constraints may conflict
                 println!("Adversarial scenario is UNSAT (constraints conflict)");
             }
+        });
+    }
+
+    /// SW-31: `min_velocity` (`Proposition::VelocityGT`) was lowered by
+    /// `scenarios/mod.rs` but never measured by `compute_validation_metrics`.
+    /// No shipped corpus example sets `min_velocity`, so this constructs the
+    /// violation directly: a single decelerating actor under `Violate` mode,
+    /// which must end up slower than the floor at some point.
+    #[test]
+    fn test_validation_metrics_detects_min_velocity_violation() {
+        use crate::dsl::types::ConstraintMode;
+        use crate::ltl::generator::LTLGenerator;
+
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let mut spec = create_test_spec();
+            spec.min_velocity = Some(10.0);
+            spec.constraint_modes = crate::dsl::types::ConstraintModes::Detailed {
+                min_ttc: ConstraintMode::Enforce,
+                min_distance: ConstraintMode::Enforce,
+                max_acceleration: ConstraintMode::Enforce,
+                max_velocity: ConstraintMode::Enforce,
+                min_velocity: ConstraintMode::Violate,
+                min_lateral_distance: ConstraintMode::Enforce,
+                max_relative_velocity: ConstraintMode::Enforce,
+            };
+
+            let mut encoder = Z3Encoder::new(spec.clone());
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
+
+            let ltl_formula = LTLGenerator::generate(&spec).unwrap();
+            encoder.encode_ltl(&ltl_formula);
+
+            assert_eq!(
+                encoder.check(),
+                SatResult::Sat,
+                "min_velocity: violate on a decelerating actor should be satisfiable"
+            );
+            let model = encoder.get_model().unwrap();
+            let scenario = encoder.extract_scenario(&model).unwrap();
+
+            assert!(
+                !scenario.validation.all_constraints_satisfied,
+                "a constructed min_velocity violation must now surface in \
+                 all_constraints_satisfied, got violations={:?}",
+                scenario.validation.safety_violations
+            );
+            assert!(
+                scenario
+                    .validation
+                    .safety_violations
+                    .iter()
+                    .any(|v| v.contains("Velocity violation") && v.contains('<')),
+                "expected a min_velocity-shaped violation in {:?}",
+                scenario.validation.safety_violations
+            );
+        });
+    }
+
+    /// SW-31/deliverable 3: `pedestrian_crossing.rs` lowers `min_distance` to
+    /// `Proposition::RectangularDistanceGT` (a box: `|dx| > d/2 OR |dy| >
+    /// d/1.5`), not the longitudinal-only model `compute_validation_metrics`
+    /// used for every other scenario type. Because a pedestrian's lane is
+    /// pinned to 0 and so is the ego's in this scenario type, `same_lane` is
+    /// structurally true, so pre-fix the generic check ran anyway and could
+    /// disagree with the box in both directions. This constructs the
+    /// direction that matters most: a pair the box calls safe (cleared on the
+    /// longitudinal branch) that the old longitudinal-only check called a
+    /// *violation* — a false positive, not just a blind spot.
+    #[test]
+    fn test_pedestrian_box_is_measured_not_the_longitudinal_proxy() {
+        use crate::scenario::model::{
+            Acceleration, ActorTrajectory, Position, Scenario, State, Velocity,
+        };
+
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let spec = ScenarioSpec {
+                scenario_type: ScenarioType::PedestrianCrossing,
+                time_step: 1.0,
+                duration: 1.0,
+                actors: vec![
+                    ActorSpec {
+                        id: "ego".to_string(),
+                        role: ActorRole::Ego,
+                        lane: 0,
+                        position: ValueOrRange::Value(0.0),
+                        speed: ValueOrRange::Value(10.0),
+                        acceleration: ValueOrRange::Range([-3.0, 2.0]),
+                        direction: 1,
+                        behavior: HashMap::new(),
+                        lane_changes: vec![],
+                        bicycle_params: None,
+                    },
+                    ActorSpec {
+                        id: "pedestrian".to_string(),
+                        role: ActorRole::Pedestrian,
+                        lane: 0,
+                        position: ValueOrRange::Value(0.0),
+                        speed: ValueOrRange::Value(1.0),
+                        acceleration: ValueOrRange::Range([-1.0, 1.0]),
+                        direction: 1,
+                        behavior: HashMap::new(),
+                        lane_changes: vec![],
+                        bicycle_params: None,
+                    },
+                ],
+                min_ttc: 2.0,
+                // threshold_x = 1.0, threshold_y = 1.333... (pedestrian_crossing.rs:78-79)
+                min_distance: 2.0,
+                road: Some(RoadSpec {
+                    num_lanes: 1,
+                    lane_width: 3.5,
+                    lane_directions: vec![1],
+                    road_length: None,
+                }),
+                lane_width: 3.5,
+                num_scenarios: 1,
+                constraint_modes: crate::dsl::types::ConstraintModes::default(),
+                optimization_target: crate::dsl::types::OptimizationTarget::None,
+                max_acceleration: None,
+                max_deceleration: None,
+                max_velocity: None,
+                min_velocity: None,
+                min_lateral_distance: None,
+                max_relative_velocity: None,
+                max_lateral_acceleration: 2.0,
+                coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
+                bicycle_config: None,
+            };
+
+            let encoder = Z3Encoder::new(spec.clone());
+
+            let build = |ego_x: f64, ped_y: f64| -> Scenario {
+                let mut scenario = Scenario::new(
+                    "pedestrian_crossing".to_string(),
+                    spec.time_step,
+                    spec.duration,
+                    spec.road.clone().unwrap(),
+                );
+                let mut ego_traj = ActorTrajectory::new("ego".to_string(), "ego".to_string());
+                let mut ped_traj =
+                    ActorTrajectory::new("pedestrian".to_string(), "pedestrian".to_string());
+                for t in 0..=1 {
+                    ego_traj.add_state(State::new(
+                        t as f64,
+                        Position::new(ego_x, 0.0),
+                        Velocity::new(0.0, 0.0),
+                        Acceleration::new(0.0, 0.0),
+                        0,
+                    ));
+                    ped_traj.add_state(State::new(
+                        t as f64,
+                        Position::new(0.0, ped_y),
+                        Velocity::new(0.0, 0.0),
+                        Acceleration::new(0.0, 0.0),
+                        0,
+                    ));
+                }
+                scenario.add_actor(ego_traj);
+                scenario.add_actor(ped_traj);
+                scenario
+            };
+
+            // dx = 1.5 > threshold_x (1.0): box's longitudinal branch alone
+            // clears it, so the box is satisfied regardless of dy. The old
+            // longitudinal-only check (same_lane true, since both actors are
+            // pinned to lane 0) would compare 1.5 against min_distance (2.0)
+            // and call it a violation.
+            let mut safe = build(1.5, 0.2);
+            encoder.compute_validation_metrics(&mut safe).unwrap();
+            assert!(
+                !safe
+                    .validation
+                    .safety_violations
+                    .iter()
+                    .any(|v| v.contains("distance-box")),
+                "|dx|=1.5 clears threshold_x=1.0, the box is satisfied, this must not be \
+                 reported as a distance-box violation; got {:?}",
+                safe.validation.safety_violations
+            );
+
+            // dx = 0.5, dy = 0.5: both inside their thresholds (1.0 and
+            // 1.333), so the box is genuinely violated.
+            let mut unsafe_ = build(0.5, 0.5);
+            encoder.compute_validation_metrics(&mut unsafe_).unwrap();
+            assert!(
+                unsafe_
+                    .validation
+                    .safety_violations
+                    .iter()
+                    .any(|v| v.contains("distance-box")),
+                "|dx|=0.5 <= threshold_x=1.0 and |dy|=0.5 <= threshold_y=1.333 must be \
+                 reported as a distance-box violation; got {:?}",
+                unsafe_.validation.safety_violations
+            );
         });
     }
 

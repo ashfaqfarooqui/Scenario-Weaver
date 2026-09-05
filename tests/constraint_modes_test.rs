@@ -90,6 +90,25 @@ fn test_speed_limit_violation() {
         max_speed > 22.0,
         "some actor should exceed the 22 m/s speed limit, got max {max_speed:.4}"
     );
+
+    // SW-31: `compute_validation_metrics` did not measure `VelocityLT`
+    // (`max_velocity`) at all, so this adversarial example — built
+    // specifically to exceed the speed limit — used to report
+    // `all_constraints_satisfied: true` with an empty `safety_violations`.
+    // Verified pre-fix: `all_ok=true violations=[]` on this exact file.
+    assert!(
+        !scenario.validation.all_constraints_satisfied,
+        "max_velocity: violate should now be reflected in all_constraints_satisfied"
+    );
+    assert!(
+        scenario
+            .validation
+            .safety_violations
+            .iter()
+            .any(|v| v.contains("Velocity violation")),
+        "expected a velocity violation in {:?}",
+        scenario.validation.safety_violations
+    );
 }
 
 #[test]
@@ -105,6 +124,25 @@ fn test_unsafe_following() {
     assert!(
         max_rel > 10.0,
         "violate mode on max_relative_velocity should exceed 10.0 m/s, got {max_rel:.4}"
+    );
+
+    // SW-31: `RelativeVelocityGT` (`max_relative_velocity`) was unmeasured
+    // anywhere in the tool, not even in `tests/common/invariants.rs`. This
+    // adversarial example — built specifically to violate it — used to
+    // report `all_constraints_satisfied: true` with no violations recorded.
+    // Verified pre-fix: `all_ok=true violations=[]` on this exact file.
+    assert!(
+        !scenario.validation.all_constraints_satisfied,
+        "max_relative_velocity: violate should now be reflected in all_constraints_satisfied"
+    );
+    assert!(
+        scenario
+            .validation
+            .safety_violations
+            .iter()
+            .any(|v| v.contains("Relative velocity violation")),
+        "expected a relative-velocity violation in {:?}",
+        scenario.validation.safety_violations
     );
 }
 
