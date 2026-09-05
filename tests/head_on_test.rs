@@ -86,6 +86,39 @@ fn test_head_on_collision_generation() {
     );
 }
 
+/// SW-39: `encode_forward_progress` only floors *net displacement* over the
+/// whole horizon, and nothing else ties a later step's speed to the actor's
+/// declared `speed:`. The cheapest way to satisfy a displacement floor is to
+/// decay linearly to zero — `oncoming_npc` here rides exactly that: it starts
+/// at -10 m/s and integrates (trapezoidally) to precisely the -50 m the floor
+/// demands, ending at vx = 0.0 and staying there. An oncoming vehicle coasting
+/// to a dead stop in the middle of a bidirectional road is not a near miss.
+///
+/// This asserts the physical property directly — the oncoming actor must
+/// still be carrying a usable fraction of its initial speed at the end of the
+/// horizon — rather than a hand-computed displacement constant.
+#[test]
+fn test_head_on_oncoming_retains_speed_through_horizon() {
+    let scenario = near_miss();
+    let oncoming = scenario.get_actor("oncoming_npc").expect("oncoming_npc");
+
+    let initial_speed = oncoming.states[0].velocity().vx.abs();
+    let final_speed = oncoming.states.last().expect("nonempty").velocity().vx.abs();
+
+    assert!(
+        final_speed >= 0.5 * initial_speed - 1e-6,
+        "oncoming_npc should retain at least half its initial speed by the end of the \
+         horizon (initial {initial_speed:.3} m/s, final {final_speed:.3} m/s) — a coast to \
+         a dead stop in the middle of a bidirectional road is not a near miss; vx series: \
+         {:?}",
+        oncoming
+            .states
+            .iter()
+            .map(|s| s.velocity().vx)
+            .collect::<Vec<_>>()
+    );
+}
+
 #[test]
 fn test_head_on_three_actors() {
     let scenario = near_miss();
