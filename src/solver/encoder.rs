@@ -701,16 +701,33 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 let threshold_x_real = real_from_f64(*threshold_x);
                 let threshold_y_real = real_from_f64(*threshold_y);
 
-                // |dx| > threshold_x: dx > threshold_x OR dx < -threshold_x
-                let dx_positive = dx.gt(&threshold_x_real);
+                // |dx| >= threshold_x: dx >= threshold_x OR dx <= -threshold_x
+                //
+                // SW-33. Found while checking this negation is not vacuous
+                // for `Violate`: with the strict `>`/`<` this used to be,
+                // `.negate()` (De Morgan) gives the *non-strict* conjunction
+                // `dx <= tx AND dy <= ty` — satisfiable with `dx == tx`
+                // exactly, which `compute_validation_metrics`'s
+                // `box_safe = dx > tx - METRIC_TOL || ...` calls safe (the
+                // same tolerance-buffered-toward-safe boundary every other
+                // proposition in this file uses). Z3 does return that exact
+                // witness in practice (verified: an isolated `min_distance:
+                // violate` spec settled on `dx == threshold_x` for several
+                // consecutive steps), so `Violate` could produce a scenario
+                // reporting no box violation at all — the SW-12/30/35
+                // boundary shape, for this proposition too, just not named
+                // in the original issue. Non-strict here makes the negation
+                // strict (`dx < tx AND dy < ty`), so `Violate` can no longer
+                // settle on the exact boundary the validator calls safe.
+                let dx_positive = dx.ge(&threshold_x_real);
                 let neg_threshold_x = real_from_f64(-threshold_x);
-                let dx_negative = dx.lt(&neg_threshold_x);
+                let dx_negative = dx.le(&neg_threshold_x);
                 let dx_outside = z3::ast::Bool::or(&[&dx_positive, &dx_negative]);
 
-                // |dy| > threshold_y: dy > threshold_y OR dy < -threshold_y
-                let dy_positive = dy.gt(&threshold_y_real);
+                // |dy| >= threshold_y: dy >= threshold_y OR dy <= -threshold_y
+                let dy_positive = dy.ge(&threshold_y_real);
                 let neg_threshold_y = real_from_f64(-threshold_y);
-                let dy_negative = dy.lt(&neg_threshold_y);
+                let dy_negative = dy.le(&neg_threshold_y);
                 let dy_outside = z3::ast::Bool::or(&[&dy_positive, &dy_negative]);
 
                 // At least one dimension must be outside the box
@@ -3205,6 +3222,109 @@ mod tests {
                 "Rectangular: |dx|={} should be > 30 OR |dy|={} should be > 2",
                 dx,
                 dy
+            );
+        });
+    }
+
+    /// SW-33. Found while checking `RectangularDistanceGT`'s negation is not
+    /// vacuous for `Violate` — same SW-12/SW-30/SW-35 boundary shape,
+    /// unnamed in the original issue. The box's `dx`/`dy` comparisons were
+    /// strict `>`/`<`, so `.negate()` (De Morgan) gave the non-strict
+    /// conjunction `dx <= tx AND dy <= ty`, satisfiable with `dx == tx`
+    /// exactly — a point `compute_validation_metrics`'s
+    /// `box_safe = dx > tx - METRIC_TOL || ...` calls safe.
+    ///
+    /// Both actors pinned to lane 0 (so `dy = 0`, comfortably inside `ty`)
+    /// and `px` pinned by `ValueOrRange::Value` so `dx == threshold_x`
+    /// exactly, with no solver freedom: `min_distance = 2.0` gives
+    /// `threshold_x = 1.0` (`PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR`), and
+    /// `ego.px = 0.0`, `pedestrian.px = 1.0`.
+    #[test]
+    fn test_rectangular_distance_violate_mode_is_strict_at_the_boundary() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            use crate::ltl::formula::{LTLFormula, Proposition};
+
+            let spec = ScenarioSpec {
+                scenario_type: ScenarioType::PedestrianCrossing,
+                time_step: 1.0,
+                duration: 1.0,
+                actors: vec![
+                    ActorSpec {
+                        id: "ego".to_string(),
+                        role: ActorRole::Ego,
+                        lane: 0,
+                        position: ValueOrRange::Value(0.0),
+                        speed: ValueOrRange::Value(10.0),
+                        acceleration: ValueOrRange::Range([-3.0, 2.0]),
+                        direction: 1,
+                        behavior: HashMap::new(),
+                        lane_changes: vec![],
+                        bicycle_params: None,
+                    },
+                    ActorSpec {
+                        id: "pedestrian".to_string(),
+                        role: ActorRole::Pedestrian,
+                        lane: 0,
+                        position: ValueOrRange::Value(1.0),
+                        speed: ValueOrRange::Value(1.0),
+                        acceleration: ValueOrRange::Range([-1.0, 1.0]),
+                        direction: 1,
+                        behavior: HashMap::new(),
+                        lane_changes: vec![],
+                        bicycle_params: None,
+                    },
+                ],
+                min_ttc: 2.0,
+                min_distance: 2.0,
+                road: Some(RoadSpec {
+                    num_lanes: 1,
+                    lane_width: 3.5,
+                    lane_directions: vec![1],
+                    road_length: None,
+                }),
+                lane_width: 3.5,
+                num_scenarios: 1,
+                constraint_modes: crate::dsl::types::ConstraintModes::default(),
+                optimization_target: crate::dsl::types::OptimizationTarget::None,
+                max_acceleration: None,
+                max_deceleration: None,
+                max_velocity: None,
+                min_velocity: None,
+                min_lateral_distance: None,
+                max_relative_velocity: None,
+                max_lateral_acceleration: 2.0,
+                coordinate_system: crate::dsl::types::CoordinateSystem::Cartesian,
+                bicycle_config: None,
+            };
+
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+
+            // `Violate` asserts the negation of `RectangularDistanceGT`.
+            // Before SW-33's boundary fix, that negation was
+            // `dx <= 1.0 AND dy <= 1.333`, satisfied by the pinned boundary
+            // (`dx == 1.0` exactly, `dy == 0`).
+            let formula = LTLFormula::Atom(Proposition::RectangularDistanceGT {
+                actor1: "ego".to_string(),
+                actor2: "pedestrian".to_string(),
+                threshold_x: 1.0,
+                threshold_y: 2.0 / 1.5,
+            })
+            .negate();
+            encoder.encode_ltl(&formula);
+
+            // Fixed: the negation is now `dx < 1.0 AND dy < 1.333`, strict,
+            // which the pinned `dx == 1.0` cannot satisfy — correctly
+            // UNSAT, rather than accepting the exact threshold as a
+            // violation the validator would go on to call safe.
+            assert_eq!(
+                encoder.check(),
+                SatResult::Unsat,
+                "SW-33: violate mode must not be satisfiable by the exact \
+                 box boundary — that is the boundary the validator calls \
+                 safe, not a breach"
             );
         });
     }

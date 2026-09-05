@@ -74,7 +74,7 @@ impl ScenarioModel for PedestrianCrossingModel {
     }
 
     fn generate_safety(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
-        use crate::dsl::types::{ActorRole, ConstraintMode};
+        use crate::dsl::types::ActorRole;
 
         let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let npcs = spec.npcs();
@@ -88,16 +88,28 @@ impl ScenarioModel for PedestrianCrossingModel {
         // Rectangular safety box (simplest linear constraint, very fast Z3 solving)
         // For perpendicular crossing: lateral distance is more critical than longitudinal
         // Using threshold/1.5 gives conservative safety (~1.3m for 2m threshold)
-        if spec.constraint_modes.min_distance() == ConstraintMode::Enforce {
-            let dist = LTLFormula::Atom(Proposition::RectangularDistanceGT {
+        //
+        // SW-33. Used to be gated on `Enforce` only, so `Violate` (and
+        // `Ignore`, though that already meant "assert nothing") asserted
+        // nothing at all — a `violate`d pedestrian `min_distance` silently
+        // produced an ordinary scenario, the same failure SW-32 fixed for
+        // `min_lateral_distance` a few lines below. Routed through
+        // `push_constraint` like every other constraint in this file and in
+        // `generate_default_safety`. The negation is meaningful: `atom` is
+        // the disjunction `|dx| > tx OR |dy| > ty`, so `atom.negate()` is the
+        // conjunction `|dx| <= tx AND |dy| <= ty` — an ordinary box interior,
+        // satisfiable, not vacuous.
+        super::push_constraint(
+            &mut constraints,
+            spec.constraint_modes.min_distance(),
+            LTLFormula::Atom(Proposition::RectangularDistanceGT {
                 actor1: ego.id.clone(),
                 actor2: pedestrian.id.clone(),
                 threshold_x: spec.min_distance / PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR, // Longitudinal: half the threshold
                 threshold_y: spec.min_distance / PEDESTRIAN_BOX_LATERAL_DIVISOR, // Lateral: slightly more conservative
-            })
-            .always();
-            constraints.push(dist);
-        }
+            }),
+            super::AtomPolarity::Positive,
+        );
 
         // SW-32. `min_lateral_distance` used to be parsed, documented and
         // validated, then silently dropped here: this override replaced
@@ -140,16 +152,31 @@ impl ScenarioModel for PedestrianCrossingModel {
             );
         }
 
-        // Pedestrian-specific TTC (perpendicular crossing)
-        if spec.constraint_modes.min_ttc() == ConstraintMode::Enforce {
-            let ttc = LTLFormula::Atom(Proposition::PedestrianTTCGT {
+        // Pedestrian-specific TTC (perpendicular crossing).
+        //
+        // SW-33. Same defect as the box above: gated on `Enforce` only, so
+        // `Violate` asserted nothing. `PedestrianTTCGT` lowers to the guarded
+        // implication `ped_on_road ∧ approaching ⟹ ttc_safe`
+        // (`encoder.rs`), whose negation is
+        // `ped_on_road ∧ approaching ∧ ¬ttc_safe` — it requires the
+        // antecedent to actually hold, not just any state, so this is the
+        // one of the two negations in this issue worth checking rather than
+        // assuming. Verified satisfiable end-to-end (not vacuous, not
+        // UNSAT): with SW-35 landed first, `ttc_safe` is non-strict, so
+        // `¬ttc_safe` is the strict `distance < ttc * ego_vx` — an ordinary
+        // close call, not a boundary condition — and a `violate`d
+        // `pedestrian_crossing.yaml` produces a real breach (see the SW-33
+        // report/tests for the numbers).
+        super::push_constraint(
+            &mut constraints,
+            spec.constraint_modes.min_ttc(),
+            LTLFormula::Atom(Proposition::PedestrianTTCGT {
                 ego: ego.id.clone(),
                 pedestrian: pedestrian.id.clone(),
                 ttc: spec.min_ttc,
-            })
-            .always();
-            constraints.push(ttc);
-        }
+            }),
+            super::AtomPolarity::Positive,
+        );
 
         Ok(LTLFormula::conjunction(constraints))
     }
@@ -381,5 +408,81 @@ mod tests {
 
         let formula_str = format!("{}", formula.unwrap());
         assert!(formula_str.contains("InLane"));
+    }
+
+    /// SW-33. Both `RectangularDistanceGT` (`min_distance`) and
+    /// `PedestrianTTCGT` (`min_ttc`) used to be gated on
+    /// `ConstraintMode::Enforce` only, so `Violate` fell through and asserted
+    /// nothing — `generate_safety` returned `LTLFormula::True` for either
+    /// field's contribution. Routed through `push_constraint` like every
+    /// other constraint in this module, `Violate` now asserts
+    /// `F(¬(atom))` (`AtomPolarity::Positive`, `ConstraintMode::Violate`).
+    /// Against the pre-SW-33 code this assertion fails: the formula string
+    /// contains no `RectangularDistanceGT`/`PedestrianTTCGT` at all, since
+    /// nothing was pushed.
+    #[test]
+    fn test_pedestrian_min_distance_violate_asserts_the_negation() {
+        use crate::dsl::types::{Constraint, ConstraintMode, ConstraintModes};
+
+        let model = PedestrianCrossingModel;
+        let mut spec = create_test_spec();
+        spec.constraint_modes = ConstraintModes::Detailed {
+            min_ttc: ConstraintMode::Ignore,
+            min_distance: ConstraintMode::Violate,
+            max_acceleration: ConstraintMode::Ignore,
+            max_velocity: ConstraintMode::Ignore,
+            min_velocity: ConstraintMode::Ignore,
+            min_lateral_distance: ConstraintMode::Ignore,
+            max_relative_velocity: ConstraintMode::Ignore,
+        };
+        assert_eq!(
+            spec.constraint_modes.mode_for(Constraint::MinDistance),
+            ConstraintMode::Violate
+        );
+
+        let formula = model.generate_safety(&spec).unwrap();
+        let formula_str = format!("{formula}");
+
+        assert!(
+            formula_str.contains("RectangularDistanceGT"),
+            "Violate must still assert something about RectangularDistanceGT, got {formula_str}"
+        );
+        assert!(
+            formula_str.contains("F(¬("),
+            "Violate must assert the atom's negation, eventually — got {formula_str}"
+        );
+    }
+
+    #[test]
+    fn test_pedestrian_min_ttc_violate_asserts_the_negation() {
+        use crate::dsl::types::{Constraint, ConstraintMode, ConstraintModes};
+
+        let model = PedestrianCrossingModel;
+        let mut spec = create_test_spec();
+        spec.constraint_modes = ConstraintModes::Detailed {
+            min_ttc: ConstraintMode::Violate,
+            min_distance: ConstraintMode::Ignore,
+            max_acceleration: ConstraintMode::Ignore,
+            max_velocity: ConstraintMode::Ignore,
+            min_velocity: ConstraintMode::Ignore,
+            min_lateral_distance: ConstraintMode::Ignore,
+            max_relative_velocity: ConstraintMode::Ignore,
+        };
+        assert_eq!(
+            spec.constraint_modes.mode_for(Constraint::MinTtc),
+            ConstraintMode::Violate
+        );
+
+        let formula = model.generate_safety(&spec).unwrap();
+        let formula_str = format!("{formula}");
+
+        assert!(
+            formula_str.contains("PedestrianTTCGT"),
+            "Violate must still assert something about PedestrianTTCGT, got {formula_str}"
+        );
+        assert!(
+            formula_str.contains("F(¬("),
+            "Violate must assert the atom's negation, eventually — got {formula_str}"
+        );
     }
 }
