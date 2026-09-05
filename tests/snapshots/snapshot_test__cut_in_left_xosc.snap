@@ -1,5 +1,6 @@
 ---
 source: tests/snapshot_test.rs
+assertion_line: 83
 expression: xosc
 ---
 <?xml version="1.0" encoding="UTF-8"?>
@@ -75,7 +76,7 @@ Duration: 10s, Time step: 0.1s"
           ><TeleportAction><Position><LanePosition
                   roadId="0"
                   laneId="-1"
-                  s="55.717999999999996"
+                  s="55"
                   offset="0"
                 ><Orientation
                     h="0"
@@ -92,7 +93,7 @@ Duration: 10s, Time step: 0.1s"
           ><TeleportAction><Position><LanePosition
                   roadId="0"
                   laneId="-2"
-                  s="61.399421052631574"
+                  s="60.0405"
                   offset="0"
                 ><Orientation
                     h="0"
@@ -114,7 +115,7 @@ Duration: 10s, Time step: 0.1s"
                       ><Shape><Polyline><Vertex time="0"><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="55.717999999999996"
+                                  s="55"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -124,7 +125,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="57.333"
+                                  s="56.615"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -134,7 +135,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="58.977999999999994"
+                                  s="58.26"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -144,7 +145,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="60.653"
+                                  s="59.935"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -154,7 +155,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="62.358"
+                                  s="61.64"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -164,7 +165,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="64.09299999999999"
+                                  s="63.375"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -174,7 +175,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="65.858"
+                                  s="65.14"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -184,7 +185,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="67.65299999999999"
+                                  s="66.935"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -194,7 +195,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="69.47800000000001"
+                                  s="68.76"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -204,7 +205,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="71.333"
+                                  s="70.615"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -214,7 +215,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="73.21799999999999"
+                                  s="72.5"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -224,7 +225,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="75.13300000000001"
+                                  s="74.415"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -234,7 +235,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="77.078"
+                                  s="76.36"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -244,7 +245,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="79.053"
+                                  s="78.335"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -254,7 +255,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="81.05799999999999"
+                                  s="80.34"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -264,7 +265,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="83.09299999999999"
+                                  s="82.375"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -274,7 +275,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="85.15799999999999"
+                                  s="84.44"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -284,7 +285,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="87.25299999999999"
+                                  s="86.535"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -294,7 +295,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="89.37799999999999"
+                                  s="88.66"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -304,7 +305,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="91.53299999999999"
+                                  s="90.815"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -314,7 +315,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="93.71799999999999"
+                                  s="93"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -324,7 +325,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="95.93299999999999"
+                                  s="95.215"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -334,7 +335,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="98.178"
+                                  s="97.46"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -344,7 +345,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="100.453"
+                                  s="99.735"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -354,7 +355,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="102.75800000000001"
+                                  s="102.04"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -364,7 +365,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="105.09299999999999"
+                                  s="104.375"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -374,7 +375,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="107.458"
+                                  s="106.74"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -384,7 +385,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="109.85300000000001"
+                                  s="109.135"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -394,7 +395,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="112.27799999999999"
+                                  s="111.56"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -404,7 +405,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="114.733"
+                                  s="114.015"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -414,7 +415,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="117.21799999999999"
+                                  s="116.5"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -424,7 +425,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="119.733"
+                                  s="119.015"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -434,7 +435,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="122.27799999999999"
+                                  s="121.56"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -444,7 +445,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="124.85300000000001"
+                                  s="124.135"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -454,7 +455,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="127.458"
+                                  s="126.74"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -464,7 +465,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="130.093"
+                                  s="129.375"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -474,7 +475,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="132.75799999999998"
+                                  s="132.04"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -484,7 +485,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="135.453"
+                                  s="134.735"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -494,7 +495,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="138.178"
+                                  s="137.46"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -504,7 +505,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="140.933"
+                                  s="140.215"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -514,7 +515,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="143.718"
+                                  s="143"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -524,7 +525,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="146.533"
+                                  s="145.815"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -534,7 +535,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="149.378"
+                                  s="148.605"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -544,7 +545,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="152.253"
+                                  s="151.315"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -554,7 +555,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="155.158"
+                                  s="153.945"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -564,7 +565,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="158.093"
+                                  s="156.55"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -574,7 +575,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="161.058"
+                                  s="159.185"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -584,7 +585,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="164.053"
+                                  s="161.85"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -594,7 +595,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="167.078"
+                                  s="164.545"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -604,7 +605,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="170.13299999999998"
+                                  s="167.215"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -614,7 +615,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="173.218"
+                                  s="169.805"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -624,7 +625,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="176.333"
+                                  s="172.37"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -634,7 +635,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="179.47799999999998"
+                                  s="174.965"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -644,7 +645,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="182.653"
+                                  s="177.59"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -654,7 +655,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="185.85799999999998"
+                                  s="180.245"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -664,7 +665,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="189.093"
+                                  s="182.93"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -674,7 +675,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="192.35799999999998"
+                                  s="185.645"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -684,7 +685,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="195.653"
+                                  s="188.39"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -694,7 +695,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="198.923"
+                                  s="191.165"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -704,7 +705,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="202.16799999999998"
+                                  s="193.915"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -714,7 +715,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="205.38799999999998"
+                                  s="196.585"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -724,7 +725,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="208.583"
+                                  s="199.175"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -734,7 +735,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="211.808"
+                                  s="201.685"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -744,7 +745,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="215.063"
+                                  s="204.115"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -754,7 +755,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="218.34799999999998"
+                                  s="206.465"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -764,7 +765,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="221.66299999999998"
+                                  s="208.735"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -774,7 +775,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="225.00799999999998"
+                                  s="210.925"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -784,7 +785,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="228.38299999999998"
+                                  s="213.035"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -794,7 +795,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="231.78799999999998"
+                                  s="215.065"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -804,7 +805,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="235.16799999999998"
+                                  s="217.015"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -814,7 +815,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="238.523"
+                                  s="218.885"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -824,7 +825,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="241.908"
+                                  s="220.675"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -834,7 +835,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="245.32299999999998"
+                                  s="222.385"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -844,7 +845,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="248.768"
+                                  s="224.07"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -854,7 +855,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="252.243"
+                                  s="225.785"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -864,7 +865,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="255.69299999999998"
+                                  s="227.53"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -874,7 +875,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="259.06300000000005"
+                                  s="229.305"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -884,7 +885,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="262.353"
+                                  s="231.11"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -894,7 +895,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="265.56300000000005"
+                                  s="232.945"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -904,7 +905,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="268.69300000000004"
+                                  s="234.81"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -914,7 +915,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="271.743"
+                                  s="236.705"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -924,7 +925,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="274.713"
+                                  s="238.63"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -934,7 +935,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="277.603"
+                                  s="240.585"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -944,7 +945,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="280.468"
+                                  s="242.57"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -954,7 +955,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="283.363"
+                                  s="244.585"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -964,7 +965,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="286.288"
+                                  s="246.63"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -974,7 +975,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="289.243"
+                                  s="248.705"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -984,7 +985,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="292.173"
+                                  s="250.81"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -994,7 +995,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="295.023"
+                                  s="252.945"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1004,7 +1005,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="297.793"
+                                  s="255.055"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1014,7 +1015,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="300.538"
+                                  s="257.14"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1024,7 +1025,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="303.31300000000005"
+                                  s="259.2"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1034,7 +1035,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="306.118"
+                                  s="261.235"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1044,7 +1045,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="308.95300000000003"
+                                  s="263.245"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1054,7 +1055,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="311.81800000000004"
+                                  s="265.175"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1064,7 +1065,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="314.713"
+                                  s="267.025"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1074,7 +1075,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="317.63800000000003"
+                                  s="268.795"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1084,7 +1085,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="320.593"
+                                  s="270.485"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1094,7 +1095,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="323.523"
+                                  s="272.095"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1104,7 +1105,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="326.428"
+                                  s="273.625"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1114,7 +1115,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="329.308"
+                                  s="275.075"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1151,7 +1152,7 @@ Duration: 10s, Time step: 0.1s"
                       ><Shape><Polyline><Vertex time="0"><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="61.399421052631574"
+                                  s="60.0405"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1161,7 +1162,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="63.014421052631576"
+                                  s="61.655"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1171,7 +1172,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="64.65942105263157"
+                                  s="63.299"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1181,7 +1182,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="66.33442105263157"
+                                  s="64.973"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1191,7 +1192,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="68.03942105263158"
+                                  s="66.677"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1201,7 +1202,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="69.77442105263157"
+                                  s="68.411"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1211,7 +1212,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="71.53942105263158"
+                                  s="70.175"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1221,7 +1222,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="73.33442105263157"
+                                  s="71.969"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1231,7 +1232,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="75.15942105263159"
+                                  s="73.793"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1241,7 +1242,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="77.01442105263158"
+                                  s="75.647"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1251,7 +1252,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="78.89942105263157"
+                                  s="77.531"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1261,7 +1262,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="80.81442105263159"
+                                  s="79.445"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1271,7 +1272,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="82.75942105263158"
+                                  s="81.389"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1281,7 +1282,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="84.73442105263157"
+                                  s="83.363"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1291,7 +1292,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="86.73942105263157"
+                                  s="85.367"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1301,7 +1302,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="88.77442105263157"
+                                  s="87.401"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1311,7 +1312,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="90.83942105263156"
+                                  s="89.465"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1321,7 +1322,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="92.93442105263156"
+                                  s="91.559"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1331,7 +1332,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="95.05942105263156"
+                                  s="93.683"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1341,7 +1342,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="97.21442105263156"
+                                  s="95.837"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1351,7 +1352,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="99.39942105263157"
+                                  s="98.021"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1361,7 +1362,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="101.61442105263157"
+                                  s="100.235"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1371,7 +1372,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="103.85942105263157"
+                                  s="102.479"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1381,7 +1382,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="106.13442105263158"
+                                  s="104.753"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1391,367 +1392,367 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="108.43942105263159"
+                                  s="107.057"
                                   offset="-0.010000000000000009"
                                 ><Orientation
-                                    h="-0.008620476112136323"
+                                    h="-0.008624193252614477"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="2.5"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="110.77442105263157"
+                                  s="109.391"
                                   offset="-0.040000000000000036"
                                 ><Orientation
-                                    h="-0.01701963305813662"
+                                    h="-0.01702687713836468"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="2.6"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="113.13942105263158"
+                                  s="111.755"
                                   offset="-0.09000000000000008"
                                 ><Orientation
-                                    h="-0.02520474532694173"
+                                    h="-0.025215335518306098"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="2.7"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="115.53442105263159"
+                                  s="114.149"
                                   offset="-0.15631578947368419"
                                 ><Orientation
-                                    h="-0.030128465199793886"
+                                    h="-0.030140964255392342"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="2.8000000000000003"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="117.95942105263157"
+                                  s="116.573"
                                   offset="-0.21894736842105256"
                                 ><Orientation
-                                    h="-0.021566974771176636"
+                                    h="-0.02157581457584538"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="2.9000000000000004"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="120.41442105263158"
+                                  s="119.027"
                                   offset="-0.26157894736842113"
                                 ><Orientation
-                                    h="-0.013210397043080732"
+                                    h="-0.013215746925310379"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="3"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="122.89942105263157"
+                                  s="121.511"
                                   offset="-0.28421052631578947"
                                 ><Orientation
-                                    h="-0.005052588583250798"
+                                    h="-0.005054610392991316"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="3.1"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="125.41442105263158"
+                                  s="124.025"
                                   offset="-0.2868421052631578"
                                 ><Orientation
-                                    h="0.002912411153872175"
+                                    h="0.0029135627531901454"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="3.2"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="127.95942105263157"
+                                  s="126.569"
                                   offset="-0.2694736842105263"
                                 ><Orientation
-                                    h="0.010690382207551473"
+                                    h="0.010694559451495864"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="3.3000000000000003"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="130.53442105263156"
+                                  s="129.143"
                                   offset="-0.23210526315789481"
                                 ><Orientation
-                                    h="0.018286926930590038"
+                                    h="0.018293988671777176"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="3.4000000000000004"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="133.13942105263158"
+                                  s="131.747"
                                   offset="-0.17473684210526308"
                                 ><Orientation
-                                    h="0.025707473173840784"
+                                    h="0.025717284606417014"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="3.5"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="135.77442105263157"
+                                  s="134.381"
                                   offset="-0.09736842105263155"
                                 ><Orientation
-                                    h="0.03295727776921993"
+                                    h="0.03296971016045474"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="3.6"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="138.43942105263156"
+                                  s="137.045"
                                   offset="0"
                                 ><Orientation
-                                    h="0.04004143025283501"
+                                    h="0.040056360682348156"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="3.7"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="141.13442105263158"
+                                  s="139.739"
                                   offset="0.11736842105263157"
                                 ><Orientation
-                                    h="0.04696485677687213"
+                                    h="0.04698216788388185"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="3.8000000000000003"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="143.85942105263157"
+                                  s="142.463"
                                   offset="0.25473684210526315"
                                 ><Orientation
-                                    h="0.053732324165223506"
+                                    h="0.053751903904086615"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="3.9000000000000004"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="146.61442105263157"
+                                  s="145.217"
                                   offset="0.41210526315789453"
                                 ><Orientation
-                                    h="0.06034844407353052"
+                                    h="0.06037018547774609"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="4"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="149.39942105263157"
+                                  s="148.001"
                                   offset="0.5894736842105264"
                                 ><Orientation
-                                    h="0.06681767721942071"
+                                    h="0.06684147817418498"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="4.1000000000000005"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="152.21442105263156"
-                                  offset="0.7823684210526314"
+                                  s="150.815"
+                                  offset="0.783157894736842"
                                 ><Orientation
-                                    h="0.06999889372597934"
+                                    h="0.07057893152725604"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="4.2"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="155.05942105263156"
-                                  offset="0.9707894736842104"
+                                  s="153.6586286338304"
+                                  offset="0.9831578947368422"
                                 ><Orientation
-                                    h="0.062304240148951105"
+                                    h="0.06985884225128412"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="4.3"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="157.93442105263156"
-                                  offset="1.1400000000000001"
+                                  s="156.5318859014912"
+                                  offset="1.183157894736842"
                                 ><Orientation
-                                    h="0.055306860939899005"
+                                    h="0.06913554840926715"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="4.4"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="160.83942105263156"
-                                  offset="1.31"
+                                  s="159.43514316915198"
+                                  offset="1.3831578947368421"
                                 ><Orientation
-                                    h="0.06156593173793357"
+                                    h="0.06842705539955099"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="4.5"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="163.77442105263157"
-                                  offset="1.5"
+                                  s="162.31340043681277"
+                                  offset="1.575438596491228"
                                 ><Orientation
-                                    h="0.06769302269396865"
+                                    h="0.06493489125902054"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="4.6000000000000005"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-2"
-                                  s="166.73942105263157"
-                                  offset="1.7000000000000002"
+                                  s="165.11165770447357"
+                                  offset="1.75"
                                 ><Orientation
-                                    h="0.06701359804480499"
+                                    h="0.05959073159187803"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="4.7"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="169.72805263157895"
-                                  offset="-1.6"
+                                  s="167.82991497213436"
+                                  offset="-1.575438596491228"
                                 ><Orientation
-                                    h="0.06662876842365992"
+                                    h="0.06880223622046054"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="4.800000000000001"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="172.74031578947367"
-                                  offset="-1.4"
+                                  s="170.52317223979514"
+                                  offset="-1.3831578947368421"
                                 ><Orientation
-                                    h="0.06597040486621063"
+                                    h="0.07371442023043824"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="4.9"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="175.78257894736842"
-                                  offset="-1.2000000000000002"
+                                  s="173.19142950745595"
+                                  offset="-1.1915789473684208"
                                 ><Orientation
-                                    h="0.06532490634892228"
+                                    h="0.06957547923674444"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="5"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="178.85484210526315"
+                                  s="175.77968677511674"
                                   offset="-1"
                                 ><Orientation
-                                    h="0.06469189995062817"
+                                    h="0.07832445093430852"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="5.1000000000000005"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="181.95710526315787"
+                                  s="178.34294404277753"
                                   offset="-0.8099999999999996"
                                 ><Orientation
-                                    h="0.05767891101914926"
+                                    h="0.06970150334645107"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="5.2"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="185.08936842105263"
+                                  s="180.93620131043832"
                                   offset="-0.6399999999999997"
                                 ><Orientation
-                                    h="0.05079409194107399"
+                                    h="0.061266868996128196"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="5.300000000000001"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="188.25163157894735"
+                                  s="183.5594585780991"
                                   offset="-0.4900000000000002"
                                 ><Orientation
-                                    h="0.044034595987438994"
+                                    h="0.053015607404232314"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="5.4"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="191.44389473684208"
+                                  s="186.2127158457599"
                                   offset="-0.3600000000000003"
                                 ><Orientation
-                                    h="0.037397633296451536"
+                                    h="0.04494289064063029"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="5.5"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="194.66615789473684"
+                                  s="188.8959731134207"
                                   offset="-0.25"
                                 ><Orientation
-                                    h="0.030880471039918148"
+                                    h="0.03704400431749552"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="5.6000000000000005"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="197.91842105263157"
+                                  s="191.6092303810815"
                                   offset="-0.16000000000000014"
                                 ><Orientation
-                                    h="0.02448043343503247"
+                                    h="0.02931434807914718"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="5.7"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="201.2006842105263"
+                                  s="194.35248764874228"
                                   offset="-0.08999999999999986"
                                 ><Orientation
-                                    h="0.018194901617520156"
+                                    h="0.0217494356476363"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="5.800000000000001"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="204.45794736842103"
+                                  s="197.12574491640308"
                                   offset="-0.040000000000000036"
                                 ><Orientation
-                                    h="0.012432287068940846"
+                                    h="0.014344894478101089"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="5.9"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="207.69021052631578"
+                                  s="199.87400218406387"
                                   offset="-0.009999999999999787"
                                 ><Orientation
-                                    h="0.006158954831211141"
+                                    h="0.007384688552300084"
                                     type="absolute"
                                   /></LanePosition></Position></Vertex><Vertex
                               time="6"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="210.89747368421052"
+                                  s="202.54225945172465"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1761,7 +1762,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="214.07973684210526"
+                                  s="205.13051671938544"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1771,7 +1772,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="217.292"
+                                  s="207.63877398704625"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1781,7 +1782,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="220.5342631578947"
+                                  s="210.06703125470705"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1791,7 +1792,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="223.80652631578945"
+                                  s="212.41528852236783"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1801,7 +1802,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="227.1087894736842"
+                                  s="214.68354579002863"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1811,7 +1812,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="230.44105263157894"
+                                  s="216.87180305768942"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1821,7 +1822,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="233.8033157894737"
+                                  s="218.9800603253502"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1831,7 +1832,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="237.1955789473684"
+                                  s="221.008317593011"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1841,7 +1842,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="240.56284210526314"
+                                  s="222.9565748606718"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1851,7 +1852,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="243.90510526315788"
+                                  s="224.8248321283326"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1861,7 +1862,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="247.2773684210526"
+                                  s="226.61308939599337"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1871,7 +1872,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="250.67963157894735"
+                                  s="228.32134666365417"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1881,7 +1882,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="254.1118947368421"
+                                  s="230.00460393131496"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1891,7 +1892,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="257.57415789473686"
+                                  s="231.71786119897575"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1901,7 +1902,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="261.0114210526316"
+                                  s="233.46111846663655"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1911,7 +1912,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="264.36868421052634"
+                                  s="235.23437573429734"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1921,7 +1922,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="267.64594736842105"
+                                  s="237.0376330019581"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1931,7 +1932,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="270.84321052631583"
+                                  s="238.8708902696189"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1941,7 +1942,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="273.96047368421057"
+                                  s="240.7341475372797"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1951,7 +1952,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="276.99773684210527"
+                                  s="242.6274048049405"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1961,7 +1962,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="279.95500000000004"
+                                  s="244.55066207260128"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1971,7 +1972,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="282.8322631578948"
+                                  s="246.5039193402621"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1981,7 +1982,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="285.68452631578947"
+                                  s="248.4871766079229"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -1991,7 +1992,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="288.56678947368425"
+                                  s="250.50043387558367"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2001,7 +2002,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="291.47905263157895"
+                                  s="252.54369114324447"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2011,7 +2012,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="294.4213157894737"
+                                  s="254.61694841090525"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2021,7 +2022,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="297.33857894736843"
+                                  s="256.72020567856606"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2031,7 +2032,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="300.1758421052632"
+                                  s="258.79846294622683"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2041,7 +2042,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="302.9331052631579"
+                                  s="260.7967202138876"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2051,7 +2052,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="305.6653684210527"
+                                  s="262.7383742500608"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2061,7 +2062,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="308.4276315789474"
+                                  s="264.6234250547464"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2071,7 +2072,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="311.21989473684215"
+                                  s="266.483475859432"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2081,7 +2082,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="314.0421578947369"
+                                  s="268.3406472032975"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2091,7 +2092,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="316.89442105263157"
+                                  s="270.1949390863429"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2101,7 +2102,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="319.77668421052635"
+                                  s="272.033713661696"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2111,7 +2112,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="322.68894736842105"
+                                  s="273.80197092935686"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2121,7 +2122,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="325.6312105263158"
+                                  s="275.49022819701764"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2131,7 +2132,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="328.54847368421053"
+                                  s="277.0984854646784"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2141,7 +2142,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="331.4407368421053"
+                                  s="278.6267427323392"
                                   offset="0"
                                 ><Orientation
                                     h="0"
@@ -2151,7 +2152,7 @@ Duration: 10s, Time step: 0.1s"
                             ><Position><LanePosition
                                   roadId="0"
                                   laneId="-1"
-                                  s="334.308"
+                                  s="280.075"
                                   offset="0"
                                 ><Orientation
                                     h="0"

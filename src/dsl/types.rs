@@ -101,6 +101,25 @@ pub const fn lane_change_start_past_horizon(start_step: usize, horizon: usize) -
 /// step and turns propagation into search. One inequality per actor does not.
 pub const MIN_FORWARD_PROGRESS_FRACTION: f64 = 0.5;
 
+/// Fraction of an actor's declared initial speed that its longitudinal speed
+/// must be back up to *at the final step of the horizon* (SW-39).
+///
+/// The displacement floor above bounds only the average speed over the whole
+/// horizon, and the cheapest way to satisfy an average is a monotone decay to
+/// zero — `MIN_FORWARD_PROGRESS_FRACTION` alone lets an oncoming vehicle coast
+/// to a dead stop by the end of the scenario and stay there, which every
+/// distance/TTC check downstream is happy to call a near miss. A per-step
+/// floor is still the wrong tool (see the constant above): it would forbid a
+/// vehicle braking hard for a pedestrian in the road, which must stay legal.
+///
+/// A floor on the terminal speed only — not on any interior step — forbids
+/// exactly the "ends stopped, or near it" case while leaving every interior
+/// step free to dip to zero and recover: an emergency stop is a dip, not an
+/// ending state. It is also still one linear inequality per actor
+/// (`v[H] * dir` compared against `f * speed.min() * dir`, all compile-time
+/// constants), so it stays in QF_LRA exactly like the displacement floor.
+pub const TERMINAL_SPEED_FRACTION: f64 = 0.5;
+
 /// The only `ActorSpec.behavior` keys anything in the crate reads (SW-21/M10).
 ///
 /// `behavior` is an untyped `HashMap<String, serde_json::Value>` — there is no

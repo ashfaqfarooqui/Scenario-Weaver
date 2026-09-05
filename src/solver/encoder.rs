@@ -207,37 +207,60 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// Pedestrians are excluded: they cross the road, so their longitudinal
     /// displacement is near zero by design, and `PEDESTRIAN_*` already bounds
     /// their speed on both axes.
+    ///
+    /// SW-39 adds a second, narrower floor alongside the displacement one: the
+    /// longitudinal speed at the *final* step must be back up to
+    /// `TERMINAL_SPEED_FRACTION` of the actor's declared initial speed. The
+    /// displacement floor alone only bounds an average over the horizon, and
+    /// the cheapest way to satisfy an average is a monotone decay to zero —
+    /// which is exactly the solution Z3 was finding: an oncoming vehicle that
+    /// coasts to a dead stop and stays there is not a near miss, however
+    /// satisfiable it is. Bounding only the terminal step (not every step)
+    /// leaves interior steps free to dip to zero and recover, so a genuine
+    /// emergency stop for a pedestrian in the road remains legal — it is a dip,
+    /// not an ending state. Both bounds are one linear inequality per actor
+    /// against a compile-time constant, so this stays in QF_LRA.
     fn encode_forward_progress(&mut self) {
-        use crate::dsl::types::{ActorRole, MIN_FORWARD_PROGRESS_FRACTION};
+        use crate::dsl::types::{ActorRole, MIN_FORWARD_PROGRESS_FRACTION, TERMINAL_SPEED_FRACTION};
 
         let duration = self.spec.duration;
         let horizon = self.horizon;
 
-        let bounds: Vec<(String, f64)> = self
+        let bounds: Vec<(String, f64, f64)> = self
             .spec
             .actors
             .iter()
             .filter(|a| a.role != ActorRole::Pedestrian)
             .filter_map(|a| {
-                let required = MIN_FORWARD_PROGRESS_FRACTION
-                    * a.speed.min()
-                    * duration
-                    * f64::from(a.direction);
-                (a.speed.min() > 0.0).then(|| (a.id.clone(), required))
+                let dir = f64::from(a.direction);
+                let displacement_required =
+                    MIN_FORWARD_PROGRESS_FRACTION * a.speed.min() * duration * dir;
+                let terminal_speed_required = TERMINAL_SPEED_FRACTION * a.speed.min() * dir;
+                (a.speed.min() > 0.0)
+                    .then(|| (a.id.clone(), displacement_required, terminal_speed_required))
             })
             .collect();
 
-        for (actor_id, required) in bounds {
+        for (actor_id, displacement_required, terminal_speed_required) in bounds {
             let start = self.get_longitudinal_pos(&actor_id, 0).clone();
             let end = self.get_longitudinal_pos(&actor_id, horizon).clone();
             let travelled = &end - &start;
-            let bound = real_from_f64(required);
-            let constraint = if required >= 0.0 {
-                travelled.ge(&bound)
+            let displacement_bound = real_from_f64(displacement_required);
+            let displacement_constraint = if displacement_required >= 0.0 {
+                travelled.ge(&displacement_bound)
             } else {
-                travelled.le(&bound)
+                travelled.le(&displacement_bound)
             };
-            self.coord_encoder.backend_mut().assert(&constraint);
+            self.coord_encoder.backend_mut().assert(&displacement_constraint);
+
+            let final_vel = self.get_longitudinal_vel(&actor_id, horizon).clone();
+            let terminal_bound = real_from_f64(terminal_speed_required);
+            let terminal_constraint = if terminal_speed_required >= 0.0 {
+                final_vel.ge(&terminal_bound)
+            } else {
+                final_vel.le(&terminal_bound)
+            };
+            self.coord_encoder.backend_mut().assert(&terminal_constraint);
         }
     }
 
