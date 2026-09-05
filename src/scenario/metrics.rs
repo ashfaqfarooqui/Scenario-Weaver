@@ -102,7 +102,13 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// | **`RelativeVelocityGT`** (`max_relative_velocity`) | `scenarios/mod.rs:245`, all pairs, unguarded, negated polarity | *(new)* per-pair `\|vx1-vx2\|` check | was **unmeasured anywhere**, not even in `tests/common/invariants.rs`. `unsafe_following.yaml` — an adversarial corpus example built to violate exactly this field — reported `all_constraints_satisfied: true` pre-fix. Highest-value gap this issue closes |
     /// | **`RectangularDistanceGT`** (pedestrian `min_distance`) | `pedestrian_crossing.rs:75`, `Enforce` only | *(fixed, this issue)* box check for pairs containing a pedestrian; previously the generic `same_lane`-gated `\|dx\|` ran instead, because a pedestrian's lane is pinned to 0 (`pedestrian_crossing.rs:232`) and so is the ego's, making `same_lane` structurally true | was **measured differently** — see doc note on the pedestrian branch below |
     /// | **`PedestrianTTCGT`** (pedestrian `min_ttc`) | `pedestrian_crossing.rs:128`, `Enforce` only | *(fixed)* guarded ego-behind/on-road TTC check, mirroring the encoder's own guard | was **measured differently**, same root cause as the row above |
-    /// | `Distance2DGT`, `ManhattanDistanceGT`, `OnLeftOf`, `OnRightOf` | no non-test caller in `src/scenarios/` | — | **unmeasured, and unemitted** — no scenario type currently lowers these, so per this issue's own priority ("a user-settable constraint that is never verified is the priority; a proposition no scenario type currently emits is not") they are left unmeasured. If a future scenario type starts emitting one, it needs a row here and a check above |
+    ///
+    /// `Distance2DGT`, `ManhattanDistanceGT`, `OnLeftOf`, and `OnRightOf` had no
+    /// non-test caller in `src/scenarios/` and no validator check — deleted
+    /// under SW-42 rather than left as permanent "unmeasured" bookkeeping for
+    /// code nothing emits. If a future scenario type needs 2D/Manhattan
+    /// distance or lateral ordering, reintroduce the proposition alongside its
+    /// row here and a check above, not before.
     ///
     /// ## The pedestrian branch, in detail
     ///

@@ -321,60 +321,6 @@ fn encode_proposition(
             z3::ast::Bool::and(&[&on_road_start, &on_road_end])
         }
 
-        // Distance2DGT: 2D Euclidean distance between actors > threshold
-        Proposition::Distance2DGT {
-            actor1,
-            actor2,
-            distance,
-        } => {
-            let px1 = accessor.get_longitudinal_pos(actor1, time);
-            let py1 = accessor.get_lateral_pos(actor1, time);
-            let px2 = accessor.get_longitudinal_pos(actor2, time);
-            let py2 = accessor.get_lateral_pos(actor2, time);
-
-            // Euclidean distance: sqrt((px1-px2)^2 + (py1-py2)^2) > threshold
-            // Z3 encoding: (px1-px2)^2 + (py1-py2)^2 > threshold^2
-            let dx = px1 - px2;
-            let dy = py1 - py2;
-            let dist_sq = &(&dx * &dx) + &(&dy * &dy);
-            let threshold_sq = real_from_f64(distance * distance);
-            dist_sq.gt(&threshold_sq)
-        }
-
-        // ManhattanDistanceGT: Manhattan distance between actors > threshold
-        // Linear encoding: |dx| + |dy| > threshold
-        // Implemented as disjunction over four cases (one per quadrant)
-        Proposition::ManhattanDistanceGT {
-            actor1,
-            actor2,
-            distance,
-        } => {
-            let px1 = accessor.get_longitudinal_pos(actor1, time);
-            let py1 = accessor.get_lateral_pos(actor1, time);
-            let px2 = accessor.get_longitudinal_pos(actor2, time);
-            let py2 = accessor.get_lateral_pos(actor2, time);
-
-            let dx = px1 - px2;
-            let dy = py1 - py2;
-            let threshold_real = real_from_f64(*distance);
-            let zero = Real::from_rational(0_i64, 1_i64);
-
-            // Manhattan distance: |dx| + |dy| > threshold
-            // We check all four combinations of signs:
-            // Case 1: dx ≥ 0, dy ≥ 0 → dx + dy > threshold
-            // Case 2: dx ≥ 0, dy < 0 → dx - dy > threshold
-            // Case 3: dx < 0, dy ≥ 0 → -dx + dy > threshold
-            // Case 4: dx < 0, dy < 0 → -dx - dy > threshold
-            //
-            // Disjunction: at least one case must hold
-            let case1 = (&dx + &dy).gt(&threshold_real);
-            let case2 = (&dx - &dy).gt(&threshold_real);
-            let case3 = (&dy - &dx).gt(&threshold_real); // -dx + dy = dy - dx
-            let case4 = (&zero - &(&dx + &dy)).gt(&threshold_real); // -(dx + dy)
-
-            z3::ast::Bool::or(&[&case1, &case2, &case3, &case4])
-        }
-
         // RectangularDistanceGT: Rectangular safety box
         // Simplest linear encoding: |dx| > threshold_x OR |dy| > threshold_y
         Proposition::RectangularDistanceGT {
@@ -560,22 +506,6 @@ fn encode_proposition(
             z3::ast::Bool::or(&[&pos_case, &neg_case])
         }
 
-        // OnLeftOf: Actor1 is laterally left of Actor2
-        // Simple comparison: py1 > py2
-        Proposition::OnLeftOf { actor1, actor2 } => {
-            let py1 = accessor.get_lateral_pos(actor1, time);
-            let py2 = accessor.get_lateral_pos(actor2, time);
-            py1.gt(py2)
-        }
-
-        // OnRightOf: Actor1 is laterally right of Actor2
-        // Simple comparison: py1 < py2
-        Proposition::OnRightOf { actor1, actor2 } => {
-            let py1 = accessor.get_lateral_pos(actor1, time);
-            let py2 = accessor.get_lateral_pos(actor2, time);
-            py1.lt(py2)
-        }
-
         // RelativeVelocityGT: Relative longitudinal velocity exceeds threshold
         // Linear constraint: |vx1 - vx2| > velocity
         Proposition::RelativeVelocityGT {
@@ -659,10 +589,7 @@ mod strictness_coverage_impl {
         match prop {
             // Discrete equality / positional ordering: no numeric threshold, so
             // no boundary for `Violate` to land on exactly.
-            Proposition::InLane { .. }
-            | Proposition::Ahead { .. }
-            | Proposition::OnLeftOf { .. }
-            | Proposition::OnRightOf { .. } => NotApplicable,
+            Proposition::InLane { .. } | Proposition::Ahead { .. } => NotApplicable,
 
             // Region-membership predicates used only inside `eventually()` goals
             // in `pedestrian_crossing.rs` (reach the sidewalk / cross the road),
@@ -670,15 +597,6 @@ mod strictness_coverage_impl {
             // machinery, and never independently re-measured by
             // `compute_validation_metrics`.
             Proposition::OnSidewalk { .. } | Proposition::CrossingRoad { .. } => Unmeasured,
-
-            // Dead code: neither is lowered by any scenario type (verified by
-            // grep — `Proposition::Distance2DGT`/`Proposition::ManhattanDistanceGT`
-            // do not appear outside this enum and `encode_proposition`), so
-            // there is nothing for `compute_validation_metrics` to have ever
-            // measured.
-            Proposition::Distance2DGT { .. } | Proposition::ManhattanDistanceGT { .. } => {
-                Unmeasured
-            }
 
             // The lane-free guard half of a directed conflict (SW-22). Its own
             // boundary (closing speed exactly at `TTC_CLOSING_SPEED_EPSILON`) is
@@ -1411,77 +1329,6 @@ mod tests {
     }
 
     #[test]
-    fn test_proposition_on_left_of() {
-        let cfg = Config::new();
-        z3::with_z3_config(&cfg, || {
-            use crate::ltl::formula::{LTLFormula, Proposition};
-
-            let spec = create_two_actor_diff_lane_spec();
-            let mut encoder = Z3Encoder::new(spec);
-            encoder.create_variables();
-            encoder.encode_initial_conditions();
-
-            // Encode: OnLeftOf(ego, npc) — ego.py > npc.py
-            let formula = LTLFormula::Atom(Proposition::OnLeftOf {
-                actor1: "ego".to_string(),
-                actor2: "npc".to_string(),
-            });
-            encoder.encode_ltl(&formula);
-
-            assert_eq!(encoder.check(), SatResult::Sat);
-
-            let model = encoder.get_model().unwrap();
-            let py_ego = model.eval(encoder.get_lateral_pos("ego", 0), true).unwrap();
-            let py_npc = model.eval(encoder.get_lateral_pos("npc", 0), true).unwrap();
-
-            let ego_lat: f64 = crate::solver::backend::parse_z3_real_pub(&py_ego.to_string());
-            let npc_lat: f64 = crate::solver::backend::parse_z3_real_pub(&py_npc.to_string());
-            assert!(
-                ego_lat > npc_lat,
-                "Ego py ({}) should be > NPC py ({})",
-                ego_lat,
-                npc_lat
-            );
-        });
-    }
-
-    #[test]
-    fn test_proposition_on_right_of() {
-        let cfg = Config::new();
-        z3::with_z3_config(&cfg, || {
-            use crate::ltl::formula::{LTLFormula, Proposition};
-
-            let spec = create_two_actor_diff_lane_spec();
-            let mut encoder = Z3Encoder::new(spec);
-            encoder.create_variables();
-            encoder.encode_initial_conditions();
-
-            // Encode: OnRightOf(npc, ego) — npc.py < ego.py
-            // npc is in lane 0 (py=1.75), ego in lane 1 (py=5.25)
-            let formula = LTLFormula::Atom(Proposition::OnRightOf {
-                actor1: "npc".to_string(),
-                actor2: "ego".to_string(),
-            });
-            encoder.encode_ltl(&formula);
-
-            assert_eq!(encoder.check(), SatResult::Sat);
-
-            let model = encoder.get_model().unwrap();
-            let py_ego = model.eval(encoder.get_lateral_pos("ego", 0), true).unwrap();
-            let py_npc = model.eval(encoder.get_lateral_pos("npc", 0), true).unwrap();
-
-            let ego_lat: f64 = crate::solver::backend::parse_z3_real_pub(&py_ego.to_string());
-            let npc_lat: f64 = crate::solver::backend::parse_z3_real_pub(&py_npc.to_string());
-            assert!(
-                npc_lat < ego_lat,
-                "NPC py ({}) should be < Ego py ({})",
-                npc_lat,
-                ego_lat
-            );
-        });
-    }
-
-    #[test]
     fn test_proposition_relative_velocity_gt() {
         let cfg = Config::new();
         z3::with_z3_config(&cfg, || {
@@ -1517,50 +1364,6 @@ mod tests {
                 rel_vel > 3.0,
                 "Relative velocity {} should be > 3.0",
                 rel_vel
-            );
-        });
-    }
-
-    #[test]
-    fn test_proposition_manhattan_distance_gt() {
-        let cfg = Config::new();
-        z3::with_z3_config(&cfg, || {
-            use crate::ltl::formula::{LTLFormula, Proposition};
-
-            let spec = create_two_actor_diff_lane_spec();
-            let mut encoder = Z3Encoder::new(spec);
-            encoder.create_variables();
-            encoder.encode_initial_conditions();
-
-            // ego at px=50, npc at px=100, different lanes → manhattan should be large
-            let formula = LTLFormula::Atom(Proposition::ManhattanDistanceGT {
-                actor1: "ego".to_string(),
-                actor2: "npc".to_string(),
-                distance: 40.0,
-            });
-            encoder.encode_ltl(&formula);
-
-            assert_eq!(encoder.check(), SatResult::Sat);
-
-            let model = encoder.get_model().unwrap();
-            let px_ego = model
-                .eval(encoder.get_longitudinal_pos("ego", 0), true)
-                .unwrap();
-            let py_ego = model.eval(encoder.get_lateral_pos("ego", 0), true).unwrap();
-            let px_npc = model
-                .eval(encoder.get_longitudinal_pos("npc", 0), true)
-                .unwrap();
-            let py_npc = model.eval(encoder.get_lateral_pos("npc", 0), true).unwrap();
-
-            let ex: f64 = crate::solver::backend::parse_z3_real_pub(&px_ego.to_string());
-            let ey: f64 = crate::solver::backend::parse_z3_real_pub(&py_ego.to_string());
-            let nx: f64 = crate::solver::backend::parse_z3_real_pub(&px_npc.to_string());
-            let ny: f64 = crate::solver::backend::parse_z3_real_pub(&py_npc.to_string());
-            let manhattan = (ex - nx).abs() + (ey - ny).abs();
-            assert!(
-                manhattan > 40.0,
-                "Manhattan distance {} should be > 40.0",
-                manhattan
             );
         });
     }
@@ -2060,22 +1863,6 @@ mod tests {
             ),
             (Proposition::CrossingRoad { actor: s("a") }, Unmeasured),
             (
-                Proposition::Distance2DGT {
-                    actor1: s("a"),
-                    actor2: s("b"),
-                    distance: 1.0,
-                },
-                Unmeasured,
-            ),
-            (
-                Proposition::ManhattanDistanceGT {
-                    actor1: s("a"),
-                    actor2: s("b"),
-                    distance: 1.0,
-                },
-                Unmeasured,
-            ),
-            (
                 Proposition::RectangularDistanceGT {
                     actor1: s("a"),
                     actor2: s("b"),
@@ -2113,20 +1900,6 @@ mod tests {
                     distance: 1.0,
                 },
                 Measured,
-            ),
-            (
-                Proposition::OnLeftOf {
-                    actor1: s("a"),
-                    actor2: s("b"),
-                },
-                NotApplicable,
-            ),
-            (
-                Proposition::OnRightOf {
-                    actor1: s("a"),
-                    actor2: s("b"),
-                },
-                NotApplicable,
             ),
             (
                 Proposition::Approaching {
