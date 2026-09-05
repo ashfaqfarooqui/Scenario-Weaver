@@ -3,7 +3,7 @@
 //! This module defines the `CoordinateEncoder` trait that abstracts over
 //! different coordinate systems (Cartesian, Bicycle, etc.).
 
-use z3::ast::{Bool, Int, Real};
+use z3::ast::{Int, Real};
 use z3::Model;
 
 use crate::dsl::types::ScenarioSpec;
@@ -56,24 +56,6 @@ pub trait CoordinateEncoder<B: Z3Backend> {
     /// are encoded within `encode_kinematics()`. For BicycleEncoder, this method
     /// enforces acceleration bounds on the `accelerations` variable.
     fn encode_acceleration_constraints(&mut self);
-
-    // === Collision Detection (coordinate-specific) ===
-
-    /// Generate time-to-collision constraint between two actors
-    ///
-    /// Returns a Bool constraint that is true when TTC >= min_ttc
-    fn encode_ttc_constraint(&self, actor1: &str, actor2: &str, min_ttc: f64, time: usize) -> Bool;
-
-    /// Generate distance constraint between two actors
-    ///
-    /// Returns a Bool constraint that is true when distance >= min_dist
-    fn encode_distance_constraint(
-        &self,
-        actor1: &str,
-        actor2: &str,
-        min_dist: f64,
-        time: usize,
-    ) -> Bool;
 
     // === Extraction ===
 
