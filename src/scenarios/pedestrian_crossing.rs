@@ -82,6 +82,47 @@ impl ScenarioModel for PedestrianCrossingModel {
             constraints.push(dist);
         }
 
+        // SW-32. `min_lateral_distance` used to be parsed, documented and
+        // validated, then silently dropped here: this override replaced
+        // `generate_default_safety`'s per-pair loop wholesale and never once
+        // read the field, so an `enforce`d `min_lateral_distance` changed
+        // nothing about the encoding. Lowered the same way
+        // `generate_default_safety` (`scenarios/mod.rs`) does for every other
+        // scenario type — `push_constraint` with `AtomPolarity::Positive` —
+        // so `Enforce`/`Violate`/`Ignore` all mean what they mean everywhere
+        // else, and `compute_validation_metrics` (which checks this field
+        // generically, for any scenario type) actually has something to
+        // measure.
+        //
+        // This is a second, independent lateral constraint alongside the
+        // box's own `threshold_y = min_distance / 1.5` above — not a
+        // replacement for it, and not in tension with it. The box asserts
+        // `|dx| > threshold_x OR |dy| > threshold_y`: an actor pair may
+        // satisfy it on the *longitudinal* branch alone, with `|dy|`
+        // arbitrarily small. `LateralDistanceGT` instead asserts `|dy| >=
+        // min_lateral_distance` unconditionally, so it closes exactly the
+        // gap the box's disjunction leaves open on the lateral axis — it
+        // does not fight the box, it tightens the one case the box does not
+        // cover. A `min_lateral_distance` looser than `threshold_y` adds
+        // nothing new (the box's own lateral branch already implies it
+        // whenever that branch is the one satisfied, and the constraint is
+        // trivially satisfiable whenever the longitudinal branch is used
+        // instead); one tighter than `threshold_y` is a real additional
+        // restriction, verified satisfiable end-to-end in
+        // `pedestrian_lateral_distance_test.rs`.
+        if let Some(min_lat_dist) = spec.min_lateral_distance {
+            super::push_constraint(
+                &mut constraints,
+                spec.constraint_modes.min_lateral_distance(),
+                LTLFormula::Atom(Proposition::LateralDistanceGT {
+                    actor1: ego.id.clone(),
+                    actor2: pedestrian.id.clone(),
+                    distance: min_lat_dist,
+                }),
+                super::AtomPolarity::Positive,
+            );
+        }
+
         // Pedestrian-specific TTC (perpendicular crossing)
         if spec.constraint_modes.min_ttc() == ConstraintMode::Enforce {
             let ttc = LTLFormula::Atom(Proposition::PedestrianTTCGT {
