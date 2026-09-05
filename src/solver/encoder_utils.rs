@@ -277,6 +277,49 @@ pub fn collect_lane_change_data(
         .collect()
 }
 
+/// One non-pedestrian actor's initial-condition fields, collected up front so
+/// `encode_initial_conditions` can iterate them without holding a borrow of
+/// `spec` across the `&mut self` calls that assert each actor's constraints
+/// (SW-20: the two coordinate encoders built this same 10-tuple from the same
+/// filter independently; this is the shared extraction).
+pub struct VehicleInitialState {
+    pub actor_id: String,
+    pub lane: usize,
+    pub pos_min: f64,
+    pub pos_max: f64,
+    pub speed_min: f64,
+    pub speed_max: f64,
+    pub accel_min: f64,
+    pub accel_max: f64,
+    pub role: ActorRole,
+    pub direction: i32,
+}
+
+/// Collect [`VehicleInitialState`] for every non-pedestrian actor in `spec`.
+///
+/// Pedestrians are excluded because both encoders route them through the
+/// separate `encode_pedestrian_initial_state` path instead of
+/// `encode_actor_initial_state`.
+#[must_use]
+pub fn collect_vehicle_initial_state(spec: &ScenarioSpec) -> Vec<VehicleInitialState> {
+    spec.actors
+        .iter()
+        .filter(|actor| actor.role != ActorRole::Pedestrian)
+        .map(|actor| VehicleInitialState {
+            actor_id: actor.id.clone(),
+            lane: actor.lane,
+            pos_min: actor.position.min(),
+            pos_max: actor.position.max(),
+            speed_min: actor.speed.min(),
+            speed_max: actor.speed.max(),
+            accel_min: actor.acceleration.min(),
+            accel_max: actor.acceleration.max(),
+            role: actor.role,
+            direction: actor.direction,
+        })
+        .collect()
+}
+
 /// Rounding budget for evaluating the same-lane predicate in `f64`, in metres
 /// (SW-27).
 ///

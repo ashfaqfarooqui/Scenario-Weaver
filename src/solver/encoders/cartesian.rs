@@ -17,7 +17,8 @@ use crate::scenario::model::{
 use crate::solver::backend::Z3Backend;
 use crate::solver::coordinate_encoder::CoordinateEncoder;
 use crate::solver::encoder_utils::{
-    collect_lane_change_data, extract_int, extract_real, real_from_f64,
+    collect_lane_change_data, collect_vehicle_initial_state, extract_int, extract_real,
+    real_from_f64,
 };
 use crate::solver::encoders::pedestrian::{
     encode_pedestrian_bounds_step, encode_pedestrian_initial_state,
@@ -668,43 +669,19 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
         }
 
         // Collect all actor data upfront to avoid borrow checker issues
-        let actor_data: Vec<_> = self
-            .spec
-            .actors
-            .iter()
-            .filter(|actor| actor.role != ActorRole::Pedestrian)
-            .map(|actor| {
-                (
-                    actor.id.clone(),
-                    actor.lane,
-                    actor.position.min(),
-                    actor.position.max(),
-                    actor.speed.min(),
-                    actor.speed.max(),
-                    actor.acceleration.min(),
-                    actor.acceleration.max(),
-                    actor.role,
-                    actor.direction,
-                )
-            })
-            .collect();
-
-        for (
-            actor_id,
-            lane,
-            pos_min,
-            pos_max,
-            speed_min,
-            speed_max,
-            acc_min,
-            acc_max,
-            role,
-            direction,
-        ) in actor_data
-        {
+        // (SW-20: shared with BicycleEncoder via `collect_vehicle_initial_state`).
+        for v in collect_vehicle_initial_state(&self.spec) {
             self.encode_actor_initial_state(
-                &actor_id, lane, pos_min, pos_max, speed_min, speed_max, acc_min, acc_max, role,
-                direction,
+                &v.actor_id,
+                v.lane,
+                v.pos_min,
+                v.pos_max,
+                v.speed_min,
+                v.speed_max,
+                v.accel_min,
+                v.accel_max,
+                v.role,
+                v.direction,
             );
         }
     }
