@@ -479,32 +479,50 @@ fn encode_proposition(
             z3::ast::Bool::and(&[&ped_on_road, &approaching]).implies(&ttc_safe)
         }
 
-        // VelocityGT: Actor's longitudinal speed exceeds threshold
-        // Linear constraint: |vx| > threshold
-        // Z3 encoding: (vx > threshold) OR (vx < -threshold)
+        // VelocityGT: Actor's longitudinal speed exceeds threshold (min_velocity).
+        // Linear constraint: |vx| >= threshold
+        //
+        // SW-41. `generate_default_safety` (scenarios/mod.rs) uses this atom
+        // as `AtomPolarity::Positive` for `min_velocity`: the atom itself is
+        // the safe condition, so `Violate` asserts its negation eventually.
+        // `compute_validation_metrics` calls a step safe whenever
+        // `vx_abs >= min_vel - METRIC_TOL`, i.e. it treats `vx_abs == min_vel`
+        // exactly as satisfying the bound. This used to assert the strict
+        // `>`, so `Violate`'s negation was the non-strict `|vx| <= velocity`,
+        // satisfiable at `vx == velocity` exactly — a point the validator
+        // does not flag as a violation. Non-strict here (`.ge`/`.le`) makes
+        // the negation strict, the same fix SW-12/30/33/35 made for their
+        // propositions.
         Proposition::VelocityGT { actor, velocity } => {
             let vx = accessor.get_longitudinal_vel(actor, time);
             let threshold_val = real_from_f64(*velocity);
 
-            // |vx| > threshold is equivalent to: (vx > threshold) OR (vx < -threshold)
-            let pos_case = vx.gt(&threshold_val);
+            // |vx| >= threshold is equivalent to: (vx >= threshold) OR (vx <= -threshold)
+            let pos_case = vx.ge(&threshold_val);
             let neg_threshold = real_from_f64(-velocity);
-            let neg_case = vx.lt(&neg_threshold);
+            let neg_case = vx.le(&neg_threshold);
 
             z3::ast::Bool::or(&[&pos_case, &neg_case])
         }
 
-        // VelocityLT: Actor's longitudinal speed is below threshold
-        // Linear constraint: |vx| < threshold
-        // Z3 encoding: (vx < threshold) AND (vx > -threshold)
+        // VelocityLT: Actor's longitudinal speed is below threshold (max_velocity).
+        // Linear constraint: |vx| <= threshold
+        //
+        // SW-41. Same reasoning as `VelocityGT` above, mirrored: this atom is
+        // `AtomPolarity::Positive` for `max_velocity`, and
+        // `compute_validation_metrics` calls a step safe whenever
+        // `vx_abs <= max_vel + METRIC_TOL`. The strict `<` this used to
+        // assert made `Violate`'s negation the non-strict `|vx| >= velocity`,
+        // satisfiable at `vx == velocity` exactly, which the validator does
+        // not flag. Non-strict here makes the negation strict.
         Proposition::VelocityLT { actor, velocity } => {
             let vx = accessor.get_longitudinal_vel(actor, time);
             let threshold_val = real_from_f64(*velocity);
             let neg_threshold = real_from_f64(-velocity);
 
-            // |vx| < threshold is equivalent to: -threshold < vx < threshold
-            let upper_bound = vx.lt(&threshold_val);
-            let lower_bound = vx.gt(&neg_threshold);
+            // |vx| <= threshold is equivalent to: -threshold <= vx <= threshold
+            let upper_bound = vx.le(&threshold_val);
+            let lower_bound = vx.ge(&neg_threshold);
 
             z3::ast::Bool::and(&[&upper_bound, &lower_bound])
         }

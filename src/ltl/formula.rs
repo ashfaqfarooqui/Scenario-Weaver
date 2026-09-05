@@ -103,14 +103,18 @@ pub enum Proposition {
         ttc: f64,
     },
 
-    /// Actor's longitudinal speed exceeds threshold (linear constraint: |vx| > velocity)
+    /// Actor's longitudinal speed exceeds threshold (linear constraint: |vx| >= velocity)
     /// Uses absolute value of longitudinal velocity (vx), not vector magnitude.
     /// Matches YAML "speed" semantics which sets vx (signed by lane direction).
+    /// Non-strict at the boundary (SW-41), matching `compute_validation_metrics`'s
+    /// `vx_abs >= min_velocity - METRIC_TOL` safe reading.
     VelocityGT { actor: String, velocity: f64 },
 
-    /// Actor's longitudinal speed is below threshold (linear constraint: |vx| < velocity)
+    /// Actor's longitudinal speed is below threshold (linear constraint: |vx| <= velocity)
     /// Uses absolute value of longitudinal velocity (vx), not vector magnitude.
     /// Matches YAML "speed" semantics which sets vx (signed by lane direction).
+    /// Non-strict at the boundary (SW-41), matching `compute_validation_metrics`'s
+    /// `vx_abs <= max_velocity + METRIC_TOL` safe reading.
     VelocityLT { actor: String, velocity: f64 },
 
     /// Lateral (perpendicular) distance between actors exceeds threshold
