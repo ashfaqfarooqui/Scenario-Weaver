@@ -10,6 +10,23 @@ use crate::ltl::formula::{LTLFormula, Proposition};
 use crate::scenarios::ScenarioModel;
 use crate::solver::encoder_utils::real_from_f64;
 
+/// Divisors for the pedestrian safety box asserted by `generate_safety`
+/// (`threshold_x = min_distance / LONGITUDINAL`, `threshold_y = min_distance
+/// / LATERAL`) and reproduced by `compute_validation_metrics`
+/// (`solver/encoder.rs`, the `pedestrian_pair` branch) to measure exactly
+/// what got asserted. SW-34: these used to be independent literals in the
+/// two files — the SW-27/SW-30 shape, one edit from disagreeing — hoisted
+/// here so there is exactly one copy of each number.
+///
+/// Deliberately divisors, not multiplied ratios: `x / 2.0` and `x * 0.5` are
+/// bit-identical in IEEE-754, but `x / 1.5` and `x * (1.0 / 1.5)` are not —
+/// `1.0 / 1.5` is not exactly representable. Keeping the division form
+/// preserves the exact arithmetic both files already did; a multiplication
+/// form would have moved the pedestrian snapshot in the last bit for no
+/// reason, which is the whole story behind SW-27.
+pub(crate) const PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR: f64 = 2.0;
+pub(crate) const PEDESTRIAN_BOX_LATERAL_DIVISOR: f64 = 1.5;
+
 /// Pedestrian crossing scenario model
 pub(crate) struct PedestrianCrossingModel;
 
@@ -75,8 +92,8 @@ impl ScenarioModel for PedestrianCrossingModel {
             let dist = LTLFormula::Atom(Proposition::RectangularDistanceGT {
                 actor1: ego.id.clone(),
                 actor2: pedestrian.id.clone(),
-                threshold_x: spec.min_distance / 2.0, // Longitudinal: half the threshold
-                threshold_y: spec.min_distance / 1.5, // Lateral: slightly more conservative
+                threshold_x: spec.min_distance / PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR, // Longitudinal: half the threshold
+                threshold_y: spec.min_distance / PEDESTRIAN_BOX_LATERAL_DIVISOR, // Lateral: slightly more conservative
             })
             .always();
             constraints.push(dist);

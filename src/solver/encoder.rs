@@ -4,6 +4,9 @@ use z3::ast::{Bool, Int, Real};
 use z3::SatResult;
 
 use crate::dsl::types::{CoordinateSystem, ScenarioSpec};
+use crate::scenarios::pedestrian_crossing::{
+    PEDESTRIAN_BOX_LATERAL_DIVISOR, PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR,
+};
 use crate::solver::backend::{OptimizationTarget, OptimizerBackend, SolverBackend, Z3Backend};
 use crate::solver::coordinate_encoder::CoordinateEncoder;
 use crate::solver::encoder_utils::{encode_same_lane_constraint, real_from_f64, same_lane_f64};
@@ -1154,16 +1157,15 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// `PedestrianTTCGT` when `min_distance`/`min_ttc` are `Enforce` (there is
     /// no `Violate` lowering at all for either — flagged below, out of this
     /// issue's scope since fixing it means editing a fenced file). The box's
-    /// thresholds (`min_distance / 2.0` longitudinal, `min_distance / 1.5`
-    /// lateral) are literals owned by `pedestrian_crossing.rs:78-79`, a file
-    /// this issue may not touch; this function reproduces them rather than
-    /// sharing them, which is a real duplication risk — **if
-    /// `pedestrian_crossing.rs` changes that ratio, this measurement goes
-    /// stale silently.** The correct long-term fix is a shared constant or
-    /// helper exported from that file; see the report for the proposed diff.
-    /// Reproducing the ratio here was still judged worth the risk over
-    /// leaving the mismatch in place, because leaving it in place is exactly
-    /// "coverage that is not": pre-fix, a pedestrian pair that only satisfied
+    /// thresholds (`min_distance / PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR`,
+    /// `min_distance / PEDESTRIAN_BOX_LATERAL_DIVISOR`) used to be literals
+    /// duplicated in both files; SW-34 hoisted them to
+    /// `pedestrian_crossing::PEDESTRIAN_BOX_{LONGITUDINAL,LATERAL}_DIVISOR`,
+    /// imported here, so there is exactly one copy of each number. Kept as
+    /// divisors rather than multiplied ratios: `x / 1.5` and `x * (1.0/1.5)`
+    /// are not bit-identical in IEEE-754 (SW-27's shape). This measurement
+    /// is what makes a mismatch between the two files visible at all —
+    /// before SW-31 fixed this branch, a pedestrian pair that only satisfied
     /// the box's longitudinal branch (large `\|dx\|`, small `\|dy\|`) was
     /// reported as a `min_distance` *violation* by the generic check even
     /// though the encoded box was genuinely satisfied — a false positive, not
@@ -1306,14 +1308,17 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                                 (state2, state1, id2, id1)
                             };
 
-                        // Box: |dx| > min_distance/2 OR |dy| > min_distance/1.5.
-                        // Both comparisons are strict in the encoding (no
-                        // `.ge`), so — matching the tolerance direction used
-                        // everywhere else in this function — a measurement
-                        // within METRIC_TOL of clearing a side counts as
-                        // clearing it.
-                        let threshold_x = self.spec.min_distance / 2.0;
-                        let threshold_y = self.spec.min_distance / 1.5;
+                        // Box: |dx| > min_distance/LONGITUDINAL OR
+                        // |dy| > min_distance/LATERAL (SW-34: shared divisors
+                        // with `pedestrian_crossing.rs`, not reproduced
+                        // literals). Both comparisons are strict in the
+                        // encoding (no `.ge`), so — matching the tolerance
+                        // direction used everywhere else in this function —
+                        // a measurement within METRIC_TOL of clearing a side
+                        // counts as clearing it.
+                        let threshold_x =
+                            self.spec.min_distance / PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR;
+                        let threshold_y = self.spec.min_distance / PEDESTRIAN_BOX_LATERAL_DIVISOR;
                         let dx = (other_state.position().x - ped_state.position().x).abs();
                         let dy = (other_state.position().y - ped_state.position().y).abs();
                         let box_safe = dx > threshold_x - Self::METRIC_TOL
@@ -3567,6 +3572,76 @@ mod tests {
                 unsafe_.validation.safety_violations
             );
         });
+    }
+
+    /// SW-34. The pedestrian safety box's two ratios used to be independent
+    /// `f64` literals in `pedestrian_crossing.rs::generate_safety` (what gets
+    /// asserted) and here in `compute_validation_metrics` (what gets
+    /// measured) — the exact SW-27/SW-30 shape, one edit away from
+    /// disagreeing silently. Hoisted to
+    /// `pedestrian_crossing::PEDESTRIAN_BOX_{LONGITUDINAL,LATERAL}_DIVISOR`,
+    /// imported by both. This test pins that coupling down: it computes the
+    /// box thresholds from the shared constants exactly as
+    /// `compute_validation_metrics` does, and cross-checks them, bit for
+    /// bit, against the `threshold_x`/`threshold_y` the encoder actually
+    /// asserts (extracted from the `RectangularDistanceGT` atom
+    /// `generate_safety` produces). Before this commit the shared constants
+    /// this test names did not exist, so it could not even compile against
+    /// that code — a stronger failure than a numeric mismatch, and the
+    /// reason this is a coupling test rather than a tolerance-based one.
+    #[test]
+    fn test_pedestrian_box_thresholds_share_one_definition() {
+        use crate::ltl::formula::{LTLFormula, Proposition};
+        use crate::scenarios::pedestrian_crossing::{
+            PEDESTRIAN_BOX_LATERAL_DIVISOR, PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR,
+        };
+        use crate::scenarios::ScenarioModel;
+
+        let mut spec = create_test_spec();
+        spec.scenario_type = ScenarioType::PedestrianCrossing;
+        spec.min_distance = 2.6;
+        spec.actors[1].role = ActorRole::Pedestrian;
+
+        // What `compute_validation_metrics` measures against, computed via
+        // the shared constants.
+        let measured_threshold_x = spec.min_distance / PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR;
+        let measured_threshold_y = spec.min_distance / PEDESTRIAN_BOX_LATERAL_DIVISOR;
+
+        // What `generate_safety` actually asserts.
+        let model = crate::scenarios::pedestrian_crossing::PedestrianCrossingModel;
+        let formula = model.generate_safety(&spec).unwrap();
+        let asserted = find_rectangular_distance_gt(&formula)
+            .expect("generate_safety must emit a RectangularDistanceGT atom");
+
+        assert_eq!(
+            asserted.0, measured_threshold_x,
+            "SW-34: asserted threshold_x must equal the shared constant \
+             compute_validation_metrics measures against, bit for bit"
+        );
+        assert_eq!(
+            asserted.1, measured_threshold_y,
+            "SW-34: asserted threshold_y must equal the shared constant \
+             compute_validation_metrics measures against, bit for bit"
+        );
+
+        // Helper: find the (threshold_x, threshold_y) of the first
+        // RectangularDistanceGT atom in a formula tree.
+        fn find_rectangular_distance_gt(formula: &LTLFormula) -> Option<(f64, f64)> {
+            match formula {
+                LTLFormula::Atom(Proposition::RectangularDistanceGT {
+                    threshold_x,
+                    threshold_y,
+                    ..
+                }) => Some((*threshold_x, *threshold_y)),
+                LTLFormula::Always(inner)
+                | LTLFormula::Eventually(inner)
+                | LTLFormula::Not(inner) => find_rectangular_distance_gt(inner),
+                LTLFormula::And(lhs, rhs) | LTLFormula::Or(lhs, rhs) => {
+                    find_rectangular_distance_gt(lhs).or_else(|| find_rectangular_distance_gt(rhs))
+                }
+                _ => None,
+            }
+        }
     }
 
     #[test]
