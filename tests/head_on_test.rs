@@ -103,7 +103,13 @@ fn test_head_on_oncoming_retains_speed_through_horizon() {
     let oncoming = scenario.get_actor("oncoming_npc").expect("oncoming_npc");
 
     let initial_speed = oncoming.states[0].velocity().vx.abs();
-    let final_speed = oncoming.states.last().expect("nonempty").velocity().vx.abs();
+    let final_speed = oncoming
+        .states
+        .last()
+        .expect("nonempty")
+        .velocity()
+        .vx
+        .abs();
 
     assert!(
         final_speed >= 0.5 * initial_speed - 1e-6,

@@ -164,7 +164,10 @@ fn test_generate_single_scenario_integration() {
     // against a threshold of 3. That tolerance was simply never carried across
     // to this assertion.
     assert!(
-        scenario.validation.min_ttc.is_none_or(|ttc| ttc >= 3.0 - 1e-6),
+        scenario
+            .validation
+            .min_ttc
+            .is_none_or(|ttc| ttc >= 3.0 - 1e-6),
         "min_ttc should be >= 3.0 when measured, got: {:?}",
         scenario.validation.min_ttc
     );

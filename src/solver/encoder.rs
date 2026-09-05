@@ -221,7 +221,9 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// not an ending state. Both bounds are one linear inequality per actor
     /// against a compile-time constant, so this stays in QF_LRA.
     fn encode_forward_progress(&mut self) {
-        use crate::dsl::types::{ActorRole, MIN_FORWARD_PROGRESS_FRACTION, TERMINAL_SPEED_FRACTION};
+        use crate::dsl::types::{
+            ActorRole, MIN_FORWARD_PROGRESS_FRACTION, TERMINAL_SPEED_FRACTION,
+        };
 
         let duration = self.spec.duration;
         let horizon = self.horizon;
@@ -251,7 +253,9 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             } else {
                 travelled.le(&displacement_bound)
             };
-            self.coord_encoder.backend_mut().assert(&displacement_constraint);
+            self.coord_encoder
+                .backend_mut()
+                .assert(&displacement_constraint);
 
             let final_vel = self.get_longitudinal_vel(&actor_id, horizon).clone();
             let terminal_bound = real_from_f64(terminal_speed_required);
@@ -260,7 +264,9 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             } else {
                 final_vel.le(&terminal_bound)
             };
-            self.coord_encoder.backend_mut().assert(&terminal_constraint);
+            self.coord_encoder
+                .backend_mut()
+                .assert(&terminal_constraint);
         }
     }
 
