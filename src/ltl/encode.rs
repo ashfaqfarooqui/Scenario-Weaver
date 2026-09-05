@@ -627,83 +627,85 @@ mod strictness_coverage_impl {
     /// `test_measured_propositions_agree_with_validator_at_the_boundary` for the
     /// actual boundary check on every `Measured` one.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StrictnessCoverage {
-    /// `compute_validation_metrics` derives a numeric safe/unsafe boundary
-    /// from this proposition's threshold, and the boundary test confirms the
-    /// encoder's safe formula (the one `Violate` negates) holds — non-strict
-    /// — exactly at that boundary, agreeing with the validator.
-    Measured,
-    /// No validator-side check exists for this proposition's threshold at
-    /// all. Not a defect by itself — `Violate` still asserts something, Z3
-    /// still solves it — but the strict/non-strict question is *unreachable*
-    /// here: nothing independently measures whether the encoder and the
-    /// reported scenario agree, which is exactly where SW-12/30/33/35's
-    /// defect shape hid for as long as it did. This is the SW-31/SW-41 gap;
-    /// see `SW-41-strictness-sweep.md` for the follow-up issue.
-    Unmeasured,
-    /// Not a thresholded safety comparison that a spec-level `Enforce`/
-    /// `Violate` polarity is ever applied to (a discrete equality, a
-    /// positional ordering, or a guard term used only as an antecedent) —
-    /// the "boundary satisfied exactly, reported as safe" defect shape does
-    /// not apply because there is no min/max threshold whose boundary the
-    /// validator could disagree with the encoder about.
-    NotApplicable,
-}
-
-/// The exhaustive classification driving [`StrictnessCoverage`]. Matches on
-/// the variant shape only (`{ .. }`), so it says nothing about a
-/// proposition's field values — only whether *this kind* of proposition is
-/// in scope for the boundary invariant.
-pub(crate) fn strictness_coverage(prop: &Proposition) -> StrictnessCoverage {
-    use StrictnessCoverage::{Measured, NotApplicable, Unmeasured};
-    match prop {
-        // Discrete equality / positional ordering: no numeric threshold, so
-        // no boundary for `Violate` to land on exactly.
-        Proposition::InLane { .. }
-        | Proposition::Ahead { .. }
-        | Proposition::OnLeftOf { .. }
-        | Proposition::OnRightOf { .. } => NotApplicable,
-
-        // Region-membership predicates used only inside `eventually()` goals
-        // in `pedestrian_crossing.rs` (reach the sidewalk / cross the road),
-        // never through `generate_default_safety`'s Enforce/Violate
-        // machinery, and never independently re-measured by
-        // `compute_validation_metrics`.
-        Proposition::OnSidewalk { .. } | Proposition::CrossingRoad { .. } => Unmeasured,
-
-        // Dead code: neither is lowered by any scenario type (verified by
-        // grep — `Proposition::Distance2DGT`/`Proposition::ManhattanDistanceGT`
-        // do not appear outside this enum and `encode_proposition`), so
-        // there is nothing for `compute_validation_metrics` to have ever
-        // measured.
-        Proposition::Distance2DGT { .. } | Proposition::ManhattanDistanceGT { .. } => Unmeasured,
-
-        // The lane-free guard half of a directed conflict (SW-22). Its own
-        // boundary (closing speed exactly at `TTC_CLOSING_SPEED_EPSILON`) is
-        // deliberately strict and matches `compute_validation_metrics`'s own
-        // `rel_vel > epsilon` exactly (see `encode_approaching`'s doc
-        // comment) — but it is never itself the subject of an Enforce/
-        // Violate polarity; it is always an antecedent. The invariant this
-        // sweep is about does not apply to an antecedent.
-        Proposition::Approaching { .. } => NotApplicable,
-
-        // Every one of these has a spec-level threshold, is asserted through
-        // `generate_default_safety`'s `push_constraint` (Enforce/Violate
-        // polarity) or the pedestrian equivalent in `pedestrian_crossing.rs`,
-        // and has a corresponding numeric check in
-        // `compute_validation_metrics`. See the boundary test for the
-        // per-proposition setup and the doc comment on each arm of
-        // `encode_proposition` for why its strictness is what it is.
-        Proposition::DistanceGT { .. }
-        | Proposition::TTCGT { .. }
-        | Proposition::LateralDistanceGT { .. }
-        | Proposition::RelativeVelocityGT { .. }
-        | Proposition::RectangularDistanceGT { .. }
-        | Proposition::PedestrianTTCGT { .. }
-        | Proposition::VelocityGT { .. }
-        | Proposition::VelocityLT { .. } => Measured,
+    pub(crate) enum StrictnessCoverage {
+        /// `compute_validation_metrics` derives a numeric safe/unsafe boundary
+        /// from this proposition's threshold, and the boundary test confirms the
+        /// encoder's safe formula (the one `Violate` negates) holds — non-strict
+        /// — exactly at that boundary, agreeing with the validator.
+        Measured,
+        /// No validator-side check exists for this proposition's threshold at
+        /// all. Not a defect by itself — `Violate` still asserts something, Z3
+        /// still solves it — but the strict/non-strict question is *unreachable*
+        /// here: nothing independently measures whether the encoder and the
+        /// reported scenario agree, which is exactly where SW-12/30/33/35's
+        /// defect shape hid for as long as it did. This is the SW-31/SW-41 gap;
+        /// see `SW-41-strictness-sweep.md` for the follow-up issue.
+        Unmeasured,
+        /// Not a thresholded safety comparison that a spec-level `Enforce`/
+        /// `Violate` polarity is ever applied to (a discrete equality, a
+        /// positional ordering, or a guard term used only as an antecedent) —
+        /// the "boundary satisfied exactly, reported as safe" defect shape does
+        /// not apply because there is no min/max threshold whose boundary the
+        /// validator could disagree with the encoder about.
+        NotApplicable,
     }
-}
+
+    /// The exhaustive classification driving [`StrictnessCoverage`]. Matches on
+    /// the variant shape only (`{ .. }`), so it says nothing about a
+    /// proposition's field values — only whether *this kind* of proposition is
+    /// in scope for the boundary invariant.
+    pub(crate) fn strictness_coverage(prop: &Proposition) -> StrictnessCoverage {
+        use StrictnessCoverage::{Measured, NotApplicable, Unmeasured};
+        match prop {
+            // Discrete equality / positional ordering: no numeric threshold, so
+            // no boundary for `Violate` to land on exactly.
+            Proposition::InLane { .. }
+            | Proposition::Ahead { .. }
+            | Proposition::OnLeftOf { .. }
+            | Proposition::OnRightOf { .. } => NotApplicable,
+
+            // Region-membership predicates used only inside `eventually()` goals
+            // in `pedestrian_crossing.rs` (reach the sidewalk / cross the road),
+            // never through `generate_default_safety`'s Enforce/Violate
+            // machinery, and never independently re-measured by
+            // `compute_validation_metrics`.
+            Proposition::OnSidewalk { .. } | Proposition::CrossingRoad { .. } => Unmeasured,
+
+            // Dead code: neither is lowered by any scenario type (verified by
+            // grep — `Proposition::Distance2DGT`/`Proposition::ManhattanDistanceGT`
+            // do not appear outside this enum and `encode_proposition`), so
+            // there is nothing for `compute_validation_metrics` to have ever
+            // measured.
+            Proposition::Distance2DGT { .. } | Proposition::ManhattanDistanceGT { .. } => {
+                Unmeasured
+            }
+
+            // The lane-free guard half of a directed conflict (SW-22). Its own
+            // boundary (closing speed exactly at `TTC_CLOSING_SPEED_EPSILON`) is
+            // deliberately strict and matches `compute_validation_metrics`'s own
+            // `rel_vel > epsilon` exactly (see `encode_approaching`'s doc
+            // comment) — but it is never itself the subject of an Enforce/
+            // Violate polarity; it is always an antecedent. The invariant this
+            // sweep is about does not apply to an antecedent.
+            Proposition::Approaching { .. } => NotApplicable,
+
+            // Every one of these has a spec-level threshold, is asserted through
+            // `generate_default_safety`'s `push_constraint` (Enforce/Violate
+            // polarity) or the pedestrian equivalent in `pedestrian_crossing.rs`,
+            // and has a corresponding numeric check in
+            // `compute_validation_metrics`. See the boundary test for the
+            // per-proposition setup and the doc comment on each arm of
+            // `encode_proposition` for why its strictness is what it is.
+            Proposition::DistanceGT { .. }
+            | Proposition::TTCGT { .. }
+            | Proposition::LateralDistanceGT { .. }
+            | Proposition::RelativeVelocityGT { .. }
+            | Proposition::RectangularDistanceGT { .. }
+            | Proposition::PedestrianTTCGT { .. }
+            | Proposition::VelocityGT { .. }
+            | Proposition::VelocityLT { .. } => Measured,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1834,12 +1836,14 @@ mod tests {
         py: f64,
         vx: f64,
     ) {
-        let lane_eq = encoder
-            .get_lane_var(actor, time)
-            .eq(&Int::from_i64(lane));
-        let px_eq = encoder.get_longitudinal_pos(actor, time).eq(&real_from_f64(px));
+        let lane_eq = encoder.get_lane_var(actor, time).eq(&Int::from_i64(lane));
+        let px_eq = encoder
+            .get_longitudinal_pos(actor, time)
+            .eq(&real_from_f64(px));
         let py_eq = encoder.get_lateral_pos(actor, time).eq(&real_from_f64(py));
-        let vx_eq = encoder.get_longitudinal_vel(actor, time).eq(&real_from_f64(vx));
+        let vx_eq = encoder
+            .get_longitudinal_vel(actor, time)
+            .eq(&real_from_f64(vx));
         encoder.assert_constraint(&lane_eq);
         encoder.assert_constraint(&px_eq);
         encoder.assert_constraint(&py_eq);
@@ -2151,10 +2155,7 @@ mod tests {
             );
         }
 
-        let measured_count = cases
-            .iter()
-            .filter(|(_, c)| *c == Measured)
-            .count();
+        let measured_count = cases.iter().filter(|(_, c)| *c == Measured).count();
         assert_eq!(
             measured_count, 8,
             "expected exactly 8 Measured propositions today (DistanceGT, TTCGT, \
