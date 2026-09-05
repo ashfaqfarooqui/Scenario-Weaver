@@ -141,6 +141,31 @@ pub struct BicycleEncoder<B: Z3Backend> {
     /// Bounded by |vy| <= k * v during lane changes, vy = 0 during stable phases
     velocities_y: HashMap<String, Vec<Real>>,
 
+    /// Signed longitudinal velocity (m/s), `get_longitudinal_vel`'s backing store.
+    ///
+    /// SW-37. `speed_v` is deliberately a non-negative, direction-locked speed
+    /// *magnitude* (see the comment above `speed_v`'s field and
+    /// `encode_kinematics`'s `px_next = if *direction == 1 {...} else {...}`,
+    /// which is where the sign actually lives). `CartesianEncoder`'s
+    /// `get_longitudinal_vel` returns a signed velocity (its `velocities_x` is
+    /// free to go negative), so the two encoders answered the same trait
+    /// method with two different quantities — magnitude here, a genuine
+    /// signed velocity there — and every consumer of `EncoderAccessor` that
+    /// subtracts two actors' longitudinal velocities to get a relative or
+    /// closing speed (`encode_ttc_constraint`, `directed_conflict`,
+    /// `encode_approaching`, `compute_closing_speed`) computed nonsense for a
+    /// `direction: -1` bicycle actor as a result.
+    ///
+    /// This variable is `direction * speed_v` for a vehicle (a **constant**
+    /// coefficient fixed at variable-creation time from `actor.direction`, so
+    /// the equality stays constant × variable and the problem stays in
+    /// QF_LRA) and plain `speed_v` for a pedestrian, whose `speed_v` is
+    /// already signed by `encode_pedestrian_initial_state` and never
+    /// direction-flipped again downstream. `speed_v` itself is untouched —
+    /// it is still the deliberately unsigned magnitude the heading coupling,
+    /// turn-radius bound and acceleration chain all need.
+    longitudinal_vel: HashMap<String, Vec<Real>>,
+
     /// Lateral accelerations (ay, m/s²)
     ///
     /// Added by SW-09. `vy` used to be an independent variable with nothing
@@ -185,6 +210,7 @@ impl<B: Z3Backend> BicycleEncoder<B> {
             accelerations_y: HashMap::new(),
             speed_buckets: HashMap::new(),
             heading_coupled: HashMap::new(),
+            longitudinal_vel: HashMap::new(),
         }
     }
 
@@ -830,18 +856,67 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             let mut lane_vars = Vec::new();
             let mut vy_vars = Vec::new();
             let mut ay_vars = Vec::new();
+            let mut vx_signed_vars = Vec::new();
+
+            // SW-37: the constant sign coefficient for `longitudinal_vel`, a
+            // compile-time constant (not a solver variable) so `vx_signed[t]
+            // == sign * speed_v[t]` stays constant × variable and the problem
+            // stays in QF_LRA. Pedestrians are excluded: their `speed_v` is
+            // already signed by `encode_pedestrian_initial_state` (vx[0] is
+            // built from `actor.direction` there and never direction-flipped
+            // again), so re-applying the sign here would double it.
+            let sign = if actor.role == ActorRole::Pedestrian {
+                1_i64
+            } else {
+                i64::from(actor.direction)
+            };
+            // Only built when actually needed (see below): creating it
+            // unconditionally, even though it would go unused for `sign ==
+            // 1`, still allocates a fresh Z3 term and was enough on its own
+            // to move `bicycle_lane_change`'s snapshot — Z3's model choice
+            // among several equally valid ones for an underconstrained range
+            // is sensitive to term-creation order, not just to what gets
+            // asserted.
+            let sign_val = if sign == 1 {
+                None
+            } else {
+                Some(Real::from_rational(sign, 1))
+            };
 
             for t in 0..=horizon {
                 px_vars.push(Real::new_const(format!("{}__px_{}", actor_id, t)));
                 py_vars.push(Real::new_const(format!("{}__py_{}", actor_id, t)));
                 theta_vars.push(Real::new_const(format!("{}__theta_{}", actor_id, t)));
-                v_vars.push(Real::new_const(format!("{}__v_{}", actor_id, t)));
+                let v_var = Real::new_const(format!("{}__v_{}", actor_id, t));
                 delta_vars.push(Real::new_const(format!("{}__delta_{}", actor_id, t)));
                 a_vars.push(Real::new_const(format!("{}__a_{}", actor_id, t)));
                 lane_vars.push(Int::new_const(format!("{}__lane_{}", actor_id, t)));
                 // Lateral velocity (independent variable with linear bounds)
                 vy_vars.push(Real::new_const(format!("{}__vy_{}", actor_id, t)));
                 ay_vars.push(Real::new_const(format!("{}__ay_{}", actor_id, t)));
+
+                // `sign == 1` (every forward vehicle, and every pedestrian) is
+                // reused as the *same* Z3 term as `speed_v[t]` — `Real::clone`
+                // just rewraps the existing AST pointer (see z3-0.19.7's
+                // `impl_ast!`), so this adds no new symbol and no new
+                // constraint. That matters: introducing an extra free
+                // variable that Z3 must merely observe equals `speed_v[t]`
+                // still perturbs the solver's internal variable ordering and
+                // can select a different (still valid) model out of an
+                // underconstrained range — exactly what moved
+                // `bicycle_lane_change`'s snapshot the first time this was
+                // tried with an unconditional fresh variable. Only a genuine
+                // `direction: -1` vehicle, which no pre-existing example
+                // uses, gets a new variable and constraint.
+                let vx_signed_var = if let Some(sign_val) = &sign_val {
+                    let signed = Real::new_const(format!("{}__vx_signed_{}", actor_id, t));
+                    self.backend.assert(&signed.eq(&(&v_var * sign_val)));
+                    signed
+                } else {
+                    v_var.clone()
+                };
+                v_vars.push(v_var);
+                vx_signed_vars.push(vx_signed_var);
             }
 
             self.positions_x.insert(actor_id.clone(), px_vars);
@@ -856,6 +931,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             self.speed_buckets.insert(actor_id.clone(), Vec::new());
             self.heading_coupled
                 .insert(actor_id.clone(), vec![false; horizon + 1]);
+            self.longitudinal_vel
+                .insert(actor_id.clone(), vx_signed_vars);
         }
     }
 
@@ -1242,6 +1319,18 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
 
         let dt = self.spec.time_step;
 
+        // SW-37: `accelerations` is `dv/dt` for the unsigned magnitude
+        // `speed_v` (`v[t+1] = v[t] + a[t]*dt`, asserted in
+        // `encode_kinematics`), exactly like `speed_v` itself. Once `vx` is
+        // exported signed (`direction * v`, above), `d(vx)/dt` is
+        // `direction * dv/dt`, not `dv/dt` alone — so the exported `ax` needs
+        // the same direction flip `vx` gets, or the two disagree with each
+        // other (`test_kinematic_consistency_across_the_corpus`'s `vx[t+1] ==
+        // vx[t] + ax[t]*dt` check) even though each was self-consistent with
+        // the unsigned `v`.
+        let direction = self.spec.get_actor(actor_id).map_or(1, |a| a.direction);
+        let direction_sign = f64::from(direction);
+
         // Extract trajectory at each time step
         for t in 0..=self.horizon {
             let time = t as f64 * dt;
@@ -1269,15 +1358,32 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             let v_bar = self.reference_speed_at(model, actor_id, t).unwrap_or(v);
             let vy = v_bar * theta;
 
-            // vx ≈ v (small angle: cos(θ) ≈ 1; at |θ| <= atan(0.15) the error
-            // is under 1.1 %, and taking it into account here would put the
-            // exported vx out of step with the px integration, which uses v).
-            let vx = v;
+            // vx ≈ signed v (small angle: cos(θ) ≈ 1; at |θ| <= atan(0.15) the
+            // error is under 1.1 %, and taking it into account here would put
+            // the exported vx out of step with the px integration, which uses
+            // v — direction and all, see `encode_kinematics`'s
+            // `px_next = if *direction == 1 {...} else {...}`).
+            //
+            // SW-37: this used to be the unsigned `v` itself, which put the
+            // exported trajectory's velocity out of step with its own
+            // position for a `direction: -1` actor — px correctly walked
+            // backwards while vx reported a positive speed
+            // (`test_kinematic_consistency_across_the_corpus` on
+            // `head_on_near_miss_bicycle` demonstrated this: residual ~= -4.8,
+            // matching the doubled distance a wrong-signed vx integrates).
+            // `longitudinal_vel` is `direction * v` (`get_longitudinal_vel`'s
+            // backing store, see its field doc comment); for a `direction: 1`
+            // actor it is the same Z3 term as `speed_v`, so this changes
+            // nothing there.
+            let vx = extract_real(model, &self.longitudinal_vel[actor_id][t])?;
 
             // Lateral acceleration is a real solver variable now (SW-09), tied
             // to vy by vy[t+1] = vy[t] + ay[t]*dt, so it is read out rather
             // than reported as a hard-coded zero.
-            let ax = a;
+            //
+            // Longitudinal acceleration is direction-signed to match the now
+            // signed `vx` (see the comment above `direction_sign`).
+            let ax = a * direction_sign;
             let ay = extract_real(model, &self.accelerations_y[actor_id][t])?;
 
             let state = State {
@@ -1305,7 +1411,9 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
     }
 
     fn get_longitudinal_vel(&self, actor_id: &str, time: usize) -> &Real {
-        &self.speed_v[actor_id][time]
+        // SW-37: `longitudinal_vel` is the signed velocity, not `speed_v`'s
+        // unsigned direction-locked magnitude — see the field doc comment.
+        &self.longitudinal_vel[actor_id][time]
     }
 
     fn get_lane_var(&self, actor_id: &str, time: usize) -> &Int {
