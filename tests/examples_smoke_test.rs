@@ -514,6 +514,80 @@ fn test_forward_progress_across_the_corpus() {
     assert_corpus_invariant(Invariant::ForwardProgress);
 }
 
+/// A `pedestrian_crossing` pedestrian's shipped trajectory actually reaches
+/// the sidewalk opposite its declared crossing direction somewhere in the
+/// horizon (SW-42).
+///
+/// `generate_ltl` asserts this as a hard LTL goal
+/// (`on_opposite_sidewalk.eventually()`), so Z3 cannot return a model that
+/// fails it — but nothing before this checked that the *shipped* trajectory
+/// is the model Z3 actually found. `check_containment` alone cannot catch a
+/// pedestrian that never leaves its starting kerb: it only bounds `py` to an
+/// envelope, which a stationary pedestrian satisfies perfectly.
+#[test]
+fn test_pedestrian_crossing_liveness_across_the_corpus() {
+    assert_corpus_invariant(Invariant::Liveness);
+}
+
+/// Proof the liveness check above can actually fail: perturb the shipped
+/// `pedestrian_crossing` trajectory so the pedestrian never leaves the
+/// interior of the road, confirm the check goes red, then confirm the
+/// unperturbed trajectory it was cloned from is clean.
+///
+/// A check that has never gone red is indistinguishable from one that
+/// cannot — this is that proof, kept as a permanent regression test rather
+/// than a one-off manual run.
+#[test]
+fn test_pedestrian_crossing_liveness_check_fails_on_a_non_crossing_trajectory() {
+    use scenario_weaver::dsl::types::ActorRole;
+
+    let (scenario, spec) = common::generate_example_with_spec("pedestrian_crossing.yaml");
+
+    // Sanity: the shipped trajectory actually crosses, so the check is clean
+    // on it — otherwise this test would prove nothing about the perturbation.
+    let shipped = check_scenario_invariants(&scenario, &spec);
+    assert!(
+        !shipped.iter().any(|v| v.invariant == Invariant::Liveness),
+        "shipped pedestrian_crossing example should cross the road; got: {:?}",
+        shipped
+            .iter()
+            .filter(|v| v.invariant == Invariant::Liveness)
+            .collect::<Vec<_>>()
+    );
+
+    // Perturb a clone: clamp the pedestrian's py well inside the road
+    // surface (road_width = 2 lanes * 3.5 m = 7.0 m here), so it can never
+    // reach either sidewalk band. Everything else — including the spec, and
+    // the original `scenario` above — is untouched.
+    let mut perturbed = scenario.clone();
+    for actor in &mut perturbed.actors {
+        if actor.role == ActorRole::Pedestrian {
+            for s in &mut actor.states {
+                s.cartesian.position.y = s.cartesian.position.y.min(3.0);
+            }
+        }
+    }
+
+    let found = check_scenario_invariants(&perturbed, &spec);
+    let liveness_breaches: Vec<&common::Violation> = found
+        .iter()
+        .filter(|v| v.invariant == Invariant::Liveness)
+        .collect();
+    assert!(
+        !liveness_breaches.is_empty(),
+        "a pedestrian clamped to the interior of the road should fail the liveness check, \
+         but it did not"
+    );
+
+    // Restore: re-check the original, unperturbed scenario is still clean —
+    // the perturbation above touched only the clone.
+    let after = check_scenario_invariants(&scenario, &spec);
+    assert!(
+        !after.iter().any(|v| v.invariant == Invariant::Liveness),
+        "the original scenario should be unaffected by perturbing its clone"
+    );
+}
+
 /// The whole point, stated once without the baseline: every scenario this
 /// repository generates satisfies every invariant.
 ///

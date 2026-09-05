@@ -49,7 +49,7 @@ use scenario_weaver::solver::encoder_utils::same_lane_f64;
 /// rendered as `f64`, not an allowance for modelling error.
 pub const TOL: f64 = 1e-6;
 
-/// The six properties a generated scenario is committed to.
+/// The seven properties a generated scenario is committed to.
 ///
 /// Named so a failure can be attributed to one property rather than to "the
 /// invariants failed", and so a test can assert one property in isolation while
@@ -70,6 +70,12 @@ pub enum Invariant {
     ForwardProgress,
     /// `scenario.validation` re-derives from the extracted trajectories.
     ExtractionAgreement,
+    /// A `pedestrian_crossing` pedestrian's shipped trajectory actually
+    /// reaches the sidewalk opposite its declared crossing direction
+    /// (SW-42) — the goal `generate_ltl` asserts as `on_opposite_sidewalk.
+    /// eventually()`, confirmed here independently of the encoder rather
+    /// than trusted from it.
+    Liveness,
 }
 
 impl std::fmt::Display for Invariant {
@@ -81,6 +87,7 @@ impl std::fmt::Display for Invariant {
             Invariant::Containment => "lane/road containment",
             Invariant::ForwardProgress => "forward progress",
             Invariant::ExtractionAgreement => "model-vs-extraction agreement",
+            Invariant::Liveness => "pedestrian crossing liveness",
         };
         f.write_str(s)
     }
@@ -104,9 +111,10 @@ impl std::fmt::Display for Violation {
 // ---------------------------------------------------------------------------
 
 /// Invariants that no scenario in this repository satisfies today, each with
-/// the issue that owns the fix. **Empty since SW-22** — all six now hold across
-/// the corpus, and [`assert_scenario_invariants`] asserts all six at every call
-/// site.
+/// the issue that owns the fix. **Empty since SW-22** — all seven now hold
+/// across the corpus (SW-42 added the seventh, [`Invariant::Liveness`],
+/// already holding on every example), and [`assert_scenario_invariants`]
+/// asserts all seven at every call site.
 ///
 /// This is a **ratchet**, deliberately shaped like `scripts/check.sh`'s clippy
 /// baseline. [`assert_scenario_invariants`] is called from every test that
@@ -225,6 +233,7 @@ pub fn check_scenario_invariants(scenario: &Scenario, spec: &ScenarioSpec) -> Ve
     check_containment(scenario, spec, &mut v);
     check_forward_progress(scenario, spec, &mut v);
     check_extraction_agreement(scenario, spec, &mut v);
+    check_pedestrian_crossing_liveness(scenario, spec, &mut v);
     v.sort_by_key(|x| x.invariant);
     v
 }
@@ -825,6 +834,108 @@ fn check_extraction_agreement(scenario: &Scenario, spec: &ScenarioSpec, out: &mu
                 out,
                 Invariant::ExtractionAgreement,
                 format!("spec actor {:?} has no extracted trajectory", actor.id),
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 7. Pedestrian crossing liveness (SW-42)
+// ---------------------------------------------------------------------------
+
+/// A `pedestrian_crossing` pedestrian must actually reach the sidewalk
+/// opposite its declared crossing direction somewhere in the shipped
+/// trajectory.
+///
+/// `pedestrian_crossing.rs`'s `generate_ltl` asserts exactly this as a hard
+/// LTL goal (`on_opposite_sidewalk.eventually()`), so Z3 cannot return a
+/// model that fails to satisfy it — but nothing before this check has ever
+/// independently confirmed that the *shipped* trajectory (the JSON/XOSC a
+/// user actually gets, built by `src/scenario/extractor.rs` from whatever
+/// model Z3 found) is the same trajectory the encoder assumed it was
+/// asserting. [`check_extraction_agreement`] catches the encoder and the
+/// extractor disagreeing about a *number* (TTC, distance, acceleration);
+/// this is the same category of gap for a *goal*. It belongs here rather
+/// than in `compute_validation_metrics` for the same reason `Containment`
+/// and `ForwardProgress` do: it is an unconditional structural property of
+/// the scenario, not a spec threshold gated by `ConstraintMode`, and
+/// `compute_validation_metrics`'s shape (a metric, a threshold, a polarity)
+/// has nowhere to put a property that is simply "did this happen anywhere in
+/// the trajectory".
+///
+/// [`check_containment`] alone cannot catch a pedestrian that never leaves
+/// its starting kerb: it only bounds `py` to
+/// `[-SIDEWALK_WIDTH, road_top + SIDEWALK_WIDTH]`, an envelope a stationary
+/// pedestrian satisfies perfectly. This check is deliberately narrower and
+/// scenario-type-specific — it reads the pedestrian's declared `direction`
+/// (via its spec entry, the same field `pedestrian_crossing.rs::generate_ltl`
+/// reads) and requires `py` to enter the region [`OnSidewalk`]'s encoding
+/// defines for the *opposite* side at at least one time step, mirroring the
+/// encoder's own region boundaries (`src/ltl/encode.rs`,
+/// `Proposition::OnSidewalk`) exactly: `[-SIDEWALK_WIDTH, 0)` for "left",
+/// `(road_width, road_width + SIDEWALK_WIDTH]` for "right".
+///
+/// Only scoped to `ScenarioType::PedestrianCrossing`: it is the only scenario
+/// type whose `generate_ltl` asserts this goal at all, and the only one
+/// where `direction`/`OnSidewalk` are meaningful.
+fn check_pedestrian_crossing_liveness(
+    scenario: &Scenario,
+    spec: &ScenarioSpec,
+    out: &mut Vec<Violation>,
+) {
+    use scenario_weaver::dsl::types::ScenarioType;
+
+    if spec.scenario_type != ScenarioType::PedestrianCrossing {
+        return;
+    }
+
+    let lane_width = spec.get_lane_width();
+    let num_lanes = spec.get_num_lanes();
+    let road_width = lane_width * num_lanes as f64;
+
+    for traj in &scenario.actors {
+        let Some(actor) = spec_actor(spec, traj) else {
+            continue;
+        };
+        if actor.role != ActorRole::Pedestrian {
+            continue;
+        }
+        let Some(direction) = actor.behavior.get("direction").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let opposite_side = match direction {
+            "left_to_right" => "right",
+            "right_to_left" => "left",
+            _ => continue,
+        };
+
+        let reached = traj.states.iter().any(|s| {
+            let py = s.position().y;
+            if opposite_side == "left" {
+                py < -TOL && py >= -SIDEWALK_WIDTH - TOL
+            } else {
+                py > road_width + TOL && py <= road_width + SIDEWALK_WIDTH + TOL
+            }
+        });
+
+        if !reached {
+            let py_values: Vec<f64> = traj.states.iter().map(|s| s.position().y).collect();
+            let py_min = py_values.iter().copied().fold(f64::INFINITY, f64::min);
+            let py_max = py_values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let region = if opposite_side == "left" {
+                format!("[{:.9}, 0)", -SIDEWALK_WIDTH)
+            } else {
+                format!("({road_width:.9}, {:.9}]", road_width + SIDEWALK_WIDTH)
+            };
+            push(
+                out,
+                Invariant::Liveness,
+                format!(
+                    "{}: direction={direction:?} so it must reach the \"{opposite_side}\" \
+                     sidewalk (py in {region}) at some point, but py stayed in \
+                     [{py_min:.9}, {py_max:.9}] over the whole trajectory — it never crossed",
+                    traj.id
+                ),
             );
         }
     }
