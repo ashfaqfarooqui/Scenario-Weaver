@@ -599,6 +599,113 @@ fn encode_proposition(
     }
 }
 
+// SW-41. Test-only: the classification below exists purely to drive
+// `test_strictness_coverage_is_exhaustive_and_documented` and
+// `test_measured_propositions_agree_with_validator_at_the_boundary`, so it is
+// `#[cfg(test)]` rather than `pub(crate)` in the production build — the
+// no-wildcard-`match` guarantee only needs to hold when the test suite
+// compiles, and gating it out of non-test builds keeps it off the clippy
+// ratchet.
+#[cfg(test)]
+use self::strictness_coverage_impl::{strictness_coverage, StrictnessCoverage};
+
+#[cfg(test)]
+mod strictness_coverage_impl {
+    use super::Proposition;
+
+    /// Whether a `Proposition` variant's Enforce/Violate boundary is
+    /// checked against `compute_validation_metrics` at all, and if so, whether
+    /// that check has been confirmed to agree with the encoder's strictness at
+    /// the exact numeric boundary — the shape SW-12/30/33/35 each found and
+    /// fixed independently (`Violate` settling on `distance == threshold`
+    /// exactly, and the validator, testing non-strictly, calling that safe).
+    ///
+    /// This `match` has **no wildcard arm** on purpose: adding a 13th
+    /// `Proposition` variant without adding a line here is a compile error, not
+    /// a silently-skipped case. See `test_strictness_coverage_is_exhaustive_and_documented`
+    /// for the classification of every current variant, and
+    /// `test_measured_propositions_agree_with_validator_at_the_boundary` for the
+    /// actual boundary check on every `Measured` one.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StrictnessCoverage {
+    /// `compute_validation_metrics` derives a numeric safe/unsafe boundary
+    /// from this proposition's threshold, and the boundary test confirms the
+    /// encoder's safe formula (the one `Violate` negates) holds — non-strict
+    /// — exactly at that boundary, agreeing with the validator.
+    Measured,
+    /// No validator-side check exists for this proposition's threshold at
+    /// all. Not a defect by itself — `Violate` still asserts something, Z3
+    /// still solves it — but the strict/non-strict question is *unreachable*
+    /// here: nothing independently measures whether the encoder and the
+    /// reported scenario agree, which is exactly where SW-12/30/33/35's
+    /// defect shape hid for as long as it did. This is the SW-31/SW-41 gap;
+    /// see `SW-41-strictness-sweep.md` for the follow-up issue.
+    Unmeasured,
+    /// Not a thresholded safety comparison that a spec-level `Enforce`/
+    /// `Violate` polarity is ever applied to (a discrete equality, a
+    /// positional ordering, or a guard term used only as an antecedent) —
+    /// the "boundary satisfied exactly, reported as safe" defect shape does
+    /// not apply because there is no min/max threshold whose boundary the
+    /// validator could disagree with the encoder about.
+    NotApplicable,
+}
+
+/// The exhaustive classification driving [`StrictnessCoverage`]. Matches on
+/// the variant shape only (`{ .. }`), so it says nothing about a
+/// proposition's field values — only whether *this kind* of proposition is
+/// in scope for the boundary invariant.
+pub(crate) fn strictness_coverage(prop: &Proposition) -> StrictnessCoverage {
+    use StrictnessCoverage::{Measured, NotApplicable, Unmeasured};
+    match prop {
+        // Discrete equality / positional ordering: no numeric threshold, so
+        // no boundary for `Violate` to land on exactly.
+        Proposition::InLane { .. }
+        | Proposition::Ahead { .. }
+        | Proposition::OnLeftOf { .. }
+        | Proposition::OnRightOf { .. } => NotApplicable,
+
+        // Region-membership predicates used only inside `eventually()` goals
+        // in `pedestrian_crossing.rs` (reach the sidewalk / cross the road),
+        // never through `generate_default_safety`'s Enforce/Violate
+        // machinery, and never independently re-measured by
+        // `compute_validation_metrics`.
+        Proposition::OnSidewalk { .. } | Proposition::CrossingRoad { .. } => Unmeasured,
+
+        // Dead code: neither is lowered by any scenario type (verified by
+        // grep — `Proposition::Distance2DGT`/`Proposition::ManhattanDistanceGT`
+        // do not appear outside this enum and `encode_proposition`), so
+        // there is nothing for `compute_validation_metrics` to have ever
+        // measured.
+        Proposition::Distance2DGT { .. } | Proposition::ManhattanDistanceGT { .. } => Unmeasured,
+
+        // The lane-free guard half of a directed conflict (SW-22). Its own
+        // boundary (closing speed exactly at `TTC_CLOSING_SPEED_EPSILON`) is
+        // deliberately strict and matches `compute_validation_metrics`'s own
+        // `rel_vel > epsilon` exactly (see `encode_approaching`'s doc
+        // comment) — but it is never itself the subject of an Enforce/
+        // Violate polarity; it is always an antecedent. The invariant this
+        // sweep is about does not apply to an antecedent.
+        Proposition::Approaching { .. } => NotApplicable,
+
+        // Every one of these has a spec-level threshold, is asserted through
+        // `generate_default_safety`'s `push_constraint` (Enforce/Violate
+        // polarity) or the pedestrian equivalent in `pedestrian_crossing.rs`,
+        // and has a corresponding numeric check in
+        // `compute_validation_metrics`. See the boundary test for the
+        // per-proposition setup and the doc comment on each arm of
+        // `encode_proposition` for why its strictness is what it is.
+        Proposition::DistanceGT { .. }
+        | Proposition::TTCGT { .. }
+        | Proposition::LateralDistanceGT { .. }
+        | Proposition::RelativeVelocityGT { .. }
+        | Proposition::RectangularDistanceGT { .. }
+        | Proposition::PedestrianTTCGT { .. }
+        | Proposition::VelocityGT { .. }
+        | Proposition::VelocityLT { .. } => Measured,
+    }
+}
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1685,5 +1792,376 @@ mod tests {
                 "G(X phi) must be satisfiable; it was unsat for every phi before SW-12/L1"
             );
         });
+    }
+
+    // SW-41 -----------------------------------------------------------------
+    //
+    // The durable check for the SW-12/30/33/35 defect shape: an encoder
+    // comparison lowered strictly where `compute_validation_metrics` tests it
+    // non-strictly, so `Violate` mode can satisfy its negation exactly on the
+    // boundary (`distance == threshold`) and the validator — testing `>=` —
+    // reports no violation. Every `Measured` proposition (per
+    // `strictness_coverage`) gets one boundary setup below: pin every free
+    // variable the proposition reads to an exact value that puts the raw
+    // quantity (a distance, a TTC, a relative speed) exactly at its
+    // threshold, then assert the formula `Violate` would actually use — the
+    // *unsafe* one, `atom.negate()` for `AtomPolarity::Positive` propositions
+    // and the bare atom for `AtomPolarity::Negated` ones (`RelativeVelocityGT`,
+    // see `scenarios::mod::AtomPolarity`) — and require it UNSAT. If it is
+    // satisfiable, the encoder let `Violate` land exactly where the validator
+    // calls the state safe.
+    //
+    // `test_strictness_coverage_is_exhaustive_and_documented` is the other
+    // half: it pins down, per variant, whether this test below applies at
+    // all — so a 13th `Proposition` variant either gets a `Measured` boundary
+    // case here or is explicitly filed as `Unmeasured`/`NotApplicable`,
+    // never silently skipped.
+
+    /// Pin every per-actor Z3 variable this file's boundary tests read to an
+    /// exact concrete value at `time`. Deliberately does not call
+    /// `encode_initial_conditions`/`encode_kinematics`: the boundary tests
+    /// want *only* the values below constrained, nothing else, so a
+    /// proposition that (incorrectly) read a variable this helper did not
+    /// pin would leave it free rather than silently inheriting some other
+    /// encoder's defaults.
+    #[allow(clippy::too_many_arguments)]
+    fn pin_actor(
+        encoder: &mut Z3Encoder,
+        actor: &str,
+        time: usize,
+        lane: i64,
+        px: f64,
+        py: f64,
+        vx: f64,
+    ) {
+        let lane_eq = encoder
+            .get_lane_var(actor, time)
+            .eq(&Int::from_i64(lane));
+        let px_eq = encoder.get_longitudinal_pos(actor, time).eq(&real_from_f64(px));
+        let py_eq = encoder.get_lateral_pos(actor, time).eq(&real_from_f64(py));
+        let vx_eq = encoder.get_longitudinal_vel(actor, time).eq(&real_from_f64(vx));
+        encoder.assert_constraint(&lane_eq);
+        encoder.assert_constraint(&px_eq);
+        encoder.assert_constraint(&py_eq);
+        encoder.assert_constraint(&vx_eq);
+    }
+
+    /// The `Violate`-mode formula for a `Measured` proposition: the atom's
+    /// negation for `AtomPolarity::Positive`, the bare atom for
+    /// `AtomPolarity::Negated`. Mirrors `scenarios::mod::push_constraint`'s
+    /// `(ConstraintMode::Violate, polarity)` arms exactly (minus the
+    /// `.eventually()`, irrelevant to a single-step ground check).
+    fn violate_formula(atom: z3::ast::Bool, negated_polarity: bool) -> z3::ast::Bool {
+        if negated_polarity {
+            atom
+        } else {
+            atom.not()
+        }
+    }
+
+    #[test]
+    fn test_measured_propositions_agree_with_validator_at_the_boundary() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            // (name, proposition, negated_polarity, pins)
+            struct Case {
+                name: &'static str,
+                prop: Proposition,
+                negated_polarity: bool,
+                pins: Vec<(&'static str, i64, f64, f64, f64)>, // actor, lane, px, py, vx
+            }
+
+            let cases = vec![
+                // DistanceGT (min_distance, Positive). Same lane, |px1-px2|
+                // exactly at the threshold.
+                Case {
+                    name: "DistanceGT",
+                    prop: Proposition::DistanceGT {
+                        actor1: "ego".to_string(),
+                        actor2: "npc".to_string(),
+                        distance: 5.0,
+                    },
+                    negated_polarity: false,
+                    pins: vec![("ego", 0, 105.0, 0.0, 0.0), ("npc", 0, 100.0, 0.0, 0.0)],
+                },
+                // TTCGT (min_ttc, Positive). Same lane, ego ahead by 9 m,
+                // npc closing at 3 m/s: TTC = 9/3 = 3.0 s exactly.
+                Case {
+                    name: "TTCGT",
+                    prop: Proposition::TTCGT {
+                        actor1: "ego".to_string(),
+                        actor2: "npc".to_string(),
+                        ttc: 3.0,
+                    },
+                    negated_polarity: false,
+                    pins: vec![("ego", 0, 109.0, 0.0, 10.0), ("npc", 0, 100.0, 0.0, 13.0)],
+                },
+                // LateralDistanceGT (min_lateral_distance, Positive).
+                // Unguarded; |py1-py2| exactly at the threshold.
+                Case {
+                    name: "LateralDistanceGT",
+                    prop: Proposition::LateralDistanceGT {
+                        actor1: "ego".to_string(),
+                        actor2: "npc".to_string(),
+                        distance: 2.0,
+                    },
+                    negated_polarity: false,
+                    pins: vec![("ego", 0, 0.0, 2.0, 0.0), ("npc", 0, 0.0, 0.0, 0.0)],
+                },
+                // RelativeVelocityGT (max_relative_velocity, Negated — the
+                // atom names the unsafe condition). |vx1-vx2| exactly at the
+                // threshold.
+                Case {
+                    name: "RelativeVelocityGT",
+                    prop: Proposition::RelativeVelocityGT {
+                        actor1: "ego".to_string(),
+                        actor2: "npc".to_string(),
+                        velocity: 5.0,
+                    },
+                    negated_polarity: true,
+                    pins: vec![("ego", 0, 0.0, 0.0, 15.0), ("npc", 0, 0.0, 0.0, 10.0)],
+                },
+                // RectangularDistanceGT (pedestrian box, Positive). dx
+                // exactly at threshold_x, dy well inside threshold_y.
+                Case {
+                    name: "RectangularDistanceGT",
+                    prop: Proposition::RectangularDistanceGT {
+                        actor1: "ego".to_string(),
+                        actor2: "npc".to_string(),
+                        threshold_x: 1.0,
+                        threshold_y: 1.5,
+                    },
+                    negated_polarity: false,
+                    pins: vec![("ego", 0, 1.0, 0.0, 0.0), ("npc", 0, 0.0, 0.0, 0.0)],
+                },
+                // PedestrianTTCGT (min_ttc, pedestrian pair, Positive). Ego
+                // (misused here as the vehicle role) 10 m behind the
+                // pedestrian, closing at 5 m/s: TTC = 10/5 = 2.0 s exactly.
+                // Pedestrian on the road (0 <= py <= road_width = 7.0).
+                Case {
+                    name: "PedestrianTTCGT",
+                    prop: Proposition::PedestrianTTCGT {
+                        ego: "ego".to_string(),
+                        pedestrian: "npc".to_string(),
+                        ttc: 2.0,
+                    },
+                    negated_polarity: false,
+                    pins: vec![("ego", 0, 90.0, 0.0, 5.0), ("npc", 0, 100.0, 3.5, 0.0)],
+                },
+                // VelocityGT (min_velocity, Positive). |vx| exactly at the
+                // threshold.
+                Case {
+                    name: "VelocityGT",
+                    prop: Proposition::VelocityGT {
+                        actor: "ego".to_string(),
+                        velocity: 10.0,
+                    },
+                    negated_polarity: false,
+                    pins: vec![("ego", 0, 0.0, 0.0, 10.0)],
+                },
+                // VelocityLT (max_velocity, Positive). |vx| exactly at the
+                // threshold.
+                Case {
+                    name: "VelocityLT",
+                    prop: Proposition::VelocityLT {
+                        actor: "ego".to_string(),
+                        velocity: 10.0,
+                    },
+                    negated_polarity: false,
+                    pins: vec![("ego", 0, 0.0, 0.0, 10.0)],
+                },
+            ];
+
+            for case in cases {
+                assert_eq!(
+                    strictness_coverage(&case.prop),
+                    StrictnessCoverage::Measured,
+                    "{}: test case is for a proposition `strictness_coverage` does not call \
+                     Measured — fix the classification or the test case",
+                    case.name
+                );
+
+                let spec = create_two_actor_same_lane_spec();
+                let mut encoder = Z3Encoder::new(spec);
+                encoder.create_variables();
+
+                for (actor, lane, px, py, vx) in &case.pins {
+                    pin_actor(&mut encoder, actor, 0, *lane, *px, *py, *vx);
+                }
+
+                let atom = encode_proposition(&encoder, &encoder.spec, &case.prop, 0);
+                let violate = violate_formula(atom, case.negated_polarity);
+                encoder.assert_constraint(&violate);
+
+                assert_eq!(
+                    encoder.check(),
+                    SatResult::Unsat,
+                    "{}: Violate settled exactly on the boundary the validator calls safe \
+                     (SAT when it must be UNSAT) — the encoder's comparison is strict where \
+                     compute_validation_metrics tests it non-strictly",
+                    case.name
+                );
+            }
+        });
+    }
+
+    /// Every `Proposition` variant must be classified — this is the
+    /// compiler-enforced half of the invariant. If this test compiles, the
+    /// `match` in `strictness_coverage` has no wildcard arm covering it, so a
+    /// 13th variant added without a corresponding line here is a build
+    /// failure, not a silent gap. The assertions pin down *today's*
+    /// classification so a change to it is a deliberate, reviewed edit.
+    #[test]
+    fn test_strictness_coverage_is_exhaustive_and_documented() {
+        use StrictnessCoverage::{Measured, NotApplicable, Unmeasured};
+
+        let s = |s: &str| s.to_string();
+        let cases: Vec<(Proposition, StrictnessCoverage)> = vec![
+            (
+                Proposition::InLane {
+                    actor: s("a"),
+                    lane: 0,
+                },
+                NotApplicable,
+            ),
+            (
+                Proposition::Ahead {
+                    actor1: s("a"),
+                    actor2: s("b"),
+                },
+                NotApplicable,
+            ),
+            (
+                Proposition::DistanceGT {
+                    actor1: s("a"),
+                    actor2: s("b"),
+                    distance: 1.0,
+                },
+                Measured,
+            ),
+            (
+                Proposition::TTCGT {
+                    actor1: s("a"),
+                    actor2: s("b"),
+                    ttc: 1.0,
+                },
+                Measured,
+            ),
+            (
+                Proposition::OnSidewalk {
+                    actor: s("a"),
+                    side: s("left"),
+                },
+                Unmeasured,
+            ),
+            (Proposition::CrossingRoad { actor: s("a") }, Unmeasured),
+            (
+                Proposition::Distance2DGT {
+                    actor1: s("a"),
+                    actor2: s("b"),
+                    distance: 1.0,
+                },
+                Unmeasured,
+            ),
+            (
+                Proposition::ManhattanDistanceGT {
+                    actor1: s("a"),
+                    actor2: s("b"),
+                    distance: 1.0,
+                },
+                Unmeasured,
+            ),
+            (
+                Proposition::RectangularDistanceGT {
+                    actor1: s("a"),
+                    actor2: s("b"),
+                    threshold_x: 1.0,
+                    threshold_y: 1.0,
+                },
+                Measured,
+            ),
+            (
+                Proposition::PedestrianTTCGT {
+                    ego: s("a"),
+                    pedestrian: s("b"),
+                    ttc: 1.0,
+                },
+                Measured,
+            ),
+            (
+                Proposition::VelocityGT {
+                    actor: s("a"),
+                    velocity: 1.0,
+                },
+                Measured,
+            ),
+            (
+                Proposition::VelocityLT {
+                    actor: s("a"),
+                    velocity: 1.0,
+                },
+                Measured,
+            ),
+            (
+                Proposition::LateralDistanceGT {
+                    actor1: s("a"),
+                    actor2: s("b"),
+                    distance: 1.0,
+                },
+                Measured,
+            ),
+            (
+                Proposition::OnLeftOf {
+                    actor1: s("a"),
+                    actor2: s("b"),
+                },
+                NotApplicable,
+            ),
+            (
+                Proposition::OnRightOf {
+                    actor1: s("a"),
+                    actor2: s("b"),
+                },
+                NotApplicable,
+            ),
+            (
+                Proposition::Approaching {
+                    follower: s("a"),
+                    leader: s("b"),
+                },
+                NotApplicable,
+            ),
+            (
+                Proposition::RelativeVelocityGT {
+                    actor1: s("a"),
+                    actor2: s("b"),
+                    velocity: 1.0,
+                },
+                Measured,
+            ),
+        ];
+
+        for (prop, expected) in &cases {
+            assert_eq!(
+                strictness_coverage(prop),
+                *expected,
+                "{prop:?} classified as {:?}, expected {:?}",
+                strictness_coverage(prop),
+                expected
+            );
+        }
+
+        let measured_count = cases
+            .iter()
+            .filter(|(_, c)| *c == Measured)
+            .count();
+        assert_eq!(
+            measured_count, 8,
+            "expected exactly 8 Measured propositions today (DistanceGT, TTCGT, \
+             LateralDistanceGT, RelativeVelocityGT, RectangularDistanceGT, \
+             PedestrianTTCGT, VelocityGT, VelocityLT) — SW-31 reported 3; if this \
+             assertion fails because that number changed, update it deliberately, \
+             not by deleting the assertion"
+        );
     }
 }
