@@ -58,8 +58,8 @@ impl Z3Backend for SolverBackend {
 /// Optimization target for the optimizer backend.
 ///
 /// The backend-side twin of [`crate::dsl::types::OptimizationTarget`], mapped by
-/// `crate::dsl_target_to_backend_target`. The objective each one encodes lives in the
-/// objective region of `src/solver/encoder.rs`.
+/// `crate::dsl_target_to_backend_target`. The objective each one encodes lives in
+/// `src/solver/objectives.rs`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OptimizationTarget {
     /// Minimize the smallest same-lane time-to-collision, over the `TTC_LEVELS` ladder
@@ -68,8 +68,7 @@ pub enum OptimizationTarget {
     /// Minimize distance: find the closest same-lane approach (pure geometry)
     MinimizeDistance,
     /// **Maximize** severity: find the highest same-lane closing speed (pure dynamics).
-    /// The variant name is a known misnomer — see the DSL enum's rustdoc.
-    MinimizeSeverity,
+    MaximizeSeverity,
     /// Maximize the smallest same-lane time-to-collision, over the `TTC_LEVELS` ladder.
     /// Finds the safest scenario **by TTC**, which is not the same as the largest gap.
     MaximizeTtc,

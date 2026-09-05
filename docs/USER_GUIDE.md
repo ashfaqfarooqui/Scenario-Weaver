@@ -192,7 +192,7 @@ Options:
   -v, --verbose            Enable verbose/debug logging
       --adversarial        Override all constraint modes to violate
       --optimize <TARGET>  Optimization target: min-ttc, min-distance,
-                           min-severity, max-ttc
+                           max-severity, max-ttc
   -h, --help               Print help
   -V, --version            Print version
 ```
@@ -525,17 +525,17 @@ cargo run --release -- -i spec.yaml -o output/ --optimize min-ttc
 |--------|--------------|--------------|
 | `min-ttc` | `minimize_ttc` | Scenario with the smallest same-lane time-to-collision (worst-case near-miss) |
 | `min-distance` | `minimize_distance` | Scenario with the closest same-lane approach distance |
-| `min-severity` | `minimize_severity` | Scenario with the **highest** same-lane closing speed — this target *maximises*, see below |
+| `max-severity` | `maximize_severity` | Scenario with the **highest** same-lane closing speed — the most severe interaction |
 | `max-ttc` | `maximize_ttc` | Scenario with the largest same-lane time-to-collision (safest) |
 
 The CLI spelling is kebab-case and the YAML spelling is snake_case; they are not
 interchangeable, and a CLI spelling in a YAML file is a parse error.
 
-**`min-severity` is a maximiser.** It drives the highest same-lane closing speed *up*, not
+**`max-severity` maximises.** It drives the highest same-lane closing speed *up*, not
 down — severity correlates with relative impact speed, and finding the most severe
-interaction is what it is for. The name is a known misnomer (`MaximizeSeverity` is the
-correct one); `docs/optimizer.md` records why it has not been renamed yet. **If you want
-the safest scenario, use `max-ttc`.**
+interaction is what it is for. It was spelled `min-severity` / `minimize_severity` before
+SW-14's rename, and **those spellings no longer parse**. **If you want the safest scenario,
+use `max-ttc`.**
 
 **`max-ttc` maximises TTC, not gap.** It used to maximise the minimum *gap* and report that
 as TTC. The largest TTC is reached by matching speeds rather than by separating, so the

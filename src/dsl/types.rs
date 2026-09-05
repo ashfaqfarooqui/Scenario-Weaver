@@ -168,14 +168,12 @@ pub enum OptimizationTarget {
     MinimizeDistance,
     /// **Maximize** the highest same-lane closing speed — the most severe interaction.
     ///
-    /// **This variant is a maximiser and its name is a misnomer.** Severity correlates
-    /// with relative impact speed, and the encoder drives that *up*; there is no weighted
-    /// combination of TTC and distance anywhere, and never was. The correct name is
-    /// `MaximizeSeverity` (`maximize_severity` in YAML, `--optimize max-severity`);
-    /// renaming it reaches `src/lib.rs`, outside SW-14's edit set, so the identifier is
-    /// still wrong while every prose surface says "maximise". Use `MaximizeTtc` if what
-    /// you want is the *safest* scenario.
-    MinimizeSeverity,
+    /// Severity correlates with relative impact speed, and the encoder drives that *up*.
+    /// There is no weighted combination of TTC and distance anywhere, and never was —
+    /// which is why this was called `MinimizeSeverity` until SW-14's rename: the old name
+    /// described an encoding that did not exist. Use `MaximizeTtc` if what you want is the
+    /// *safest* scenario; this one asks for the worst.
+    MaximizeSeverity,
     /// Maximize the smallest same-lane time-to-collision — the safest scenario.
     ///
     /// This maximises **TTC**, not gap: the largest TTC is reached by matching speeds

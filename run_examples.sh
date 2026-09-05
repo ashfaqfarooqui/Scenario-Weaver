@@ -129,12 +129,12 @@ done
 # Optimizer examples have optimization_target in their YAML, but we also pass
 # --optimize on the CLI to demonstrate both approaches. Note the two spellings
 # differ: YAML is snake_case (`minimize_ttc`), the CLI is kebab-case (`min-ttc`).
-# `min-severity` is a maximiser — see docs/optimizer.md.
+# `max-severity` maximises the highest same-lane closing speed — see docs/optimizer.md.
 
 OPTIMIZER_EXAMPLES=(
     "cut_in_left_optimize_min_distance:min-distance"
     "cut_in_left_optimize_min_ttc:min-ttc"
-    "cut_in_left_optimize_min_severity:min-severity"
+    "cut_in_left_optimize_max_severity:max-severity"
     "cut_in_left_optimize_max_ttc:max-ttc"
 )
 

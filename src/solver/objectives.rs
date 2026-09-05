@@ -1,7 +1,7 @@
 //! Optimizer objective encoding.
 //!
 //! Encodes each [`OptimizationTarget`] as a QF_LRA objective over the Z3 `Optimize`
-//! backend: `MinimizeDistance`/`MinimizeSeverity` read the effective same-lane gap or
+//! backend: `MinimizeDistance`/`MaximizeSeverity` read the effective same-lane gap or
 //! closing speed directly, while `MinimizeTtc`/`MaximizeTtc` walk the [`TTC_LEVELS`]
 //! ladder (see its doc comment for why TTC itself cannot be a linear objective). Every
 //! objective is scored over the same "same lane" predicate
@@ -61,8 +61,7 @@ impl GenericEncoder<OptimizerBackend> {
     /// - **`MinimizeDistance`**: minimise the smallest same-lane longitudinal gap.
     /// - **`MinimizeTtc`**: minimise the smallest same-lane time-to-collision, over the
     ///   [`TTC_LEVELS`] ladder.
-    /// - **`MinimizeSeverity`**: **maximise** the highest same-lane closing speed. The
-    ///   variant name is a known misnomer — see its rustdoc in `src/dsl/types.rs`.
+    /// - **`MaximizeSeverity`**: maximise the highest same-lane closing speed.
     /// - **`MaximizeTtc`**: maximise the smallest same-lane time-to-collision, over the
     ///   [`TTC_LEVELS`] ladder.
     pub fn encode_objective(&mut self) {
@@ -74,7 +73,7 @@ impl GenericEncoder<OptimizerBackend> {
             OptimizationTarget::MinimizeTtc => {
                 self.encode_minimize_ttc_objective();
             }
-            OptimizationTarget::MinimizeSeverity => {
+            OptimizationTarget::MaximizeSeverity => {
                 self.encode_maximize_severity_objective();
             }
             OptimizationTarget::MaximizeTtc => {
@@ -192,14 +191,11 @@ impl GenericEncoder<OptimizerBackend> {
         self.coord_encoder.backend_mut().set_objective_var(obj);
     }
 
-    /// MinimizeSeverity: find the scenario with the highest same-lane closing speed.
+    /// MaximizeSeverity: find the scenario with the highest same-lane closing speed.
     ///
-    /// **The variant name is a misnomer and this is a maximiser** — severity correlates
-    /// with relative impact speed, and this objective drives that up, which is what an
-    /// adversarial scenario generator wants. Renaming the variant to `MaximizeSeverity`
-    /// is SW-14's recommendation but reaches `src/lib.rs`, outside this issue's edit set;
-    /// every prose surface (CLI help, rustdoc, `docs/optimizer.md`, `docs/USER_GUIDE.md`)
-    /// now says "maximise" so that only the identifier is left lying.
+    /// Severity correlates with relative impact speed, and this objective drives that up,
+    /// which is what an adversarial scenario generator wants. It was called
+    /// `MinimizeSeverity` until SW-14's rename landed.
     ///
     /// Uses a "choice" pattern: obj can equal any effective_closing_speed value, and Z3
     /// maximizes it by choosing scenario parameters that produce the highest approach
@@ -748,7 +744,7 @@ mod tests {
         let cfg = Config::new();
         z3::with_z3_config(&cfg, || {
             let spec = create_two_actor_diff_lane_spec();
-            let backend = OptimizerBackend::new(OptimizationTarget::MinimizeSeverity);
+            let backend = OptimizerBackend::new(OptimizationTarget::MaximizeSeverity);
             let mut encoder = GenericEncoder::with_backend(spec, backend);
             encoder.create_variables();
             encoder.encode_initial_conditions();
@@ -864,7 +860,7 @@ mod tests {
                 road_length: None,
             });
 
-            let backend = OptimizerBackend::new(OptimizationTarget::MinimizeSeverity);
+            let backend = OptimizerBackend::new(OptimizationTarget::MaximizeSeverity);
             let mut encoder = GenericEncoder::with_backend(spec, backend);
             encoder.create_variables();
             encoder.encode_initial_conditions();

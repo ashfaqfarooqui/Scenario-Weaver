@@ -139,10 +139,10 @@ Finds the scenario with the worst (lowest) time-to-collision proxy — small gap
 cargo run --release -- -i examples/cut_in_left_optimize_min_ttc.yaml -o output/ --optimize min-ttc
 ```
 
-### cut_in_left_optimize_min_severity.yaml
+### cut_in_left_optimize_max_severity.yaml
 Finds the most severe interaction — highest relative approach speed when actors share a lane.
 ```bash
-cargo run --release -- -i examples/cut_in_left_optimize_min_severity.yaml -o output/ --optimize min-severity
+cargo run --release -- -i examples/cut_in_left_optimize_max_severity.yaml -o output/ --optimize max-severity
 ```
 
 ### cut_in_left_optimize_max_ttc.yaml

@@ -15,9 +15,9 @@ enum OptimizeTarget {
     MinTtc,
     /// Minimize the smallest same-lane gap (closest approach)
     MinDistance,
-    /// MAXIMIZES the highest same-lane closing speed (most severe interaction) - the name
-    /// is a known misnomer; use max-ttc if you want the safest scenario
-    MinSeverity,
+    /// Maximize the highest same-lane closing speed (most severe interaction); use
+    /// max-ttc if what you want is the safest scenario
+    MaxSeverity,
     /// Maximize the smallest same-lane time-to-collision (safest scenario by TTC, which is
     /// not the same as the largest gap)
     MaxTtc,
@@ -90,7 +90,7 @@ fn main() -> Result<()> {
         let target = match optimize {
             OptimizeTarget::MinTtc => OptimizationTarget::MinimizeTtc,
             OptimizeTarget::MinDistance => OptimizationTarget::MinimizeDistance,
-            OptimizeTarget::MinSeverity => OptimizationTarget::MinimizeSeverity,
+            OptimizeTarget::MaxSeverity => OptimizationTarget::MaximizeSeverity,
             OptimizeTarget::MaxTtc => OptimizationTarget::MaximizeTtc,
         };
         tracing::info!("CLI override: Optimization target set to {:?}", target);

@@ -236,12 +236,12 @@ constraint_modes: ignore_all   # All constraints ignored (maximum freedom)
 
 #### `optimization_target` (optional)
 Type: `string`
-Values: `none` (default), `minimize_ttc`, `minimize_distance`, `minimize_severity`, `maximize_ttc`
+Values: `none` (default), `minimize_ttc`, `minimize_distance`, `maximize_severity`, `maximize_ttc`
 
 Find worst-case or best-case scenarios by optimizing metrics.
 
 ```yaml
-optimization_target: minimize_ttc  # Find closest call scenario
+optimization_target: minimize_ttc  # Smallest time-to-collision: the worst near-miss
 ```
 
 #### `num_scenarios` (optional)
@@ -583,7 +583,7 @@ constraint_modes:
 # constraint_modes: enforce_all  # enforce_all | violate_all | ignore_all
 
 # Optimization target (optional, default: none)
-# optimization_target: none      # none | minimize_ttc | minimize_distance | minimize_severity | maximize_ttc
+# optimization_target: none      # none | minimize_ttc | minimize_distance | maximize_severity | maximize_ttc
 
 # Generation settings (optional)
 num_scenarios: 1  # Number of diverse scenarios to generate
@@ -2687,7 +2687,7 @@ optimization_target: minimize_ttc  # Find closest call
 optimization_target: minimize_distance  # Find closest approach
 
 # Or:
-optimization_target: minimize_severity  # Minimize both (weighted)
+optimization_target: maximize_severity  # Highest same-lane closing speed
 ```
 
 **In Rust**: Optimization is handled automatically by the solver. No scenario-specific code needed.
@@ -2695,8 +2695,10 @@ optimization_target: minimize_severity  # Minimize both (weighted)
 **Use cases**:
 - `minimize_ttc`: Find scenarios with lowest TTC (still > threshold if enforced)
 - `minimize_distance`: Find scenarios with closest approach
-- `minimize_severity`: Worst-case scenario (minimize both TTC and distance)
-- `maximize_ttc`: Find safest scenario (opposite of minimize)
+- `maximize_severity`: Highest same-lane closing speed — the most severe interaction. It
+  **maximises**; there is no weighted combination of TTC and distance, which is what the
+  old `minimize_severity` name wrongly implied. See `docs/optimizer.md`.
+- `maximize_ttc`: Find safest scenario by TTC
 
 ## 2.9 Reference: Complete Code Example
 

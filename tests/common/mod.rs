@@ -294,7 +294,7 @@ pub const EXAMPLE_EXPECTATIONS: &[(&str, Expect)] = &[
     ("cut_in_left_adversarial_ttc.yaml", Expect::Solvable),
     ("cut_in_left_optimize_max_ttc.yaml", Expect::Solvable),
     ("cut_in_left_optimize_min_distance.yaml", Expect::Solvable),
-    ("cut_in_left_optimize_min_severity.yaml", Expect::Solvable),
+    ("cut_in_left_optimize_max_severity.yaml", Expect::Solvable),
     ("cut_in_left_optimize_min_ttc.yaml", Expect::Solvable),
     ("cut_in_right.yaml", Expect::Solvable),
     ("cut_in_right_bicycle.yaml", Expect::Solvable),

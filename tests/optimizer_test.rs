@@ -1,6 +1,6 @@
 //! Integration tests for the optimization (--optimize) code path.
 //!
-//! Tests verify that optimization targets (min-ttc, min-distance, max-ttc, min-severity)
+//! Tests verify that optimization targets (min-ttc, min-distance, max-ttc, max-severity)
 //! produce valid scenarios with optimization metadata, and that each target's
 //! objective is the quantity the validator then reports (SW-14).
 
@@ -112,8 +112,8 @@ fn test_optimize_maximize_ttc() {
 }
 
 #[test]
-fn test_optimize_minimize_severity() {
-    let spec = create_optimized_spec(OptimizationTarget::MinimizeSeverity);
+fn test_optimize_maximize_severity() {
+    let spec = create_optimized_spec(OptimizationTarget::MaximizeSeverity);
     let scenario = common::generate_spec_or_fail(spec);
 
     let opt = scenario
@@ -121,13 +121,13 @@ fn test_optimize_minimize_severity() {
         .as_ref()
         .expect("Should have optimization info");
     assert!(
-        opt.target.contains("MinimizeSeverity"),
-        "Target should be MinimizeSeverity, got: {}",
+        opt.target.contains("MaximizeSeverity"),
+        "Target should be MaximizeSeverity, got: {}",
         opt.target
     );
     let val = opt
         .optimal_value
-        .expect("MinimizeSeverity should report an optimal value");
+        .expect("MaximizeSeverity should report an optimal value");
     assert!(val.is_finite(), "optimal value should be finite, got {val}");
 }
 
@@ -185,7 +185,7 @@ fn test_objectives_produce_distinct_results() {
     let targets = [
         OptimizationTarget::MinimizeDistance,
         OptimizationTarget::MinimizeTtc,
-        OptimizationTarget::MinimizeSeverity,
+        OptimizationTarget::MaximizeSeverity,
     ];
 
     let mut values: Vec<f64> = Vec::new();
@@ -428,7 +428,7 @@ mod objective {
             }
             OptimizationTarget::MinimizeTtc => ladder_ceiling(min_ttc(scenario)),
             OptimizationTarget::MaximizeTtc => ladder_floor(min_ttc(scenario)),
-            OptimizationTarget::MinimizeSeverity => fold_pairs(
+            OptimizationTarget::MaximizeSeverity => fold_pairs(
                 scenario,
                 f64::NEG_INFINITY,
                 effective_closing_speed,
@@ -440,14 +440,12 @@ mod objective {
 
     /// True when `target` pushes its objective up rather than down.
     ///
-    /// `MinimizeSeverity` is a maximiser despite its name: severity correlates
-    /// with impact speed, so the encoder maximises the highest same-lane closing
-    /// speed. Renaming the variant is SW-14's recommendation but reaches
-    /// `src/lib.rs`, outside that issue's edit set.
+    /// `MaximizeSeverity` maximises: severity correlates with impact speed, so
+    /// the encoder drives the highest same-lane closing speed up.
     pub fn is_maximiser(target: OptimizationTarget) -> bool {
         matches!(
             target,
-            OptimizationTarget::MaximizeTtc | OptimizationTarget::MinimizeSeverity
+            OptimizationTarget::MaximizeTtc | OptimizationTarget::MaximizeSeverity
         )
     }
 }
@@ -456,7 +454,7 @@ mod objective {
 const ALL_TARGETS: [OptimizationTarget; 4] = [
     OptimizationTarget::MinimizeTtc,
     OptimizationTarget::MinimizeDistance,
-    OptimizationTarget::MinimizeSeverity,
+    OptimizationTarget::MaximizeSeverity,
     OptimizationTarget::MaximizeTtc,
 ];
 
@@ -611,7 +609,7 @@ fn test_all_optimization_target_values_parse_from_yaml() {
         ("none", OptimizationTarget::None),
         ("minimize_ttc", OptimizationTarget::MinimizeTtc),
         ("minimize_distance", OptimizationTarget::MinimizeDistance),
-        ("minimize_severity", OptimizationTarget::MinimizeSeverity),
+        ("maximize_severity", OptimizationTarget::MaximizeSeverity),
         ("maximize_ttc", OptimizationTarget::MaximizeTtc),
     ];
 
@@ -627,7 +625,7 @@ fn test_all_optimization_target_values_parse_from_yaml() {
     }
 
     // The CLI spellings are kebab-case and must NOT be accepted as YAML.
-    for cli_value in ["min-ttc", "min-distance", "min-severity", "max-ttc"] {
+    for cli_value in ["min-ttc", "min-distance", "max-severity", "max-ttc"] {
         let yaml = format!("{base}\noptimization_target: {cli_value}\n");
         assert!(
             scenario_weaver::dsl::parser::parse_yaml(&yaml).is_err(),

@@ -112,7 +112,7 @@ pub(crate) fn dsl_target_to_backend_target(
     match target {
         Dsl::MinimizeTtc => Ok(Backend::MinimizeTtc),
         Dsl::MinimizeDistance => Ok(Backend::MinimizeDistance),
-        Dsl::MinimizeSeverity => Ok(Backend::MinimizeSeverity),
+        Dsl::MaximizeSeverity => Ok(Backend::MaximizeSeverity),
         Dsl::MaximizeTtc => Ok(Backend::MaximizeTtc),
         Dsl::None => Err(ScenarioGenError::InvalidSpec(
             "OptimizationTarget::None passed to optimizer path".to_string(),

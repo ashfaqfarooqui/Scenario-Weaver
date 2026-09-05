@@ -10,13 +10,13 @@
 # Road: 3 lanes, 3.5m wide, directions [forward, forward, backward]
 # Duration: 10.0s at 0.5s time steps
 #
-# Optimizer Target: min-severity
+# Optimizer Target: max-severity
 #   MAXIMIZES relative approach speed (most severe interaction). The target's
 #   name is a known misnomer — see docs/optimizer.md. Use max-ttc if you want
 #   the safest scenario.
 #
 # Run:
-#   cargo run --release -- -i examples/cut_in_left_optimize_min_severity.yaml -o output/ --optimize min-severity
+#   cargo run --release -- -i examples/cut_in_left_optimize_max_severity.yaml -o output/ --optimize max-severity
 #
 scenario_type: cut_in_left
 
@@ -54,5 +54,5 @@ actors:
 min_ttc: 3.0
 min_distance: 5.0
 
-optimization_target: minimize_severity
+optimization_target: maximize_severity
 num_scenarios: 1

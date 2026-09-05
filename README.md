@@ -62,7 +62,7 @@ Options:
   -n, --num <NUM>             Number of scenarios to generate (overrides YAML)
   -v, --verbose               Enable verbose logging
       --adversarial           Override all constraint modes to violate
-      --optimize <TARGET>     Optimization target: min-ttc | min-distance | min-severity | max-ttc
+      --optimize <TARGET>     Optimization target: min-ttc | min-distance | max-severity | max-ttc
   -h, --help                  Print help
   -V, --version               Print version
 ```

@@ -32,7 +32,7 @@ optimization_target: minimize_distance
 |-----------|------------|--------------|-------------|
 | `min-distance` | `minimize_distance` | `MinimizeDistance` | Smallest same-lane longitudinal gap |
 | `min-ttc` | `minimize_ttc` | `MinimizeTtc` | Smallest same-lane time-to-collision |
-| `min-severity` | `minimize_severity` | `MinimizeSeverity` | **Maximises** the highest same-lane closing speed — the name is a misnomer, see below |
+| `max-severity` | `maximize_severity` | `MaximizeSeverity` | **Maximises** the highest same-lane closing speed — the most severe interaction |
 | `max-ttc` | `maximize_ttc` | `MaximizeTtc` | Largest same-lane time-to-collision (safest scenario) |
 | — | `none` | `None` | No optimization; the plain solver path |
 
@@ -42,19 +42,22 @@ optimization_target: minimize_distance
 |--------|-----------|-----------------|-----------|---------------|
 | MinimizeDistance | `min-distance` | min\_t \|px\_i - px\_j\| over same-lane pairs | minimise | Closest physical approach between actors |
 | MinimizeTtc | `min-ttc` | min\_t gap / closing\_speed over same-lane approaching pairs, read off the level ladder | minimise | Worst near-miss the constraints allow |
-| MinimizeSeverity | `min-severity` | max\_t \|vx\_i - vx\_j\| over same-lane pairs | **maximise** | Highest relative approach speed |
+| MaximizeSeverity | `max-severity` | max\_t \|vx\_i - vx\_j\| over same-lane pairs | maximise | Highest relative approach speed |
 | MaximizeTtc | `max-ttc` | min\_t gap / closing\_speed, read off the level ladder | maximise | Safest scenario by time-to-collision |
 
-### `min-severity` is a maximiser
+### `max-severity` maximises
 
-The `MinimizeSeverity` variant **maximises** the highest same-lane closing speed. Severity
-correlates with relative impact speed, and driving that up is what an adversarial scenario
-generator is for, so the *behaviour* is the useful one; the *name* is wrong. Renaming it to
-`MaximizeSeverity` (`maximize_severity` / `--optimize max-severity`) is the recommended fix
-and is recorded on the SW-14 issue; it reaches `src/lib.rs`, outside that issue's edit set,
-so the identifier still lies while every prose surface now says "maximise".
+`MaximizeSeverity` drives the highest same-lane closing speed **up**. Severity correlates
+with relative impact speed, and finding the most severe interaction is what an adversarial
+scenario generator is for.
 
-**If you want the safest scenario, use `max-ttc`, not `min-severity`.**
+This target was called `MinimizeSeverity` (`minimize_severity` / `--optimize min-severity`)
+until SW-14's rename. The old name described a weighted minimisation of TTC and distance
+that the encoder never implemented. **The old spellings no longer parse** — a YAML file
+carrying `optimization_target: minimize_severity` is now a parse error naming the valid
+values, and `--optimize min-severity` is rejected by the CLI.
+
+**If you want the safest scenario, use `max-ttc`, not `max-severity`.**
 
 ### `max-ttc` maximises TTC, not gap
 
@@ -183,7 +186,7 @@ equal to the spec's `min_distance`, and a satisfying scenario at that value is f
 first check.
 
 The other three targets scale the same way, from the same cause (21 → 41 steps):
-`max-ttc` 1.05 → 24.1 s, `min-severity` 2.57 → 39.8 s, `min-ttc` 6.29 → 118.2 s.
+`max-ttc` 1.05 → 24.1 s, `max-severity` 2.57 → 39.8 s, `min-ttc` 6.29 → 118.2 s.
 
 ### What was tried and does not work
 
@@ -231,7 +234,7 @@ specifically.
 - Each target optimizes a single scalar value.
 - The two TTC targets measure TTC at the resolution of the `TTC_LEVELS` ladder, and
   `max-ttc` saturates at its top level (60 s).
-- `MinimizeSeverity` is a maximiser; the identifier is a known misnomer.
+- `MaximizeSeverity` maximises; it was named `MinimizeSeverity` before SW-14's rename.
 - The optimizer does not scale past roughly 50 time steps; see
   [Scaling with the time horizon](#scaling-with-the-time-horizon-sw-26) for the measured
   numbers and the cause. `min-ttc` additionally adds one disjunction per ladder level
