@@ -747,6 +747,139 @@ mod tests {
         closing.unwrap()
     }
 
+    fn backward_lane_change_spec(coord: crate::dsl::types::CoordinateSystem) -> ScenarioSpec {
+        ScenarioSpec {
+            scenario_type: ScenarioType::CutInLeft,
+            time_step: 0.5,
+            duration: 10.0,
+            actors: vec![
+                ActorSpec {
+                    id: "ego".to_string(),
+                    role: ActorRole::Ego,
+                    lane: 0,
+                    position: ValueOrRange::Value(50.0),
+                    speed: ValueOrRange::Value(15.0),
+                    acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: -1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![],
+                    bicycle_params: Some(crate::dsl::types::BicycleParams {
+                        wheelbase: 2.7,
+                        max_steering_angle: 0.5,
+                        max_steering_rate: 0.5,
+                    }),
+                },
+                ActorSpec {
+                    id: "npc".to_string(),
+                    role: ActorRole::Npc,
+                    lane: 1,
+                    position: ValueOrRange::Value(70.0),
+                    speed: ValueOrRange::Value(15.0),
+                    acceleration: ValueOrRange::Range([-8.0, 3.0]),
+                    direction: -1,
+                    behavior: HashMap::new(),
+                    lane_changes: vec![LaneChangeConfig {
+                        direction: LaneChangeDirection::Right,
+                        start_time: ValueOrRange::Value(2.5),
+                        duration: ValueOrRange::Value(3.0),
+                    }],
+                    bicycle_params: Some(crate::dsl::types::BicycleParams {
+                        wheelbase: 2.7,
+                        max_steering_angle: 0.5,
+                        max_steering_rate: 0.5,
+                    }),
+                },
+            ],
+            min_ttc: 3.0,
+            min_distance: 5.0,
+            road: Some(RoadSpec {
+                num_lanes: 3,
+                lane_width: 3.5,
+                lane_directions: vec![-1, -1, -1],
+                road_length: None,
+            }),
+            lane_width: 3.5,
+            num_scenarios: 1,
+            constraint_modes: crate::dsl::types::ConstraintModes::default(),
+            optimization_target: crate::dsl::types::OptimizationTarget::None,
+            max_acceleration: None,
+            max_deceleration: None,
+            max_velocity: None,
+            min_velocity: None,
+            min_lateral_distance: None,
+            max_relative_velocity: None,
+            max_lateral_acceleration: 2.0,
+            coordinate_system: coord,
+            bicycle_config: Some(crate::dsl::types::BicycleConfig {
+                default_wheelbase: 2.7,
+                default_max_steering_angle: 0.5,
+                default_max_steering_rate: 0.5,
+            }),
+        }
+    }
+
+    /// `|py[H] - py[0]|`'s *signed* delta for `npc`, under `coord`, for the
+    /// [`backward_lane_change_spec`] built with that coordinate system.
+    fn backward_lane_change_delta(coord: crate::dsl::types::CoordinateSystem) -> f64 {
+        let cfg = Config::new();
+        let mut delta = None;
+        z3::with_z3_config(&cfg, || {
+            let spec = backward_lane_change_spec(coord);
+            let mut encoder = Z3Encoder::new(spec);
+            encoder.create_variables();
+            encoder.encode_initial_conditions();
+            encoder.encode_kinematics();
+            encoder.encode_velocity_constraints();
+            encoder.encode_acceleration_constraints();
+            encoder.encode_lane_velocity_constraints();
+            encoder.encode_lateral_velocity_bounds();
+            assert_eq!(encoder.check(), SatResult::Sat, "{coord:?} should be SAT");
+            let model = encoder.get_model().unwrap();
+            let horizon = encoder.horizon();
+            let py_start = model.eval(encoder.get_lateral_pos("npc", 0), true).unwrap();
+            let py_end = model
+                .eval(encoder.get_lateral_pos("npc", horizon), true)
+                .unwrap();
+            let py_start_f: f64 = crate::solver::backend::parse_z3_real_pub(&py_start.to_string());
+            let py_end_f: f64 = crate::solver::backend::parse_z3_real_pub(&py_end.to_string());
+            delta = Some(py_end_f - py_start_f);
+        });
+        delta.unwrap()
+    }
+
+    /// SW-38. `LaneChangeDirection::Right`/`Left` are relative to the
+    /// actor's own heading, not an absolute lane-index step — SW-17 E5
+    /// settled this (see the doc comment on `LaneChangeDirection` and
+    /// `CartesianEncoder::encode_smooth_lane_transition`, both of which map
+    /// `Right => actor.direction`, `Left => -actor.direction`). Before this
+    /// fix `BicycleEncoder::encode_lane_coupling_with_lane_changes` used a
+    /// hardcoded `Right => 1, Left => -1`, which agrees with cartesian only
+    /// for a forward actor. `backward_lane_change_spec` puts `npc` at
+    /// `direction: -1` performing a `Right` lane change on the *same* YAML
+    /// under both coordinate systems; the two must move it the same way.
+    #[test]
+    fn test_backward_actor_lane_change_direction_matches_across_coordinate_systems() {
+        let cartesian_delta =
+            backward_lane_change_delta(crate::dsl::types::CoordinateSystem::Cartesian);
+        // A backward actor's "Right" is the opposite road-frame direction,
+        // so this must be a *decrease* in lane index (one `lane_width` of
+        // -3.5 m), not an increase.
+        assert!(
+            (cartesian_delta - (-3.5)).abs() < 1e-6,
+            "cartesian: backward actor's Right lane change should step lane index down \
+             (delta -3.5), got {cartesian_delta}"
+        );
+
+        let bicycle_delta =
+            backward_lane_change_delta(crate::dsl::types::CoordinateSystem::Bicycle);
+        assert!(
+            (bicycle_delta - cartesian_delta).abs() < 1e-6,
+            "bicycle's lane-change delta ({bicycle_delta}) must agree with cartesian's \
+             ({cartesian_delta}) for the same backward-actor Right lane change: both must \
+             treat Right/Left as relative to the actor's own heading"
+        );
+    }
+
     #[test]
     fn test_bicycle_oncoming_closing_speed_matches_cartesian() {
         let cartesian_closing =

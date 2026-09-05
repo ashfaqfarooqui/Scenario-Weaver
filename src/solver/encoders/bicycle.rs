@@ -402,16 +402,17 @@ impl<B: Z3Backend> BicycleEncoder<B> {
         let lane_changes_data = collect_lane_change_data(&self.spec, self.horizon);
         let num_lanes = self.spec.get_num_lanes();
 
-        // Collect actor IDs + initial lanes to avoid borrow checker issues
+        // Collect actor IDs, initial lanes and travel direction to avoid
+        // borrow checker issues
         let actor_data: Vec<_> = self
             .spec
             .actors
             .iter()
             .filter(|a| a.role != ActorRole::Pedestrian)
-            .map(|a| (a.id.clone(), a.lane))
+            .map(|a| (a.id.clone(), a.lane, a.direction))
             .collect();
 
-        for (actor_id, initial_lane) in actor_data {
+        for (actor_id, initial_lane, actor_direction) in actor_data {
             if let Some(changes) = lane_changes_data.get(&actor_id) {
                 if changes.is_empty() {
                     // No lane changes: constant bounds for all time steps
@@ -428,10 +429,19 @@ impl<B: Z3Backend> BicycleEncoder<B> {
                     // Process each lane change and the stable phase that follows it
                     let mut current_lane = initial_lane as i32;
                     for (i, lc) in changes.iter().enumerate() {
-                        // Compute target lane from direction
+                        // Compute target lane, accounting for the actor's
+                        // direction of travel. Right/Left are relative to
+                        // the actor's own heading, not an absolute
+                        // lane-index step: for a forward actor (direction=1)
+                        // Right = lane+1, Left = lane-1 (road-frame); for a
+                        // backward actor (direction=-1) that flips, because
+                        // the actor's own "right" is the opposite
+                        // road-frame direction. Same rule as
+                        // `CartesianEncoder::encode_smooth_lane_transition`
+                        // and `ScenarioSpec::validate`.
                         let lane_delta: i32 = match lc.direction {
-                            crate::dsl::types::LaneChangeDirection::Right => 1,
-                            crate::dsl::types::LaneChangeDirection::Left => -1,
+                            crate::dsl::types::LaneChangeDirection::Right => actor_direction,
+                            crate::dsl::types::LaneChangeDirection::Left => -actor_direction,
                         };
                         let target_lane =
                             (current_lane + lane_delta).clamp(0, (num_lanes as i32) - 1);
