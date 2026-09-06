@@ -220,15 +220,33 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// emergency stop for a pedestrian in the road remains legal — it is a dip,
     /// not an ending state. Both bounds are one linear inequality per actor
     /// against a compile-time constant, so this stays in QF_LRA.
+    ///
+    /// SW-40 narrows the terminal floor to the actors that can meet it. "A dip,
+    /// not an ending state" covers a stop in the middle of the horizon and says
+    /// nothing about a stop *at* it, and a spec can demand exactly that: with
+    /// `speed: 20.0` and `acceleration: [-5.0, -1.9]` the declared band forces
+    /// the actor to shed at least 1.9 m/s² at every step, so it reaches the
+    /// horizon at 1 m/s at the very fastest — a braking manoeuvre that ends at
+    /// rest, which is the whole scenario. The displacement floor accepts it
+    /// (braking at the declared -1.9 m/s² covers 105 m against the 100 m it
+    /// requires, and the shipped trajectory rides that floor exactly); the
+    /// terminal floor, which wants 10 m/s, made it UNSAT on its own. So the
+    /// terminal bound is emitted only when
+    /// `speed.max() + a_along_max * duration >= TERMINAL_SPEED_FRACTION *
+    /// speed.min()`, i.e. only when the actor's declared dynamics can reach it
+    /// — see the `a_along_max` comment below. Nothing is relaxed for an actor
+    /// that *could* hold its speed and simply chose not to, which is the case
+    /// SW-39 exists for.
     fn encode_forward_progress(&mut self) {
         use crate::dsl::types::{
-            ActorRole, MIN_FORWARD_PROGRESS_FRACTION, TERMINAL_SPEED_FRACTION,
+            ActorRole, CoordinateSystem, MIN_FORWARD_PROGRESS_FRACTION, TERMINAL_SPEED_FRACTION,
         };
 
         let duration = self.spec.duration;
         let horizon = self.horizon;
+        let coordinate_system = self.spec.coordinate_system;
 
-        let bounds: Vec<(String, f64, f64)> = self
+        let bounds: Vec<(String, f64, Option<f64>)> = self
             .spec
             .actors
             .iter()
@@ -237,9 +255,42 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 let dir = f64::from(a.direction);
                 let displacement_required =
                     MIN_FORWARD_PROGRESS_FRACTION * a.speed.min() * duration * dir;
-                let terminal_speed_required = TERMINAL_SPEED_FRACTION * a.speed.min() * dir;
-                (a.speed.min() > 0.0)
-                    .then(|| (a.id.clone(), displacement_required, terminal_speed_required))
+
+                // SW-40. The terminal-speed floor is asserted only where the
+                // actor's own declared dynamics can actually meet it. The
+                // velocity chain is `v[t+1] = v[t] + a[t]*dt` with
+                // `a[t]` in the declared band at every step, so the fastest
+                // the actor can be travelling *along its direction of
+                // travel* at the horizon is
+                // `speed.max() + a_along_max * duration` — the same envelope
+                // `BicycleEncoder::reachable_speed_span` already computes for
+                // its speed buckets. When a spec pins the band strictly
+                // negative (`acceleration: [-5.0, -1.9]` — a declared braking
+                // manoeuvre), that ceiling is below the floor and the floor
+                // is unsatisfiable *by construction*: it makes the spec UNSAT
+                // on its own, whatever else the scenario says. That is not a
+                // near-miss being rejected, it is a bound contradicting the
+                // dynamics the user declared, so it is not asserted at all.
+                //
+                // `a_along_max` is frame-dependent: Cartesian bounds the
+                // world-frame `ax`, so along-track acceleration is `dir * ax`
+                // and a backward actor's maximum is `-acceleration.min()`;
+                // the bicycle model bounds `a` along the heading already
+                // (`speed_v` is an unsigned magnitude, `longitudinal_vel` is
+                // `direction * speed_v`), so its maximum is
+                // `acceleration.max()` for either direction.
+                let a_along_max =
+                    if coordinate_system == CoordinateSystem::Bicycle || a.direction >= 0 {
+                        a.acceleration.max()
+                    } else {
+                        -a.acceleration.min()
+                    };
+                let terminal_speed_required = TERMINAL_SPEED_FRACTION * a.speed.min();
+                let terminal_speed_reachable = a.speed.max() + a_along_max * duration;
+                let terminal_bound = (terminal_speed_reachable >= terminal_speed_required)
+                    .then_some(terminal_speed_required * dir);
+
+                (a.speed.min() > 0.0).then(|| (a.id.clone(), displacement_required, terminal_bound))
             })
             .collect();
 
@@ -257,6 +308,9 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 .backend_mut()
                 .assert(&displacement_constraint);
 
+            let Some(terminal_speed_required) = terminal_speed_required else {
+                continue;
+            };
             let final_vel = self.get_longitudinal_vel(&actor_id, horizon).clone();
             let terminal_bound = real_from_f64(terminal_speed_required);
             let terminal_constraint = if terminal_speed_required >= 0.0 {

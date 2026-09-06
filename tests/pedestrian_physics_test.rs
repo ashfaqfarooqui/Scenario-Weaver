@@ -400,3 +400,86 @@ fn test_pedestrian_scenarios_keep_a_nonzero_separation() {
         );
     }
 }
+
+// ─── Braking to rest at the horizon (SW-40) ───
+
+/// A declared braking manoeuvre whose ego is at rest at the last step.
+///
+/// `acceleration: [-5.0, -1.9]` is strictly negative, so the spec itself
+/// requires the ego to shed at least 1.9 m/s² at *every* step: from 20 m/s it
+/// arrives at the horizon at 1 m/s at the very fastest, and the trajectory the
+/// solver returns brakes linearly to exactly 0. Everything else here is
+/// ordinary — `min_ttc` and `min_distance` are enforced, the ego stops 10 m
+/// short of a pedestrian crossing 110 m ahead.
+const BRAKE_TO_REST_YAML: &str = r"
+scenario_type: pedestrian_crossing
+time_step: 0.5
+duration: 10.0
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, 1]
+actors:
+  - id: ego
+    role: ego
+    lane: 0
+    position: 0.0
+    speed: 20.0
+    direction: 1
+    acceleration: [-5.0, -1.9]
+  - id: ped
+    role: pedestrian
+    lane: 0
+    position: 110.0
+    speed: [0.8, 1.4]
+    direction: 1
+    acceleration: [-0.8, 0.8]
+    behavior:
+      walking_mode: walk
+      direction: left_to_right
+min_ttc: 1.5
+min_distance: 1.5
+num_scenarios: 1
+";
+
+/// SW-40: the SW-39 terminal-speed floor must not forbid a stop the spec asks for.
+///
+/// `TERMINAL_SPEED_FRACTION` requires `vx[H] >= 0.5 * speed.min()` — 10 m/s
+/// here — of every vehicle, on the argument that an emergency stop is "a dip,
+/// not an ending state". That argument covers a stop in the middle of the
+/// horizon and not one at it. This spec's declared acceleration band forces the
+/// second: the fastest reachable terminal speed is
+/// `speed.max() + acceleration.max() * duration` = `20 - 1.9 * 10` = 1 m/s, so
+/// the floor contradicts the declared dynamics rather than rejecting an
+/// implausible trajectory, and the whole spec was UNSAT.
+///
+/// The SW-12 displacement floor is *not* what excluded it and is still checked
+/// here: the triangular profile covers 100 m against the 100 m that floor
+/// demands. Verified against the pre-fix encoder — with the terminal bound
+/// asserted unconditionally this spec is UNSAT, with only the displacement
+/// floor it is SAT.
+#[test]
+fn test_declared_braking_manoeuvre_may_end_at_rest() {
+    let scenario = common::generate_or_fail(BRAKE_TO_REST_YAML);
+    let ego = scenario.get_actor("ego").expect("ego actor");
+
+    let initial = ego.states[0].velocity().vx;
+    let final_vx = ego.states.last().expect("nonempty").velocity().vx;
+    let travelled = ego.states.last().expect("nonempty").position().x - ego.states[0].position().x;
+
+    assert!(
+        final_vx <= 1.0 + common::TOL,
+        "the declared acceleration band caps the terminal speed at 1.0 m/s, got {final_vx} \
+         (vx series: {:?})",
+        ego.states
+            .iter()
+            .map(|s| s.velocity().vx)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        travelled >= 0.5 * initial * scenario.duration - common::TOL,
+        "the SW-12 displacement floor still applies: {travelled} m covered, \
+         {} m required",
+        0.5 * initial * scenario.duration
+    );
+}

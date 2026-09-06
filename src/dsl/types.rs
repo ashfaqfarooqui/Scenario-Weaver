@@ -118,6 +118,18 @@ pub const MIN_FORWARD_PROGRESS_FRACTION: f64 = 0.5;
 /// ending state. It is also still one linear inequality per actor
 /// (`v[H] * dir` compared against `f * speed.min() * dir`, all compile-time
 /// constants), so it stays in QF_LRA exactly like the displacement floor.
+///
+/// SW-40: "an emergency stop is a dip, not an ending state" is an argument
+/// about a stop in the *middle* of the horizon, and it does not cover a stop
+/// *at* the horizon, which a spec can require outright — an actor whose
+/// declared `acceleration` band is strictly negative must shed speed at every
+/// step, so it arrives at the last step at (or near) rest by construction.
+/// Such a spec satisfies the displacement floor above and was made UNSAT by
+/// this one alone. `encode_forward_progress` therefore asserts this floor only
+/// for actors whose declared speed and acceleration bands can still reach it
+/// (`speed.max() + a_along_max * duration >= TERMINAL_SPEED_FRACTION *
+/// speed.min()`); an actor that could hold its speed and merely prefers not to
+/// — the coasting oncoming vehicle this constant exists for — is unaffected.
 pub const TERMINAL_SPEED_FRACTION: f64 = 0.5;
 
 /// The only `ActorSpec.behavior` keys anything in the crate reads (SW-21/M10).
