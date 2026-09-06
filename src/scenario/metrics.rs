@@ -94,6 +94,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// | `Ahead` | `cut_in_left.rs:86`, `cut_in_right.rs:81`, `overtake_left.rs:139,171` | — | structural ordering, not a spec field |
     /// | `Approaching` | `scenarios/mod.rs:144` (`cut_in_conflict`) | — | structural antecedent for `TTCGT`'s reachability (SW-22); its effect shows up in the TTC measurement below |
     /// | `OnSidewalk` / `CrossingRoad` | `pedestrian_crossing.rs:191,186` | — | LTL goals, not spec thresholds |
+    /// | `PedestrianTTCGuard` | `pedestrian_crossing.rs::generate_safety`, `Enforce` only (SW-43) | — | structural antecedent for `PedestrianTTCGT`'s reachability, the pedestrian twin of `Approaching`; it is *the same formula* as that proposition's own guard (one lowering, `encode_pedestrian_ttc_guard`), so its effect shows up in the pedestrian TTC check below rather than in a metric of its own |
     /// | **`DistanceGT`** | `scenarios/mod.rs:217`, `head_on.rs:248,258` | `min_distance` block below, `same_lane`-gated `\|dx\|`, non-strict boundary (SW-12) | **agrees** — same guard predicate ([`encode_same_lane_constraint`]/[`same_lane_f64`]), same boundary |
     /// | **`TTCGT`** | `scenarios/mod.rs:206`, `head_on.rs:223,233` | `min_ttc` block below, `same_lane` + closing-speed gated, same `TTC_CLOSING_SPEED_EPSILON` | **agrees** |
     /// | **`LateralDistanceGT`** | `scenarios/mod.rs:229`, `pedestrian_crossing.rs:117` | `min_lateral_distance` block, unguarded `\|dy\|`, non-strict boundary (SW-30) | **agrees** |

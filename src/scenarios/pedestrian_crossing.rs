@@ -178,6 +178,73 @@ impl ScenarioModel for PedestrianCrossingModel {
             super::AtomPolarity::Positive,
         );
 
+        // SW-43. The crossing must be a *conflict*, or the bound above
+        // constrains nothing.
+        //
+        // `PedestrianTTCGT` is a guarded implication — "whenever the pedestrian
+        // is on the road with the ego behind it and closing, the TTC exceeds
+        // `min_ttc`" — and the pedestrian's `py` is a solver variable, not an
+        // input. `generate_ltl` asks only that the pedestrian reach the far
+        // sidewalk *eventually*, so Z3 could satisfy `G(PedestrianTTCGT(..))`
+        // by keeping the pedestrian clear of the road at exactly the steps
+        // where the ego is bearing down on it and crossing once the ego was
+        // past. Measured on an `enforce`d two-lane spec before this constraint
+        // existed: the pedestrian starts at the lane centre (`py[0]` is pinned
+        // there by `encode_pedestrian_initial_state`, so the guard is true at
+        // `t=0` whatever else happens), steps *off* the road by `t=3` while the
+        // ego is still 22 m away, waits on the near kerb through the ego's
+        // whole approach, and crosses over steps 19-30 with the ego already
+        // past it. The `enforce`d 2 s bound was evaluated only at the three
+        // opening steps, 33 m out — an `enforce` that no crossing could ever
+        // fail. This is SW-22's defect one scenario type over; see
+        // `scenarios::cut_in_conflict` for the precedent and the cost argument.
+        //
+        // **The shape, and why not the obvious one.** Not `F(guard)`: SW-12
+        // built that existential for the cut-in and measured it at >500 s for
+        // five scenarios, because a disjunction over the horizon asks Z3 to
+        // *search* for the instant. This is `G(antecedent → conflict)` with an
+        // antecedent the template already forces — `generate_ltl` asserts
+        // `F(CrossingRoad(ped))`, and SW-42's `Invariant::Liveness` confirms the
+        // shipped trajectory really does cross — so every conjunct is an
+        // implication Z3 propagates. Unlike the cut-in's `same_lane`, the
+        // consequent here contains no disjunction at all, which is the half of
+        // SW-22's 103 s → 14.1 s measurement that did the damage.
+        //
+        // **Why the consequent is the TTC's own guard atom** rather than a
+        // hand-written "and the ego is approaching": a conflict formula weaker
+        // than the guard would force something the TTC is not conditioned on
+        // and prove nothing. `PedestrianTTCGuard` and `PedestrianTTCGT`'s
+        // antecedent are lowered by one function (`encode_pedestrian_ttc_guard`),
+        // so they cannot drift.
+        //
+        // **`Enforce` only, deliberately.** Under `Violate`, `push_constraint`
+        // already asserts `F(¬(guard → ttc_safe))` = `F(guard ∧ ¬ttc_safe)`,
+        // which forces the conflict on its own — adding this would be
+        // redundant and could only make a `violate` spec harder to solve.
+        // Under `Ignore` the user has said the TTC is not being tested, and
+        // there is no vacuous `enforce` to protect. So the constraint attaches
+        // to the mode whose promise it restores, and the three pedestrian
+        // examples in `examples/` — all `min_ttc: ignore` — are bit-identical
+        // across this change.
+        //
+        // A pedestrian who waits for a car to pass is correct road behaviour,
+        // not a defect; what was wrong was that *nothing ever required the
+        // conflict to exist*. This says: if you `enforce` a pedestrian TTC,
+        // the crossing this scenario generates is one where that TTC is
+        // actually at stake.
+        if spec.constraint_modes.min_ttc() == crate::dsl::types::ConstraintMode::Enforce {
+            constraints.push(
+                LTLFormula::Atom(Proposition::CrossingRoad {
+                    actor: pedestrian.id.clone(),
+                })
+                .implies(LTLFormula::Atom(Proposition::PedestrianTTCGuard {
+                    ego: ego.id.clone(),
+                    pedestrian: pedestrian.id.clone(),
+                }))
+                .always(),
+            );
+        }
+
         Ok(LTLFormula::conjunction(constraints))
     }
 
@@ -451,6 +518,70 @@ mod tests {
             formula_str.contains("F(¬("),
             "Violate must assert the atom's negation, eventually — got {formula_str}"
         );
+    }
+
+    /// SW-43. An `enforce`d pedestrian `min_ttc` must come with the conflict
+    /// that makes it evaluable: `G(CrossingRoad(ped) → PedestrianTTCGuard(..))`,
+    /// where the guard atom is `PedestrianTTCGT`'s own antecedent. Without it,
+    /// `G(PedestrianTTCGT(..))` is satisfiable with the antecedent false at
+    /// every step that matters — a pedestrian who waits on the kerb for the ego
+    /// to pass and crosses behind it — so the bound cannot fail. Against the
+    /// pre-SW-43 code this assertion fails: the formula string contains no
+    /// `PedestrianTTCGuard` at all. `tests/pedestrian_conflict_test.rs` is the
+    /// end-to-end half, on the trajectory rather than on the formula.
+    #[test]
+    fn test_pedestrian_min_ttc_enforce_also_asserts_the_conflict() {
+        use crate::dsl::types::{Constraint, ConstraintMode};
+
+        let model = PedestrianCrossingModel;
+        let spec = create_test_spec();
+        assert_eq!(
+            spec.constraint_modes.mode_for(Constraint::MinTtc),
+            ConstraintMode::Enforce,
+            "this test needs the default modes to enforce min_ttc"
+        );
+
+        let formula_str = format!("{}", model.generate_safety(&spec).unwrap());
+        assert!(
+            formula_str.contains("PedestrianTTCGuard"),
+            "Enforce must also force the crossing to be a conflict, got {formula_str}"
+        );
+        assert!(
+            formula_str.contains("G((CrossingRoad"),
+            "the conflict must be a G(antecedent → guard), not an existential — got \
+             {formula_str}"
+        );
+    }
+
+    /// The conflict attaches to `Enforce` only. `Violate` already forces it —
+    /// `push_constraint` asserts `F(¬(guard → ttc_safe))`, i.e.
+    /// `F(guard ∧ ¬ttc_safe)` — and under `Ignore` the spec has said the TTC is
+    /// not under test, so there is no vacuous `enforce` to protect and nothing
+    /// to justify constraining the trajectory. This is also why the three
+    /// `examples/pedestrian_*.yaml`, all `min_ttc: ignore`, are unchanged by
+    /// SW-43.
+    #[test]
+    fn test_pedestrian_min_ttc_violate_and_ignore_do_not_add_the_conflict() {
+        use crate::dsl::types::{ConstraintMode, ConstraintModes};
+
+        let model = PedestrianCrossingModel;
+        for mode in [ConstraintMode::Violate, ConstraintMode::Ignore] {
+            let mut spec = create_test_spec();
+            spec.constraint_modes = ConstraintModes::Detailed {
+                min_ttc: mode,
+                min_distance: ConstraintMode::Ignore,
+                max_acceleration: ConstraintMode::Ignore,
+                max_velocity: ConstraintMode::Ignore,
+                min_velocity: ConstraintMode::Ignore,
+                min_lateral_distance: ConstraintMode::Ignore,
+                max_relative_velocity: ConstraintMode::Ignore,
+            };
+            let formula_str = format!("{}", model.generate_safety(&spec).unwrap());
+            assert!(
+                !formula_str.contains("PedestrianTTCGuard"),
+                "{mode:?} must not carry the Enforce-only conflict, got {formula_str}"
+            );
+        }
     }
 
     #[test]

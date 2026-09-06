@@ -157,6 +157,49 @@ fn ahead_frame(spec: &ScenarioSpec, actor1: &str, actor2: &str) -> i32 {
         1
     }
 }
+/// The state in which a pedestrian time-to-collision is defined:
+///
+/// ```text
+/// 0 <= py_ped <= road_width  ∧  px_ego < px_ped  ∧  vx_ego > 0
+/// ```
+///
+/// SW-43. One definition, two callers: `PedestrianTTCGT`'s antecedent and the
+/// `PedestrianTTCGuard` atom `pedestrian_crossing.rs` asserts to keep that
+/// antecedent from being false at every step. They must be the same formula —
+/// if the guard the scenario model forces were even slightly weaker than the
+/// one the TTC is conditioned on, forcing it would prove nothing about the TTC
+/// — so there is exactly one copy of the three comparisons here rather than a
+/// second set in a different file, which is the shape SW-27 and SW-34 each
+/// found already gone wrong.
+///
+/// `road_width` is `lane_width * num_lanes`, the same formula `OnSidewalk`,
+/// `CrossingRoad` and `compute_validation_metrics` all use.
+fn encode_pedestrian_ttc_guard(
+    accessor: &dyn EncoderAccessor,
+    spec: &ScenarioSpec,
+    ego: &str,
+    pedestrian: &str,
+    time: usize,
+) -> z3::ast::Bool {
+    let ego_px = accessor.get_longitudinal_pos(ego, time);
+    let ego_vx = accessor.get_longitudinal_vel(ego, time);
+    let ped_px = accessor.get_longitudinal_pos(pedestrian, time);
+    let ped_py = accessor.get_lateral_pos(pedestrian, time);
+
+    let road_width = spec.get_lane_width() * spec.get_num_lanes() as f64;
+    let road_width_real = real_from_f64(road_width);
+    let zero = Real::from_rational(0_i64, 1_i64);
+
+    // Pedestrian on road: 0 <= py <= road_width
+    let ped_on_road = z3::ast::Bool::and(&[&ped_py.ge(&zero), &ped_py.le(&road_width_real)]);
+
+    // Ego behind the pedestrian's crossing point and still moving toward it.
+    let ego_behind = ego_px.lt(ped_px);
+    let ego_moving_forward = ego_vx.gt(&zero);
+
+    z3::ast::Bool::and(&[&ped_on_road, &ego_behind, &ego_moving_forward])
+}
+
 /// Encode atomic propositions as Z3 constraints at a specific time
 fn encode_proposition(
     accessor: &dyn EncoderAccessor,
@@ -398,22 +441,13 @@ fn encode_proposition(
             let ego_px = accessor.get_longitudinal_pos(ego, time);
             let ego_vx = accessor.get_longitudinal_vel(ego, time);
             let ped_px = accessor.get_longitudinal_pos(pedestrian, time);
-            let ped_py = accessor.get_lateral_pos(pedestrian, time);
 
-            let lane_width = spec.get_lane_width();
-            let num_lanes = spec.get_num_lanes();
-            let road_width = lane_width * num_lanes as f64;
-            let road_width_real = real_from_f64(road_width);
-            let zero = Real::from_rational(0_i64, 1_i64);
-
-            // Pedestrian on road: 0 <= py <= road_width
-            let ped_on_road =
-                z3::ast::Bool::and(&[&ped_py.ge(&zero), &ped_py.le(&road_width_real)]);
-
-            // Ego approaching pedestrian's position
-            let ego_behind = ego_px.lt(ped_px);
-            let ego_moving_forward = ego_vx.gt(&zero);
-            let approaching = z3::ast::Bool::and(&[&ego_behind, &ego_moving_forward]);
+            // SW-43. The guard is built by the shared helper, not inline, so
+            // `PedestrianTTCGuard` — the atom `pedestrian_crossing.rs` asserts
+            // to stop this implication being vacuous — is *the same formula*
+            // as this implication's antecedent by construction rather than by
+            // a comment claiming two copies agree.
+            let guard = encode_pedestrian_ttc_guard(accessor, spec, ego, pedestrian, time);
 
             // TTC = (ped_px - ego_px) / ego_vx
             // Safe if: (ped_px - ego_px) > ttc * ego_vx
@@ -422,7 +456,16 @@ fn encode_proposition(
             let ttc_safe = distance.ge(&(&ttc_val * ego_vx));
 
             // Overall: NOT (ped_on_road AND approaching) OR ttc_safe
-            z3::ast::Bool::and(&[&ped_on_road, &approaching]).implies(&ttc_safe)
+            guard.implies(&ttc_safe)
+        }
+
+        // PedestrianTTCGuard: the `PedestrianTTCGT` antecedent, on its own.
+        //
+        // SW-43. See the doc comment on the variant (`ltl/formula.rs`) for why
+        // a guard is worth naming, and `pedestrian_crossing.rs::generate_safety`
+        // for the one place it is asserted.
+        Proposition::PedestrianTTCGuard { ego, pedestrian } => {
+            encode_pedestrian_ttc_guard(accessor, spec, ego, pedestrian, time)
         }
 
         // VelocityGT: Actor's longitudinal speed exceeds threshold (min_velocity).
@@ -606,6 +649,17 @@ mod strictness_coverage_impl {
             // Violate polarity; it is always an antecedent. The invariant this
             // sweep is about does not apply to an antecedent.
             Proposition::Approaching { .. } => NotApplicable,
+
+            // SW-43's pedestrian analogue of `Approaching`: the `PedestrianTTCGT`
+            // antecedent named on its own so `pedestrian_crossing.rs` can force
+            // it. Like `Approaching` it carries no threshold of its own and is
+            // never given an Enforce/Violate polarity — it is only ever the
+            // consequent of an implication whose antecedent the crossing
+            // template already forces — so there is no boundary for `Violate` to
+            // settle on. Its own comparisons are exactly the ones
+            // `PedestrianTTCGT` is measured against in
+            // `compute_validation_metrics`, which is the row above.
+            Proposition::PedestrianTTCGuard { .. } => NotApplicable,
 
             // Every one of these has a spec-level threshold, is asserted through
             // `generate_default_safety`'s `push_constraint` (Enforce/Violate
@@ -1862,6 +1916,13 @@ mod tests {
                 Unmeasured,
             ),
             (Proposition::CrossingRoad { actor: s("a") }, Unmeasured),
+            (
+                Proposition::PedestrianTTCGuard {
+                    ego: s("a"),
+                    pedestrian: s("b"),
+                },
+                NotApplicable,
+            ),
             (
                 Proposition::RectangularDistanceGT {
                     actor1: s("a"),

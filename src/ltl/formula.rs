@@ -135,6 +135,39 @@ pub enum Proposition {
     /// for the general lesson.
     Approaching { follower: String, leader: String },
 
+    /// Exactly the state in which a *pedestrian* time-to-collision is defined:
+    ///
+    /// ```text
+    /// 0 <= py_ped <= road_width  ∧  px_ego < px_ped  ∧  vx_ego > 0
+    /// ```
+    ///
+    /// This is `PedestrianTTCGT`'s own guard, lifted out so it can be named on
+    /// its own. Both are lowered by the same helper (`encode.rs`,
+    /// `encode_pedestrian_ttc_guard`) — there is one copy of the three
+    /// comparisons, not two that can drift apart the way SW-27's and SW-34's
+    /// pairs of same-lane/threshold definitions did.
+    ///
+    /// It exists for the same reason `Approaching` does (SW-22), one scenario
+    /// type over: `G(PedestrianTTCGT(..))` is a guarded implication, so it is
+    /// satisfied vacuously by a pedestrian who keeps off the road at exactly
+    /// the steps where the ego is bearing down on it and crosses once the ego
+    /// is past. `pedestrian_crossing.rs` therefore asserts
+    /// `G(CrossingRoad(ped) → PedestrianTTCGuard(ego, ped))` alongside an
+    /// `enforce`d `min_ttc`. The antecedent is one the crossing template
+    /// already forces true somewhere (`F(CrossingRoad(ped))`, and SW-42's
+    /// `Invariant::Liveness` confirms it in the shipped trajectory), so the
+    /// implication cannot be satisfied trivially — and because this atom *is*
+    /// the TTC's guard, "the antecedent holds at that step" and "the TTC bound
+    /// is evaluated at that step" are the same statement.
+    ///
+    /// Linear (QF_LRA): four comparisons between existing variables, no
+    /// products, and — unlike `encode_same_lane_constraint` — no disjunction,
+    /// so it is affordable as a *consequent*, which is where SW-22 measured
+    /// disjunctions to be expensive.
+    ///
+    /// Never carries an Enforce/Violate polarity of its own; it is a guard.
+    PedestrianTTCGuard { ego: String, pedestrian: String },
+
     /// Relative longitudinal velocity exceeds threshold
     /// Linear constraint: |vx1 - vx2| > velocity
     RelativeVelocityGT {
