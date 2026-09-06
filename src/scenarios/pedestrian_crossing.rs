@@ -346,6 +346,100 @@ impl ScenarioModel for PedestrianCrossingModel {
             backend.assert(&lane_t.eq(&zero_lane));
         }
 
+        // SW-44. The safety box is *sampled*, so the ego can drive through it
+        // between two steps.
+        //
+        // `RectangularDistanceGT` asserts `|dx| >= threshold_x OR |dy| >=
+        // threshold_y` at each discrete step, and `threshold_x` is
+        // `min_distance / PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR` — a half-box
+        // 1 m long for the usual `min_distance: 2.0`. An ego at 20 m/s covers
+        // 10 m in a `time_step: 0.5`, so it can sit at `dx = -3.0` at one step
+        // and `dx = +7.4` at the next, satisfy the box at every sampled step,
+        // and have driven straight through the pedestrian in between. Measured
+        // before this constraint existed, on a single-lane spec with
+        // `min_distance: 6.0` where lateral clearance is geometrically
+        // impossible: every step reported `boxOK`, `all_constraints_satisfied`
+        // came back `true`, and `dx` went `-3.000 → +7.375` across one step
+        // with `|dy| = 1.875` against a `threshold_y` of 4.0. The box is
+        // smaller than one step of travel at any realistic speed, so this is
+        // the normal case rather than a corner one.
+        //
+        // The guard: **the pair may not swap longitudinal order between two
+        // steps unless it is laterally clear at both of them, on the same
+        // side.** `dx` is continuous, so a sign change means the ego passed
+        // through `dx = 0` somewhere inside the step, where the box demands
+        // `|dy| >= threshold_y`; requiring that clearance at both endpoints,
+        // with a common sign, is the strongest linear statement available
+        // about an instant that is not a variable.
+        //
+        // **Cost.** One assertion per step per scenario, over the one
+        // ego-pedestrian pair a `pedestrian_crossing` spec has — the shape
+        // SW-22 established as affordable (an implication Z3 propagates), not
+        // the `F(⋁ over the horizon)` shape SW-12 measured at >500 s. It is a
+        // disjunction, so Z3 case-splits, but over four fixed alternatives at
+        // one step rather than over the horizon. Measured: the three
+        // `examples/pedestrian_*.yaml` are `min_distance: ignore` and so are
+        // untouched; a constructed `enforce` spec solves in the same tenths of
+        // a second it did before.
+        //
+        // **Still QF_LRA.** Four comparisons between existing variables and a
+        // disjunction of conjunctions of them. No product of two variables,
+        // and in particular no attempt at an exact swept-volume test against
+        // the trapezoidal position update, which is quadratic in time and
+        // would leave the fragment.
+        //
+        // **`Enforce` only**, matching the box it protects: under `Violate`
+        // `push_constraint` asks for `F(|dx| < tx AND |dy| < ty)` and this
+        // would fight it; under `Ignore` no box is asserted, so there is
+        // nothing to tunnel through.
+        //
+        // **What it does not cover, stated rather than implied.** `dx` is
+        // quadratic in time within a step, so it can in principle dip below
+        // `threshold_x` and recover without changing sign — the relative
+        // longitudinal velocity would have to reverse inside one step. And a
+        // `dy` that dips toward zero and returns within a single step would
+        // pass the both-endpoints test. Both need an acceleration reversal
+        // inside `time_step`; neither is expressible as a linear condition on
+        // the sampled variables, which is the boundary this fix stops at.
+        // `compute_validation_metrics` re-derives exactly this guard on the
+        // shipped trajectory (`scenario/metrics.rs`, the `pedestrian_pair`
+        // branch), so the two agree on which crossings count.
+        if spec.constraint_modes.min_distance() == crate::dsl::types::ConstraintMode::Enforce {
+            let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
+            let threshold_y = spec.min_distance / PEDESTRIAN_BOX_LATERAL_DIVISOR;
+            let ty = real_from_f64(threshold_y);
+            let neg_ty = real_from_f64(-threshold_y);
+            let zero = real_from_f64(0.0);
+
+            for t in 0..horizon {
+                let dx_t = encoder.get_longitudinal_pos(&ego.id, t)
+                    - encoder.get_longitudinal_pos(pedestrian_id, t);
+                let dx_next = encoder.get_longitudinal_pos(&ego.id, t + 1)
+                    - encoder.get_longitudinal_pos(pedestrian_id, t + 1);
+                let dy_t =
+                    encoder.get_lateral_pos(&ego.id, t) - encoder.get_lateral_pos(pedestrian_id, t);
+                let dy_next = encoder.get_lateral_pos(&ego.id, t + 1)
+                    - encoder.get_lateral_pos(pedestrian_id, t + 1);
+
+                // The ego does not pass the pedestrian between t and t+1.
+                // `dx == 0` at a sampled step satisfies both halves, and is
+                // already covered by the box at that step.
+                let no_pass = z3::ast::Bool::or(&[
+                    &z3::ast::Bool::and(&[&dx_t.ge(&zero), &dx_next.ge(&zero)]),
+                    &z3::ast::Bool::and(&[&dx_t.le(&zero), &dx_next.le(&zero)]),
+                ]);
+
+                // ... or it is clear of the lateral half-box at both ends, on
+                // the same side of the pedestrian.
+                let laterally_clear = z3::ast::Bool::or(&[
+                    &z3::ast::Bool::and(&[&dy_t.ge(&ty), &dy_next.ge(&ty)]),
+                    &z3::ast::Bool::and(&[&dy_t.le(&neg_ty), &dy_next.le(&neg_ty)]),
+                ]);
+
+                backend.assert(&z3::ast::Bool::or(&[&no_pass, &laterally_clear]));
+            }
+        }
+
         // Check if pedestrian has "hesitate" walking mode
 
         if let Some(walking_mode) = pedestrian.behavior.get("walking_mode") {

@@ -261,11 +261,11 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                         // satisfied, and reporting it anyway is exactly the
                         // false-positive this issue's deliverable 3 exists to
                         // remove (see `test_pedestrian_box_is_measured_not_the_longitudinal_proxy`).
-                        let (ped_state, other_state, ped_id, other_id) =
+                        let (ped_state, other_state, ped_id, other_id, traj_ped, traj_other) =
                             if actor1.role == ActorRole::Pedestrian {
-                                (state1, state2, id1, id2)
+                                (state1, state2, id1, id2, traj1, traj2)
                             } else {
-                                (state2, state1, id2, id1)
+                                (state2, state1, id2, id1, traj2, traj1)
                             };
 
                         // Box: |dx| > min_distance/LONGITUDINAL OR
@@ -295,6 +295,68 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                                 dy,
                                 threshold_y
                             ));
+                        }
+
+                        // SW-44. The box above is *sampled*, and the ego covers
+                        // far more ground in one `time_step` than the box is
+                        // long: at 20 m/s and `time_step: 0.5` it moves 10 m
+                        // against a `threshold_x` of 1 m for the usual
+                        // `min_distance: 2.0`. So a trajectory can satisfy the
+                        // box at every step and still have driven straight
+                        // through the pedestrian in between, and — because this
+                        // function sampled exactly the way the encoder asserts —
+                        // be reported safe. It was: an `enforce`d single-lane
+                        // spec with `min_distance: 6.0` came back
+                        // `all_constraints_satisfied: true` with `dx` going
+                        // `-3.000 → +7.375` across one step at `|dy| = 1.875`
+                        // against a `threshold_y` of 4.0.
+                        //
+                        // `pedestrian_crossing.rs::add_z3_constraints` now
+                        // forbids that in the encoding; this is the same guard
+                        // re-derived on the shipped trajectory, so a scenario
+                        // that reaches a user by any other route is still
+                        // checked. See that constraint's comment for what the
+                        // guard does and does not cover.
+                        //
+                        // Deliberately unconditional, like every other check in
+                        // this function: `ConstraintModes` are the business of
+                        // `tests/common/invariants.rs`, and the three
+                        // `examples/pedestrian_*.yaml` pass it as they stand —
+                        // each does cross the pedestrian's `px` exactly once,
+                        // and each is laterally clear at both ends when it does
+                        // (`|dy|` = 4.2/4.8, 5.5/6.1 and 2.9/3.7 against
+                        // thresholds of 1.33, 1.33 and 1.0).
+                        if t < self.horizon {
+                            let next_ped = &traj_ped.states[t + 1];
+                            let next_other = &traj_other.states[t + 1];
+                            let dx_signed = other_state.position().x - ped_state.position().x;
+                            let dx_next = next_other.position().x - next_ped.position().x;
+                            let dy_signed = other_state.position().y - ped_state.position().y;
+                            let dy_next = next_other.position().y - next_ped.position().y;
+
+                            let passes = dx_signed * dx_next < 0.0;
+                            // Same tolerance direction as `box_safe` above:
+                            // a measurement within METRIC_TOL of clearing the
+                            // lateral half-box counts as clearing it.
+                            let clear = |d: f64| d > threshold_y - METRIC_TOL;
+                            let laterally_clear = (clear(dy_signed) && clear(dy_next))
+                                || (clear(-dy_signed) && clear(-dy_next));
+                            if passes && !laterally_clear {
+                                violations.push(format!(
+                                    "Pedestrian box tunnelling between t={:.1}s and t={:.1}s: \
+                                     {}-{}: dx {:.2}m → {:.2}m crosses the pedestrian with \
+                                     dy {:.2}m → {:.2}m inside the {:.2}m lateral half-box",
+                                    t as f64 * self.spec.time_step,
+                                    (t + 1) as f64 * self.spec.time_step,
+                                    other_id,
+                                    ped_id,
+                                    dx_signed,
+                                    dx_next,
+                                    dy_signed,
+                                    dy_next,
+                                    threshold_y
+                                ));
+                            }
                         }
 
                         // PedestrianTTCGT: guarded by the pedestrian being on

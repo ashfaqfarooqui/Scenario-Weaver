@@ -474,6 +474,48 @@ fn check_envelope(scenario: &Scenario, spec: &ScenarioSpec, out: &mut Vec<Violat
 /// and `Violate`: a constraint the validator never evaluates is neither
 /// enforced nor violated, whatever the YAML says.
 fn check_constraint_modes(scenario: &Scenario, spec: &ScenarioSpec, out: &mut Vec<Violation>) {
+    // SW-44. A `pedestrian_crossing` spec is checked against the constraints it
+    // was actually given, which are not the two scalars below.
+    //
+    // `validation.min_ttc` and `validation.min_distance` are accumulated by
+    // `compute_validation_metrics` from a `same_lane`-gated *longitudinal*
+    // reading, for every pair including a pedestrian's. For a perpendicular
+    // crossing that reading means nothing — and it is never empty either, since
+    // `pedestrian_crossing.rs::add_z3_constraints` pins the pedestrian's lane to
+    // 0 and the ego is usually in lane 0, so `same_lane` is structurally true
+    // and every step contributes. `metrics.rs` says so itself, in the doc note
+    // on its pedestrian branch: "the generic `distance < min_distance` reading
+    // has no bearing on whether the box the encoder actually asserted was
+    // satisfied", which is why SW-31 stopped *reporting* it for these pairs.
+    // What `pedestrian_crossing.rs::generate_safety` asserts instead is
+    // `RectangularDistanceGT` for `min_distance` and `PedestrianTTCGT` for
+    // `min_ttc`, and `compute_validation_metrics` measures exactly those.
+    //
+    // Applying the scalar check here was therefore a false positive waiting for
+    // the right model: an ego stopped 5.3 m to the side of a pedestrian on the
+    // far sidewalk has a *longitudinal* separation of 0 m and is entirely safe
+    // by every constraint the encoder asserted, and this invariant called it an
+    // `enforce` breach. Every `enforce`d pedestrian spec fails the scalar check
+    // — measured at `76dd7e8`, before any of this wave's edits — and
+    // `test_declared_braking_manoeuvre_may_end_at_rest` passed only because Z3
+    // happened to return a model with a large longitudinal gap; adding SW-44's
+    // between-steps guard, which that model satisfies, was enough to move Z3 to
+    // a different and equally valid one.
+    //
+    // The replacement reads the validator's own verdict rather than
+    // re-deriving the box here: the thresholds are
+    // `min_distance / PEDESTRIAN_BOX_{LONGITUDINAL,LATERAL}_DIVISOR`, and those
+    // divisors are `pub(crate)` precisely so there is one copy of each number
+    // (SW-34). Copying them into the test suite to re-derive the box would
+    // recreate the divergence they were hoisted to prevent. It is a stronger
+    // check than the one it replaces, not a weaker one: the scalar never looked
+    // at the box, the lateral axis, the TTC guard or the between-steps guard,
+    // and this looks at all four.
+    if spec.scenario_type == scenario_weaver::dsl::types::ScenarioType::PedestrianCrossing {
+        check_pedestrian_constraint_modes(scenario, spec, out);
+        return;
+    }
+
     let checks = [
         (
             "min_ttc",
@@ -518,6 +560,69 @@ fn check_constraint_modes(scenario: &Scenario, spec: &ScenarioSpec, out: &mut Ve
                      (all_constraints_satisfied={}, safety_violations={:?})",
                     scenario.validation.all_constraints_satisfied,
                     scenario.validation.safety_violations
+                ),
+            ),
+        }
+    }
+}
+
+/// [`check_constraint_modes`] for `pedestrian_crossing`, against the
+/// propositions that scenario type actually lowers.
+///
+/// `Enforce` means `compute_validation_metrics` reported no violation of the
+/// field's own proposition; `Violate` means it reported at least one. The
+/// strings are the ones `metrics.rs`'s `pedestrian_pair` branch emits — the
+/// distance box, its SW-44 between-steps guard, and the guarded pedestrian TTC.
+fn check_pedestrian_constraint_modes(
+    scenario: &Scenario,
+    spec: &ScenarioSpec,
+    out: &mut Vec<Violation>,
+) {
+    let violations = &scenario.validation.safety_violations;
+    let matching = |needles: &[&str]| -> Vec<String> {
+        violations
+            .iter()
+            .filter(|v| needles.iter().any(|n| v.contains(n)))
+            .cloned()
+            .collect()
+    };
+
+    for (name, mode, found) in [
+        (
+            "min_distance",
+            spec.constraint_modes.min_distance(),
+            matching(&[
+                "Pedestrian distance-box violation",
+                "Pedestrian box tunnelling",
+            ]),
+        ),
+        (
+            "min_ttc",
+            spec.constraint_modes.min_ttc(),
+            matching(&["Pedestrian TTC violation"]),
+        ),
+    ] {
+        match mode {
+            ConstraintMode::Ignore => {}
+            ConstraintMode::Enforce if found.is_empty() => {}
+            ConstraintMode::Violate if !found.is_empty() => {}
+            ConstraintMode::Enforce => push(
+                out,
+                Invariant::ConstraintModes,
+                format!(
+                    "{name}: declared Enforce, and the validator reported {} breach(es) of the \
+                     proposition pedestrian_crossing.rs lowers for it: {found:?}",
+                    found.len()
+                ),
+            ),
+            ConstraintMode::Violate => push(
+                out,
+                Invariant::ConstraintModes,
+                format!(
+                    "{name}: declared Violate, and the validator reported no breach of the \
+                     proposition pedestrian_crossing.rs lowers for it — a constraint the \
+                     validator never finds broken is not violated, whatever the YAML says \
+                     (safety_violations={violations:?})"
                 ),
             ),
         }
