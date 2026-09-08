@@ -1,66 +1,105 @@
 # ─── Scenario: Overtake With Opposite Traffic ───
 #
-# NPC cuts into ego's lane on a bidirectional road with an oncoming traffic lane.
+# Ego overtakes a slow lead vehicle on a 3-lane road by entering the oncoming
+# lane, with an oncoming NPC creating head-on risk. A near-miss variant of
+# head_on_collision.yaml / head_on_near_miss.yaml: distinct speeds, positions
+# and a wider road, but the same enforced-safety shape as head_on_near_miss —
+# the solver must find timing where the ego completes the overtake before
+# getting dangerously close to the oncoming vehicle.
 #
 # Actors:
-#   - ego: lane 0, 15 m/s forward, fixed position at 50m
-#   - npc: lane 1, 12-14 m/s forward, left lane change at 2.5-4.0s over 3-4s
+#   - ego: lane 1, 13 m/s forward, starting at 0m
+#         performs overtake: right lane change (lane 1 -> 2), left lane change (lane 2 -> 1)
+#   - slow_npc: lane 1, 7-9 m/s forward, starting at 35-55m (ahead of ego)
+#   - oncoming_npc: lane 2 (backward), 11-13 m/s, starting at 210-230m
 #
-# Road: 3 lanes, 3.5m wide, lanes 0-1 forward, lane 2 backward
-# Coordinate System: cartesian
+# Road: 3 lanes, 3.5m wide; lane 0 forward (unused), lane 1 forward (ego's
+# lane), lane 2 backward (oncoming/passing lane) - kept to distinguish this
+# file's road shape from the 2-lane head_on_* examples
+# Coordinate System: cartesian (default)
 # Duration: 10.0s at 0.5s time steps
 #
 # Key Features:
-#   - Bidirectional road with one oncoming lane (lane 2, direction -1)
-#   - NPC performs left lane change from lane 1 into ego's lane 0
-#   - Tests scenario generation with mixed-direction lane configurations
+#   - Ego overtakes slow vehicle by entering the oncoming lane
+#   - Must complete the overtake before vehicles get too close
+#   - Safety enforced for ALL pairs (ego<->slow, ego<->oncoming, slow<->oncoming)
+#   - Near-miss: ego returns to its own lane just in time
 #
 # Safety Constraints:
-#   - min TTC: 3.0s (enforced)
+#   - min TTC: 2.0s (enforced)
 #   - min distance: 5.0m (enforced)
 #
 # Run:
 #   cargo run --release -- -i examples/overtake_with_opposite.yaml -o output/
 #
-scenario_type: cut_in_left
+scenario_type: head_on
 
 # Time configuration
 time_step: 0.5
 duration: 10.0
 
-# Road specification: 3 lanes
+# 3-lane road: lane 0 forward (unused, kept for a road shape distinct from
+# head_on_*.yaml's 2-lane roads), lane 1 forward (ego's lane), lane 2
+# backward (oncoming/passing lane)
 road:
   num_lanes: 3
   lane_width: 3.5
-  lane_directions: [1, 1, -1]  # Lane 2 is backward (for visualization)
+  lane_directions: [1, 1, -1]
 
-# Two-actor scenario: ego and npc
+# Actors
 actors:
   - id: ego
     role: ego
-    lane: 0
-    position: 50.0
-    speed: 15.0
-    direction: 1               # Forward (+x)
-    acceleration: [-3.0, 2.0]
-
-  - id: npc
-    role: npc
-    lane: 1
-    position: [60.0, 80.0]
-    speed: [12.0, 14.0]
-    direction: 1               # Forward (+x)
-    acceleration: [-8.0, 3.0]
+    lane: 1                     # Forward lane
+    position: 0.0               # Starting at x=0m
+    speed: 13.0                 # 13 m/s forward
+    direction: 1                # Forward (+x)
+    acceleration: [-5.0, 3.0]
     lane_changes:
+      # First: enter oncoming lane (overtake)
+      - direction: right
+        start_time: [1.5, 2.5]
+        duration: [1.5, 2.0]
+      # Second: return to own lane
       - direction: left
-        start_time: [2.5, 4.0]
-        duration: [3.0, 4.0]
+        start_time: [5.0, 6.0]
+        duration: [1.5, 2.0]
 
-# Safety constraints
-min_ttc: 3.0
+  - id: slow_npc
+    role: npc
+    lane: 1                     # Same lane as ego (being overtaken)
+    position: [35.0, 55.0]     # Ahead of ego
+    speed: [7.0, 9.0]          # Slow vehicle motivating overtake
+    direction: 1                # Forward (+x)
+    acceleration: [-2.0, 1.0]
+
+  - id: oncoming_npc
+    role: npc
+    lane: 2                     # Oncoming lane (backward traffic)
+    position: [210.0, 230.0]   # Far enough to allow safe overtake
+    speed: [11.0, 13.0]        # Oncoming speed
+    direction: -1               # Backward (-x) - oncoming traffic
+    acceleration: [-2.0, 1.0]
+
+# Lateral envelope.
+#
+# Same lane-change window shape as head_on_near_miss.yaml (start [1.5,2.5]/
+# [5.0,6.0], duration [1.5,2.0]), so the same derivation applies: with
+# time_step 0.5s, the two pinned steps bracketing each change window are
+# 2.5s apart, giving four interior steps whose trapezoidal-integrated `vy`
+# must sum to 7.0 to cover one 3.5m lane width. Capping |vy| at the cartesian
+# encoder's 2.0 m/s bound leaves the two ramp steps needing 1.5 m/s each from
+# vy=0 in one 0.5s step, i.e. |ay| = 3.0 m/s^2 - the same bound
+# head_on_near_miss.yaml derived and bisected against the solver.
+max_lateral_acceleration: 3.0
+
+# Safety constraints - ENFORCE to maintain safety for all pairs
+min_ttc: 2.0
 min_distance: 5.0
 num_scenarios: 1
 
 constraint_modes:
   min_ttc: enforce
   min_distance: enforce
+
+# Expected: Ego completes the overtake safely, returning to its own lane before the oncoming car gets close
