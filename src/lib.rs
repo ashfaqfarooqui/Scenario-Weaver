@@ -101,8 +101,8 @@ fn generate_with_solver(
 /// Shared by the single-scenario optimizer path ([`generate_with_optimizer`]) and the
 /// multi-scenario optimizer path ([`solver::multi_solve::generate_scenarios`]) so the
 /// two paths cannot silently diverge on what `--optimize` / `optimization_target:`
-/// means (see SW-13/D4: before this, `--optimize` was honoured for `num_scenarios == 1`
-/// only and silently ignored otherwise).
+/// means: `--optimize` must be honoured regardless of `num_scenarios`, not only
+/// when it is `1`.
 pub(crate) fn dsl_target_to_backend_target(
     target: dsl::types::OptimizationTarget,
 ) -> Result<solver::backend::OptimizationTarget> {

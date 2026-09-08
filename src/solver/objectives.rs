@@ -15,7 +15,7 @@ use crate::solver::encoder::{directed_conflict, DirectedConflict, GenericEncoder
 use crate::solver::encoder_utils::{encode_same_lane_constraint, real_from_f64};
 
 /// Candidate time-to-collision levels, in seconds, used by the `MinimizeTtc` and
-/// `MaximizeTtc` objectives (SW-14/M3).
+/// `MaximizeTtc` objectives.
 ///
 /// TTC is `gap / closing_speed`. A *division* is non-linear, and the whole encoding is
 /// deliberately confined to QF_LRA, so no single linear term can rank scenarios by TTC:
@@ -56,7 +56,7 @@ impl GenericEncoder<OptimizerBackend> {
     /// QF_LRA and `Optimize` has essentially no support for non-linear objectives — and
     /// every one is scored over the *same* "same lane" predicate the validator uses when
     /// it reports `min_distance` and `min_ttc`, so the quantity optimised is the quantity
-    /// reported (SW-14).
+    /// reported.
     ///
     /// - **`MinimizeDistance`**: minimise the smallest same-lane longitudinal gap.
     /// - **`MinimizeTtc`**: minimise the smallest same-lane time-to-collision, over the
@@ -194,8 +194,7 @@ impl GenericEncoder<OptimizerBackend> {
     /// MaximizeSeverity: find the scenario with the highest same-lane closing speed.
     ///
     /// Severity correlates with relative impact speed, and this objective drives that up,
-    /// which is what an adversarial scenario generator wants. It was called
-    /// `MinimizeSeverity` until SW-14's rename landed.
+    /// which is what an adversarial scenario generator wants.
     ///
     /// Uses a "choice" pattern: obj can equal any effective_closing_speed value, and Z3
     /// maximizes it by choosing scenario parameters that produce the highest approach
@@ -241,16 +240,17 @@ impl GenericEncoder<OptimizerBackend> {
     ///
     /// With `g_k` true exactly for `k ≤ M` the sum telescopes and `obj = T_M`. This is a
     /// conjunction of implications rather than a disjunction, so it *propagates* rather
-    /// than branching (the lesson SW-11 recorded).
+    /// than branching.
     ///
     /// The bound runs the other way from the minimiser: `g_M` forces every approaching
     /// step to clear `T_M`, so the reported optimum is a **certified lower bound** —
     /// `optimal_value ≤ measured min TTC`.
     ///
-    /// Before SW-14 this target dispatched to a *distance* objective: it maximised the
-    /// minimum gap and called it TTC. On `examples/cut_in_left_optimize_max_ttc.yaml` that
-    /// reported a 113.50 m gap in cartesian and 126.88 m in bicycle — 12 % apart — while
-    /// the TTC it claimed to maximise came out 12.37 s and 44.76 s, a factor of 3.6.
+    /// Dispatching this target to a *distance* objective instead — maximising the
+    /// minimum gap and calling it TTC — would be wrong: on
+    /// `examples/cut_in_left_optimize_max_ttc.yaml` that reports a 113.50 m gap in
+    /// cartesian and 126.88 m in bicycle — 12 % apart — while the TTC it claims to
+    /// maximise comes out 12.37 s and 44.76 s, a factor of 3.6.
     fn encode_maximize_ttc_objective(&mut self) {
         let conflicts = self.collect_directed_conflicts();
         let levels = &TTC_LEVELS;
@@ -310,11 +310,10 @@ impl GenericEncoder<OptimizerBackend> {
     /// This is the encoder-side twin of the TTC block in `compute_validation_metrics`: the
     /// same "same lane" predicate ([`encode_same_lane_constraint`] — discrete lane match
     /// *or* lateral overlap), the same requirement that the follower be strictly behind,
-    /// and the same closing-speed floor. Sharing the predicate is the whole point: before
-    /// SW-14 the objectives tested `lane_i == lane_j` alone, so they scored a different
-    /// set of states than the validator measured, and the two diverged most in the bicycle
-    /// coordinate system, where a lane change spends many steps laterally overlapping
-    /// without a discrete lane match.
+    /// and the same closing-speed floor. Sharing the predicate is the whole point: testing
+    /// `lane_i == lane_j` alone would score a different set of states than the validator
+    /// measures, and the two would diverge most in the bicycle coordinate system, where a
+    /// lane change spends many steps laterally overlapping without a discrete lane match.
     fn collect_directed_conflicts(&self) -> Vec<DirectedConflict> {
         let actor_ids: Vec<String> = self.spec.actors.iter().map(|a| a.id.clone()).collect();
 
@@ -326,9 +325,9 @@ impl GenericEncoder<OptimizerBackend> {
                         (&actor_ids[i], &actor_ids[j]),
                         (&actor_ids[j], &actor_ids[i]),
                     ] {
-                        // SW-22 moved the body of this loop into
-                        // `directed_conflict`, so the `Converging` proposition and
-                        // these objectives assert the same predicate by construction.
+                        // The body of this loop lives in `directed_conflict`, so
+                        // the `Converging` proposition and these objectives assert
+                        // the same predicate by construction.
                         conflicts.push(directed_conflict(self, &self.spec, follow, lead, t));
                     }
                 }
@@ -342,8 +341,8 @@ impl GenericEncoder<OptimizerBackend> {
     /// Returns `|px_i - px_j|` when the pair is in the same lane, `big_val` otherwise.
     /// "Same lane" is [`encode_same_lane_constraint`] — the same predicate
     /// `compute_validation_metrics` uses to decide which gaps enter the reported
-    /// `min_distance` (SW-14/M2). It was `lane_i == lane_j` alone, which scored a
-    /// narrower set of states than the tool then reported on.
+    /// `min_distance`. Using `lane_i == lane_j` alone here would score a narrower
+    /// set of states than the tool reports on.
     fn compute_effective_dist(&self, aid_i: &str, aid_j: &str, t: usize, big_val: &Real) -> Real {
         let px_i = self.get_longitudinal_pos(aid_i, t);
         let px_j = self.get_longitudinal_pos(aid_j, t);
@@ -690,7 +689,7 @@ mod tests {
         });
     }
 
-    /// The directed conflicts the TTC objectives are scored over (SW-14).
+    /// The directed conflicts the TTC objectives are scored over.
     ///
     /// Replaces `test_compute_ttc_proxy_same_lane`, which pinned the old
     /// `|Δpx| − dt·|Δvx|` proxy at 47.5 — a quantity that was never a TTC and

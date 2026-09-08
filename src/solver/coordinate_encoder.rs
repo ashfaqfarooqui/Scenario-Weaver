@@ -16,7 +16,7 @@ use crate::solver::backend::Z3Backend;
 /// Each coordinate system (Cartesian, Bicycle) implements this trait
 /// to provide its own variable creation, kinematics, and constraint encoding.
 ///
-/// # Method usage notes (SW-20, verified against a fresh grep for call sites)
+/// # Method usage notes (verified against a fresh grep for call sites)
 ///
 /// `encode_velocity_constraints()` and `encode_acceleration_constraints()` are
 /// both called unconditionally from every entry point that builds a
@@ -25,9 +25,9 @@ use crate::solver::backend::Z3Backend;
 /// paths) — precisely *because* `GenericEncoder` is coordinate-system-generic
 /// and none of those callers know or care which concrete encoder they hold.
 /// That is what the trait is for, and it is why leaving one implementor a
-/// no-op is not itself the defect: the defect this issue traces (H4) was a
-/// doc comment that called the same methods "not currently called", which
-/// hid that `BicycleEncoder`'s implementation was load-bearing.
+/// no-op is not itself a defect: a doc comment that calls the same methods
+/// "not currently called" would hide that `BicycleEncoder`'s implementation
+/// is load-bearing.
 ///
 /// - `encode_velocity_constraints()`: a no-op for `CartesianEncoder` — the
 ///   direction-sign half of velocity is asserted by
@@ -46,13 +46,12 @@ use crate::solver::backend::Z3Backend;
 ///   instead. For `BicycleEncoder` this method is where that band is
 ///   asserted; `encode_kinematics()` does not do it there.
 ///
-/// - `encode_lateral_velocity_bounds()`: real in both implementors as of
-///   SW-11. `CartesianEncoder` applies a flat `|vy| <= 2.0` m/s cap.
+/// - `encode_lateral_velocity_bounds()`: real in both implementors.
+///   `CartesianEncoder` applies a flat `|vy| <= 2.0` m/s cap.
 ///   `BicycleEncoder` additionally derives a tighter bound from the heading
 ///   coupling (`vy = v̄*θ`, `|θ| <= atan(0.15)`) before applying the same
-///   2.0 m/s absolute cap — it is not a no-op, and the claim that steering
-///   constraints alone handled this was false (H5): before SW-11 nothing
-///   related `θ`/`δ` to `vy` at all.
+///   2.0 m/s absolute cap — it is not a no-op: steering constraints alone
+///   do not relate `θ`/`δ` to `vy`.
 pub trait CoordinateEncoder<B: Z3Backend> {
     // === Core Encoding ===
 
@@ -122,7 +121,7 @@ pub trait CoordinateEncoder<B: Z3Backend> {
     ///
     /// Constrains lateral velocity to allow single-timestep lane changes.
     /// Real, and not a no-op, in both implementors — see the trait-level doc
-    /// comment (SW-11/H5).
+    /// comment.
     fn encode_lateral_velocity_bounds(&mut self);
 
     // === Backend Access ===

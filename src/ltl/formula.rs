@@ -88,14 +88,14 @@ pub enum Proposition {
     /// Actor's longitudinal speed exceeds threshold (linear constraint: |vx| >= velocity)
     /// Uses absolute value of longitudinal velocity (vx), not vector magnitude.
     /// Matches YAML "speed" semantics which sets vx (signed by lane direction).
-    /// Non-strict at the boundary (SW-41), matching `compute_validation_metrics`'s
+    /// Non-strict at the boundary, matching `compute_validation_metrics`'s
     /// `vx_abs >= min_velocity - METRIC_TOL` safe reading.
     VelocityGT { actor: String, velocity: f64 },
 
     /// Actor's longitudinal speed is below threshold (linear constraint: |vx| <= velocity)
     /// Uses absolute value of longitudinal velocity (vx), not vector magnitude.
     /// Matches YAML "speed" semantics which sets vx (signed by lane direction).
-    /// Non-strict at the boundary (SW-41), matching `compute_validation_metrics`'s
+    /// Non-strict at the boundary, matching `compute_validation_metrics`'s
     /// `vx_abs <= max_velocity + METRIC_TOL` safe reading.
     VelocityLT { actor: String, velocity: f64 },
 
@@ -118,7 +118,7 @@ pub enum Proposition {
     /// `TTCGT` alone cannot require one to be evaluated: `TTCGT` is a *guarded
     /// implication* — "whenever this pair is converging, its TTC exceeds the threshold" —
     /// so `G(TTCGT(..))` is satisfied vacuously by traffic that never converges, and an
-    /// `enforce`d `min_ttc` then constrains nothing (SW-22). `Approaching` is the missing
+    /// `enforce`d `min_ttc` then constrains nothing. `Approaching` is the missing
     /// *antecedent*.
     ///
     /// Linear (QF_LRA): two comparisons between existing variables, no products.
@@ -131,8 +131,8 @@ pub enum Proposition {
     /// *hypothesis* — `G(InLane(..) → Approaching(..))`, with an antecedent the scenario
     /// already forces true somewhere — rather than bundling it here or reaching for an
     /// `F(Approaching)`, which is a disjunction over the whole horizon and is search.
-    /// See `scenarios::cut_in_conflict` for the canonical use and SW-11's speed buckets
-    /// for the general lesson.
+    /// See `scenarios::cut_in_conflict` for the canonical use; the same lesson applies
+    /// to speed buckets more generally.
     Approaching { follower: String, leader: String },
 
     /// Exactly the state in which a *pedestrian* time-to-collision is defined:
@@ -144,17 +144,17 @@ pub enum Proposition {
     /// This is `PedestrianTTCGT`'s own guard, lifted out so it can be named on
     /// its own. Both are lowered by the same helper (`encode.rs`,
     /// `encode_pedestrian_ttc_guard`) — there is one copy of the three
-    /// comparisons, not two that can drift apart the way SW-27's and SW-34's
-    /// pairs of same-lane/threshold definitions did.
+    /// comparisons, not two that could drift apart the way duplicated
+    /// pairs of same-lane/threshold definitions can.
     ///
-    /// It exists for the same reason `Approaching` does (SW-22), one scenario
+    /// It exists for the same reason `Approaching` does, one scenario
     /// type over: `G(PedestrianTTCGT(..))` is a guarded implication, so it is
     /// satisfied vacuously by a pedestrian who keeps off the road at exactly
     /// the steps where the ego is bearing down on it and crosses once the ego
     /// is past. `pedestrian_crossing.rs` therefore asserts
     /// `G(CrossingRoad(ped) → PedestrianTTCGuard(ego, ped))` alongside an
     /// `enforce`d `min_ttc`. The antecedent is one the crossing template
-    /// already forces true somewhere (`F(CrossingRoad(ped))`, and SW-42's
+    /// already forces true somewhere (`F(CrossingRoad(ped))`, and
     /// `Invariant::Liveness` confirms it in the shipped trajectory), so the
     /// implication cannot be satisfied trivially — and because this atom *is*
     /// the TTC's guard, "the antecedent holds at that step" and "the TTC bound
@@ -162,8 +162,8 @@ pub enum Proposition {
     ///
     /// Linear (QF_LRA): four comparisons between existing variables, no
     /// products, and — unlike `encode_same_lane_constraint` — no disjunction,
-    /// so it is affordable as a *consequent*, which is where SW-22 measured
-    /// disjunctions to be expensive.
+    /// so it is affordable as a *consequent*; disjunctions there are the
+    /// expensive case (see `Approaching` above).
     ///
     /// Never carries an Enforce/Violate polarity of its own; it is a guard.
     PedestrianTTCGuard { ego: String, pedestrian: String },

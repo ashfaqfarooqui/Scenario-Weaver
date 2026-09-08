@@ -8,7 +8,7 @@ use std::fmt;
 
 // Pedestrian physics constants
 //
-// SW-12/M8. These are the true physical speeds, not a compensation for the
+// These are the true physical speeds, not a compensation for the
 // encoding. They used to be divided by sqrt(2) (2.0 -> 1.41, 5.0 -> 3.54)
 // because the encoder bounded velocity with a *box* — `|vx| <= v` and
 // `|vy| <= v` — which contains the disk and so permits `sqrt(2)*v` on the
@@ -44,7 +44,7 @@ pub const PEDESTRIAN_MAX_ACCELERATION: f64 = 1.0;
 /// Maximum deceleration for pedestrians (m/s²) - negative value
 pub const PEDESTRIAN_MAX_DECELERATION: f64 = -1.0;
 
-// Scenario envelope bounds (SW-12/L2)
+// Scenario envelope bounds
 //
 // `ScenarioSpec::validate` bounded `time_step` and `duration` from one side
 // only, so `time_step: 1e-9` with `duration: 10.0` was accepted and then hung
@@ -67,19 +67,19 @@ pub const MIN_LANE_WIDTH: f64 = 1.0;
 pub const MAX_LANE_WIDTH: f64 = 20.0;
 
 /// Whether a lane change scheduled to start at `start_step` has anywhere to
-/// go within a `horizon`-step scenario (SW-25/SW-29).
+/// go within a `horizon`-step scenario.
 ///
 /// `horizon` steps means the last valid index is `horizon`, but that index is
 /// the *final* state — nothing simulates past it — so a change starting there
 /// spans no time step at all and is discarded by the encoder
 /// (`CartesianEncoder::encode_smooth_lane_transition`'s own
 /// `start_step >= self.horizon` guard). The comparison is therefore `>=`, not
-/// `>`; SW-25 found the two disagreeing by exactly one between
+/// `>`; the two used to disagree by exactly one between
 /// [`ScenarioSpec::validate`] and the encoder, with `collect_lane_change_data`
-/// in `solver::encoder_utils` a third, independently-drifted copy (still `>`
-/// until SW-29). `validate` and `collect_lane_change_data` now both call this
-/// function. `src/solver/encoders/cartesian.rs` is outside SW-29's file list
-/// (`src/solver/encoders/` is fenced off entirely), so its own
+/// in `solver::encoder_utils` a third, independently-drifted copy. `validate`
+/// and `collect_lane_change_data` now both call this
+/// function. `src/solver/encoders/cartesian.rs` is fenced off separately,
+/// so its own
 /// `start_step >= self.horizon` is left as a separate literal — numerically
 /// identical to this predicate today, but a fourth call site should route
 /// through it too if that fence is ever lifted.
@@ -89,7 +89,7 @@ pub const fn lane_change_start_past_horizon(start_step: usize, horizon: usize) -
 }
 
 /// Fraction of the distance implied by an actor's declared initial speed that
-/// a vehicle must actually cover over the scenario duration (SW-12/M5).
+/// a vehicle must actually cover over the scenario duration.
 ///
 /// This is the forward-progress floor. It is a bound on *net displacement*
 /// over the whole horizon, not a per-step speed floor, so a vehicle may still
@@ -102,7 +102,7 @@ pub const fn lane_change_start_past_horizon(start_step: usize, horizon: usize) -
 pub const MIN_FORWARD_PROGRESS_FRACTION: f64 = 0.5;
 
 /// Fraction of an actor's declared initial speed that its longitudinal speed
-/// must be back up to *at the final step of the horizon* (SW-39).
+/// must be back up to *at the final step of the horizon*.
 ///
 /// The displacement floor above bounds only the average speed over the whole
 /// horizon, and the cheapest way to satisfy an average is a monotone decay to
@@ -119,20 +119,20 @@ pub const MIN_FORWARD_PROGRESS_FRACTION: f64 = 0.5;
 /// (`v[H] * dir` compared against `f * speed.min() * dir`, all compile-time
 /// constants), so it stays in QF_LRA exactly like the displacement floor.
 ///
-/// SW-40: "an emergency stop is a dip, not an ending state" is an argument
+/// The "an emergency stop is a dip, not an ending state" argument above is
 /// about a stop in the *middle* of the horizon, and it does not cover a stop
 /// *at* the horizon, which a spec can require outright — an actor whose
 /// declared `acceleration` band is strictly negative must shed speed at every
 /// step, so it arrives at the last step at (or near) rest by construction.
-/// Such a spec satisfies the displacement floor above and was made UNSAT by
-/// this one alone. `encode_forward_progress` therefore asserts this floor only
+/// Such a spec satisfies the displacement floor above but would fail this
+/// floor alone if asserted unconditionally. `encode_forward_progress` therefore asserts this floor only
 /// for actors whose declared speed and acceleration bands can still reach it
 /// (`speed.max() + a_along_max * duration >= TERMINAL_SPEED_FRACTION *
 /// speed.min()`); an actor that could hold its speed and merely prefers not to
 /// — the coasting oncoming vehicle this constant exists for — is unaffected.
 pub const TERMINAL_SPEED_FRACTION: f64 = 0.5;
 
-/// The only `ActorSpec.behavior` keys anything in the crate reads (SW-21/M10).
+/// The only `ActorSpec.behavior` keys anything in the crate reads.
 ///
 /// `behavior` is an untyped `HashMap<String, serde_json::Value>` — there is no
 /// per-scenario-type schema to validate against — so this whitelist is the
@@ -182,8 +182,8 @@ pub enum OptimizationTarget {
     ///
     /// Severity correlates with relative impact speed, and the encoder drives that *up*.
     /// There is no weighted combination of TTC and distance anywhere, and never was —
-    /// which is why this was called `MinimizeSeverity` until SW-14's rename: the old name
-    /// described an encoding that did not exist. Use `MaximizeTtc` if what you want is the
+    /// which is why the variant is named `MaximizeSeverity`, not `MinimizeSeverity`: the
+    /// latter name would describe an encoding that does not exist. Use `MaximizeTtc` if what you want is the
     /// *safest* scenario; this one asks for the worst.
     MaximizeSeverity,
     /// Maximize the smallest same-lane time-to-collision — the safest scenario.
@@ -219,10 +219,6 @@ pub enum LaneChangeDirection {
     /// "left" is the opposite road-frame direction (see
     /// `cartesian.rs::encode_smooth_lane_transition`, which maps
     /// `Left => -actor.direction`).
-    ///
-    /// SW-17 E5: this used to claim the opposite (higher index / lower y);
-    /// it was corrected to match `cartesian.rs`, the encoder that actually
-    /// implements it, rather than the other way around.
     Left,
     /// Move to the lane with a higher index (higher y-coordinate), for a
     /// forward-travelling actor. See [`Left`](LaneChangeDirection::Left) for
@@ -355,14 +351,13 @@ impl BicycleConfig {
 
 /// Which of the seven per-constraint modes is being asked for.
 ///
-/// SW-21/D1+item 3: `ConstraintModes` used to expose seven public accessors
+/// `ConstraintModes` used to expose seven public accessors
 /// (`min_ttc()`, `min_distance()`, ...) that were the same 4-line match
 /// copy-pasted seven times, once per field. This enum plus
 /// [`ConstraintModes::mode_for`] is the single real implementation; the seven
 /// named methods below are kept as one-line wrappers only because they are
 /// public API called from `src/scenarios/{head_on,pedestrian_crossing}.rs`
-/// and elsewhere outside this issue's file list — removing them would be a
-/// breaking rename this issue is not scoped to make.
+/// and elsewhere — removing them would be a breaking rename.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Constraint {
     MinTtc,
@@ -379,7 +374,7 @@ pub enum Constraint {
 /// Controls how each safety constraint is treated during generation:
 /// enforced (must hold), violated (adversarial), or ignored.
 ///
-/// SW-21/D1+D2: `Deserialize` is hand-written rather than derived (see
+/// `Deserialize` is hand-written rather than derived (see
 /// `impl<'de> Deserialize<'de> for ConstraintModes` below) for two reasons
 /// that `#[serde(untagged)]` cannot give us:
 ///   1. The `Detailed { .. }` mapping form needs `#[serde(deny_unknown_fields)]`
@@ -414,8 +409,8 @@ pub enum ConstraintModes {
 
 /// The three bulk values `constraint_modes` accepts as a single string.
 ///
-/// SW-19: previously the payload of `ConstraintModes::Shorthand` was a bare
-/// `String`. SW-21's custom `Deserialize` already turned a typo'd shorthand
+/// The payload of `ConstraintModes::Shorthand` used to be a bare
+/// `String`. The custom `Deserialize` already turns a typo'd shorthand
 /// into a parse error naming the valid values, but the type still allowed
 /// constructing an invalid one directly (`ConstraintModes::Shorthand("bogus".into())`
 /// compiled fine); `mode_for`'s `Shorthand` arm below could only guard
@@ -520,7 +515,7 @@ impl<'de> Deserialize<'de> for ConstraintModes {
 
 impl Default for ConstraintModes {
     fn default() -> Self {
-        // SW-21/M7: this used to disagree with the per-field `#[serde(default)]`
+        // This used to disagree with the per-field `#[serde(default)]`
         // (which resolves to `ConstraintMode::default()` = `Enforce` for every
         // field), so omitting `constraint_modes` entirely and writing a
         // *partial* `Detailed` block gave different semantics for
@@ -570,10 +565,10 @@ impl ConstraintModes {
                 Constraint::MinLateralDistance => *min_lateral_distance,
                 Constraint::MaxRelativeVelocity => *max_relative_velocity,
             },
-            // SW-21/D1: this used to be duplicated seven times, once per
+            // This used to be duplicated seven times, once per
             // accessor, with a `_ => ConstraintMode::Enforce` fallback that
             // made a typo'd shorthand silently enforce rather than error.
-            // SW-19 finished the job: `ConstraintShorthand` has exactly these
+            // `ConstraintShorthand` has exactly these
             // three variants, so this match is exhaustive with no `_` arm and
             // no runtime fallback — a future shorthand value nobody taught
             // this function about is a compile error, not a silent `Enforce`.
@@ -754,7 +749,7 @@ impl RoadSpec {
         // physical y-position, every forward lane must sit at a lower index than every
         // backward lane: `[1,1,-1,-1]` is fine, `[-1,-1,1,1]` and any interleaving such as
         // `[1,-1,1,-1]` are not — the exporter would silently place a lane a full
-        // lane-width off from its scenario y-position (SW-16 E2). Reject rather than emit
+        // lane-width off from its scenario y-position. Reject rather than emit
         // a road that disagrees with the trajectories driving on it.
         if self
             .lane_directions
@@ -766,9 +761,8 @@ impl RoadSpec {
                  (e.g. [1,1,-1,-1]) — once a backward (-1) lane appears, no forward \
                  (+1) lane may follow it. The xodr exporter's right/left lane-id split \
                  assumes this ordering; an interleaved or reversed layout would place \
-                 lanes at the wrong y-position. Reorder the road's lanes, or track the \
-                 general fix under SW-16 (drop the direction-based id split entirely and \
-                 assign ids purely from lane index).",
+                 lanes at the wrong y-position. Reorder the road's lanes so every \
+                 forward (+1) lane precedes every backward (-1) lane.",
                 self.lane_directions
             ));
         }
@@ -893,7 +887,7 @@ fn default_max_lateral_acceleration() -> f64 {
 
 /// A numeric value that is either fixed or a `[min, max]` range for the solver to explore.
 ///
-/// SW-21/M11. `Deserialize` is hand-written rather than derived from
+/// `Deserialize` is hand-written rather than derived from
 /// `#[serde(untagged)]`. The derived untagged form buffers the value into a
 /// generic `Content` tree and retries each variant against it, which loses
 /// the original deserializer's position tracking — `speed: "fast"` used to
@@ -1059,7 +1053,7 @@ impl ScenarioSpec {
         if self.duration < self.time_step {
             return Err("duration must be >= time_step".to_string());
         }
-        // SW-12/L2. `time_step` was bounded below only by `> 0.0`, so
+        // `time_step` was bounded below only by `> 0.0`, so
         // `time_step: 1e-9` with `duration: 10` gave `num_time_steps() = 10^10`
         // and the process hung building Z3 variables before it ever reached the
         // solver. The floor is the smallest step that yields a tractable
@@ -1099,7 +1093,7 @@ impl ScenarioSpec {
             road.validate()?;
         }
 
-        // SW-12/L2. `lane_width` had a lower bound but no upper one, and the
+        // `lane_width` had a lower bound but no upper one, and the
         // three optional safety scalars below were never checked for sign at
         // all — a negative `min_lateral_distance` is a constraint no pair can
         // fail, silently disabling the check it looks like it enables.
@@ -1207,7 +1201,7 @@ impl ScenarioSpec {
                     actor.id, actor.direction
                 ));
             }
-            // SW-21/M9. `parser::parse_yaml` used to validate `actor.direction`
+            // `parser::parse_yaml` used to validate `actor.direction`
             // here and then unconditionally *overwrite* it from
             // `road.lane_directions[actor.lane]` a few lines later, discarding
             // whatever the user wrote. An npc declaring `direction: -1` in a
@@ -1237,15 +1231,15 @@ impl ScenarioSpec {
                     ));
                 }
             }
-            // SW-21/M10. `behavior` is an untyped `HashMap<String, Value>`
+            // `behavior` is an untyped `HashMap<String, Value>`
             // with no schema, so `walking_moad: run` (typo of `walking_mode`)
             // used to deserialize successfully and the reader
             // (`solver/encoders/pedestrian.rs`, `pedestrian_crossing.rs`)
             // fell back to its `"walk"` default, silently producing a walking
             // pedestrian for a scenario that asked for a runner. There is no
             // typed schema per scenario type, so this is the "at minimum"
-            // option the issue names: reject any key that nothing in the
-            // crate reads. `cut_in_time` was in this set until this issue
+            // option: reject any key that nothing in the
+            // crate reads. `cut_in_time` was in this set
             // (grep confirms it: zero non-test readers; the actual cut-in
             // timing is `ActorSpec::lane_changes`) and has been dropped from
             // the two test fixtures that still had it, matching every shipped
@@ -1263,7 +1257,7 @@ impl ScenarioSpec {
             }
             // Validate lane changes.
             //
-            // SW-12/M6. All three of these used to be silent: an out-of-range
+            // All three of these used to be silent: an out-of-range
             // target clamped to the actor's current lane and the encoder then
             // encoded a "transition" from lane N to lane N; a `start_time`
             // past the horizon was dropped by `collect_lane_change_data`'s
@@ -1314,7 +1308,7 @@ impl ScenarioSpec {
                 // declared start window (`collect_lane_change_data`); a
                 // midpoint past the horizon is a change that never happens.
                 //
-                // SW-25: the bound is `>=`, not `>`. Step `horizon` is the
+                // The bound is `>=`, not `>`. Step `horizon` is the
                 // *last* state in the trajectory, so a change scheduled to
                 // begin there spans no simulated step at all — the same
                 // "requested manoeuvre disappeared" class this check exists
@@ -1367,7 +1361,7 @@ impl ScenarioSpec {
                 current_lane = target;
             }
 
-            // SW-28. `scenarios::cut_in_conflict` already detects a cut-in
+            // `scenarios::cut_in_conflict` already detects a cut-in
             // whose NPC never reaches the ego's lane and returns `True` for
             // it — correctly declining to assert a conflict that cannot
             // exist — but that leaves the spec's `enforce`d `min_ttc` /
@@ -1416,8 +1410,8 @@ impl ScenarioSpec {
         }
 
         // A bad constraint_modes shorthand is now a compile-time-unrepresentable
-        // state (ConstraintShorthand, SW-19) enforced at parse time by
-        // ConstraintModes's custom Deserialize (SW-21), so there is nothing
+        // state (ConstraintShorthand) enforced at parse time by
+        // ConstraintModes's custom Deserialize, so there is nothing
         // left to validate here.
 
         // Warn if violating constraints
@@ -1539,7 +1533,7 @@ mod tests {
         spec
     }
 
-    /// SW-12/M6: a lane change off the edge of the road is an error, not a clamp.
+    /// A lane change off the edge of the road is an error, not a clamp.
     ///
     /// `bicycle.rs` clamps the target with
     /// `(current_lane + lane_delta).clamp(0, num_lanes - 1)`, so `direction:
@@ -1561,7 +1555,7 @@ mod tests {
         );
     }
 
-    /// SW-12/M6: a lane change scheduled past the horizon is an error.
+    /// A lane change scheduled past the horizon is an error.
     ///
     /// `encoder_utils::collect_lane_change_data` dropped these with a
     /// `filter_map` returning `None`, with no warning.
@@ -1580,7 +1574,7 @@ mod tests {
         );
     }
 
-    /// SW-25: the boundary case the SW-12 check let through.
+    /// The boundary case the check above lets through.
     ///
     /// `start_step == horizon` schedules the change to begin at the *final*
     /// state of the trajectory, so it spans no simulated step — the same
@@ -1605,7 +1599,7 @@ mod tests {
         );
     }
 
-    /// SW-12/M6: a non-positive lane-change duration is an error.
+    /// A non-positive lane-change duration is an error.
     ///
     /// `duration: 0` gave `duration_steps = 0`, so `start_step >= end_step`
     /// and `encode_smooth_lane_transition` returned early at
@@ -1625,7 +1619,7 @@ mod tests {
         );
     }
 
-    /// SW-12/L2: `time_step: 1e-9` is rejected instead of hanging.
+    /// `time_step: 1e-9` is rejected instead of hanging.
     ///
     /// With `duration: 10` it gives `num_time_steps() = 10^10`, and the
     /// process died building Z3 variables long before it reached the solver.
@@ -1644,7 +1638,7 @@ mod tests {
         );
     }
 
-    /// SW-12/L2: the optional safety scalars are checked for sign.
+    /// The optional safety scalars are checked for sign.
     ///
     /// A negative `min_lateral_distance` is a constraint no pair can fail, so
     /// it silently disables the check it looks like it enables.
@@ -1672,7 +1666,7 @@ mod tests {
         }
     }
 
-    /// SW-12/L2: `lane_width` is bounded from above as well as below.
+    /// `lane_width` is bounded from above as well as below.
     #[test]
     fn test_validate_rejects_an_absurd_lane_width() {
         let mut spec = create_valid_spec();
@@ -1774,7 +1768,7 @@ mod tests {
 
     #[test]
     fn test_road_spec_rejects_interleaved_directions() {
-        // SW-16 E2: [1,-1,1,-1] would place scenario lane 1 (y centre 5.25) at
+        // [1,-1,1,-1] would place scenario lane 1 (y centre 5.25) at
         // xodr's left lane +1 (y in [7.0, 10.5]) — a full lane-width off.
         let interleaved = RoadSpec {
             num_lanes: 4,
@@ -1912,7 +1906,7 @@ num_scenarios: 1
         assert_eq!(spec.get_lane_direction(2), -1);
     }
 
-    /// SW-11: the minimum turn radius is the exact kinematic
+    /// The minimum turn radius is the exact kinematic
     /// `L / tan(δ_max)`, not the small-angle `L / δ_max`.
     #[test]
     fn test_min_turn_radius_is_exact() {
@@ -1951,7 +1945,7 @@ num_scenarios: 1
 
     #[test]
     fn test_constraint_modes_unknown_shorthand() {
-        // SW-21/D1: `enforce_al` (typo of `enforce_all`) used to deserialize
+        // `enforce_al` (typo of `enforce_all`) used to deserialize
         // successfully as `Shorthand("enforce_al")` and the accessor's
         // `_ => ConstraintMode::Enforce` fallback made it behave as
         // `enforce_all` with no error and no warning — the exact inverse of
@@ -1979,7 +1973,7 @@ num_scenarios: 1
         }
     }
 
-    /// SW-21/D1: a hyphenated typo of a shorthand value is a parse error
+    /// A hyphenated typo of a shorthand value is a parse error
     /// naming the valid values — not a silent `enforce_all`, which is what a
     /// typo'd `violate_all` used to become (the exact inverse of the
     /// adversarial intent the user wrote).
@@ -1994,7 +1988,7 @@ num_scenarios: 1
         );
     }
 
-    /// SW-21/D2: a typo'd key inside the `Detailed` mapping form (`min_tcc`
+    /// A typo'd key inside the `Detailed` mapping form (`min_tcc`
     /// for `min_ttc`) used to deserialize successfully — untagged +
     /// `#[serde(default)]` on every field meant *any* mapping matched, and
     /// the misspelled key's real target silently kept its default mode. It is

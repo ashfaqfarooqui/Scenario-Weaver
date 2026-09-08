@@ -75,15 +75,15 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
 
     /// Compute validation metrics from the scenario trajectories
     ///
-    /// # Audit — every `Proposition` variant, what is encoded, what is measured (SW-31)
+    /// # Audit — every `Proposition` variant, what is encoded, what is measured
     ///
     /// This is the **only** place a generated scenario is checked against its
-    /// spec independently of the solver that produced it. Before this issue
-    /// it measured exactly three fields (`min_distance`, `min_ttc`,
-    /// `min_lateral_distance`); everything else a scenario model can lower a
-    /// [`Proposition`](crate::ltl::formula::Proposition) to went unchecked, so
-    /// `all_constraints_satisfied` was partly the encoder marking its own
-    /// homework. SW-32 is the reason every row below states *encoded* and
+    /// spec independently of the solver that produced it. Measuring only a
+    /// subset of fields (say, just `min_distance`, `min_ttc`,
+    /// `min_lateral_distance`) would leave everything else a scenario model
+    /// can lower a [`Proposition`](crate::ltl::formula::Proposition) to
+    /// unchecked, making `all_constraints_satisfied` partly the encoder
+    /// marking its own homework. Every row below states *encoded* and
     /// *measured* separately: a field can be lowered correctly and still be
     /// measured generically (or not at all), and the two failures look
     /// identical from the JSON output.
@@ -92,46 +92,45 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// |---|---|---|---|
     /// | `InLane` | every scenario type (lane bookkeeping) | — | not a spec field, no metric to check |
     /// | `Ahead` | `cut_in_left.rs:86`, `cut_in_right.rs:81`, `overtake_left.rs:139,171` | — | structural ordering, not a spec field |
-    /// | `Approaching` | `scenarios/mod.rs:144` (`cut_in_conflict`) | — | structural antecedent for `TTCGT`'s reachability (SW-22); its effect shows up in the TTC measurement below |
+    /// | `Approaching` | `scenarios/mod.rs:144` (`cut_in_conflict`) | — | structural antecedent for `TTCGT`'s reachability; its effect shows up in the TTC measurement below |
     /// | `OnSidewalk` / `CrossingRoad` | `pedestrian_crossing.rs:191,186` | — | LTL goals, not spec thresholds |
-    /// | `PedestrianTTCGuard` | `pedestrian_crossing.rs::generate_safety`, `Enforce` only (SW-43) | — | structural antecedent for `PedestrianTTCGT`'s reachability, the pedestrian twin of `Approaching`; it is *the same formula* as that proposition's own guard (one lowering, `encode_pedestrian_ttc_guard`), so its effect shows up in the pedestrian TTC check below rather than in a metric of its own |
-    /// | **`DistanceGT`** | `scenarios/mod.rs:217`, `head_on.rs:248,258` | `min_distance` block below, `same_lane`-gated `\|dx\|`, non-strict boundary (SW-12) | **agrees** — same guard predicate ([`encode_same_lane_constraint`]/[`same_lane_f64`]), same boundary |
+    /// | `PedestrianTTCGuard` | `pedestrian_crossing.rs::generate_safety`, `Enforce` only | — | structural antecedent for `PedestrianTTCGT`'s reachability, the pedestrian twin of `Approaching`; it is *the same formula* as that proposition's own guard (one lowering, `encode_pedestrian_ttc_guard`), so its effect shows up in the pedestrian TTC check below rather than in a metric of its own |
+    /// | **`DistanceGT`** | `scenarios/mod.rs:217`, `head_on.rs:248,258` | `min_distance` block below, `same_lane`-gated `\|dx\|`, non-strict boundary | **agrees** — same guard predicate ([`encode_same_lane_constraint`]/[`same_lane_f64`]), same boundary |
     /// | **`TTCGT`** | `scenarios/mod.rs:206`, `head_on.rs:223,233` | `min_ttc` block below, `same_lane` + closing-speed gated, same `TTC_CLOSING_SPEED_EPSILON` | **agrees** |
-    /// | **`LateralDistanceGT`** | `scenarios/mod.rs:229`, `pedestrian_crossing.rs:117` | `min_lateral_distance` block, unguarded `\|dy\|`, non-strict boundary (SW-30) | **agrees** |
-    /// | **`VelocityLT`** (`max_velocity`) | `scenarios/mod.rs:262`, all actors, unguarded | *(new, this issue)* per-actor `\|vx\|` check | was **unmeasured** by this function (a test-only re-derivation existed in `tests/common/invariants.rs`, not in the shipped `scenario.validation`) — now measured |
-    /// | **`VelocityGT`** (`min_velocity`) | `scenarios/mod.rs:274`, all actors, unguarded | *(new)* per-actor `\|vx\|` check | was **unmeasured** here — now measured. No corpus example sets it; covered by a constructed test below |
-    /// | **`RelativeVelocityGT`** (`max_relative_velocity`) | `scenarios/mod.rs:245`, all pairs, unguarded, negated polarity | *(new)* per-pair `\|vx1-vx2\|` check | was **unmeasured anywhere**, not even in `tests/common/invariants.rs`. `unsafe_following.yaml` — an adversarial corpus example built to violate exactly this field — reported `all_constraints_satisfied: true` pre-fix. Highest-value gap this issue closes |
-    /// | **`RectangularDistanceGT`** (pedestrian `min_distance`) | `pedestrian_crossing.rs:75`, `Enforce` only | *(fixed, this issue)* box check for pairs containing a pedestrian; previously the generic `same_lane`-gated `\|dx\|` ran instead, because a pedestrian's lane is pinned to 0 (`pedestrian_crossing.rs:232`) and so is the ego's, making `same_lane` structurally true | was **measured differently** — see doc note on the pedestrian branch below |
-    /// | **`PedestrianTTCGT`** (pedestrian `min_ttc`) | `pedestrian_crossing.rs:128`, `Enforce` only | *(fixed)* guarded ego-behind/on-road TTC check, mirroring the encoder's own guard | was **measured differently**, same root cause as the row above |
+    /// | **`LateralDistanceGT`** | `scenarios/mod.rs:229`, `pedestrian_crossing.rs:117` | `min_lateral_distance` block, unguarded `\|dy\|`, non-strict boundary | **agrees** |
+    /// | **`VelocityLT`** (`max_velocity`) | `scenarios/mod.rs:262`, all actors, unguarded | per-actor `\|vx\|` check | measured (a test-only re-derivation also exists in `tests/common/invariants.rs`) |
+    /// | **`VelocityGT`** (`min_velocity`) | `scenarios/mod.rs:274`, all actors, unguarded | per-actor `\|vx\|` check | measured. No corpus example sets it; covered by a constructed test below |
+    /// | **`RelativeVelocityGT`** (`max_relative_velocity`) | `scenarios/mod.rs:245`, all pairs, unguarded, negated polarity | per-pair `\|vx1-vx2\|` check | measured — `unsafe_following.yaml` is an adversarial corpus example built to violate exactly this field |
+    /// | **`RectangularDistanceGT`** (pedestrian `min_distance`) | `pedestrian_crossing.rs:75`, `Enforce` only | box check for pairs containing a pedestrian, rather than the generic `same_lane`-gated `\|dx\|` — a pedestrian's lane is pinned to 0 (`pedestrian_crossing.rs:232`) and so is the ego's, making `same_lane` structurally true | **measured differently from the generic pair check** — see doc note on the pedestrian branch below |
+    /// | **`PedestrianTTCGT`** (pedestrian `min_ttc`) | `pedestrian_crossing.rs:128`, `Enforce` only | guarded ego-behind/on-road TTC check, mirroring the encoder's own guard | **measured differently**, same root cause as the row above |
     ///
-    /// `Distance2DGT`, `ManhattanDistanceGT`, `OnLeftOf`, and `OnRightOf` had no
-    /// non-test caller in `src/scenarios/` and no validator check — deleted
-    /// under SW-42 rather than left as permanent "unmeasured" bookkeeping for
-    /// code nothing emits. If a future scenario type needs 2D/Manhattan
-    /// distance or lateral ordering, reintroduce the proposition alongside its
-    /// row here and a check above, not before.
+    /// `Distance2DGT`, `ManhattanDistanceGT`, `OnLeftOf`, and `OnRightOf` have no
+    /// non-test caller in `src/scenarios/` and no validator check, so they are
+    /// not kept as permanent "unmeasured" bookkeeping for code nothing emits.
+    /// If a future scenario type needs 2D/Manhattan distance or lateral
+    /// ordering, reintroduce the proposition alongside its row here and a
+    /// check above, not before.
     ///
     /// ## The pedestrian branch, in detail
     ///
     /// `pedestrian_crossing.rs` only lowers `RectangularDistanceGT` /
     /// `PedestrianTTCGT` when `min_distance`/`min_ttc` are `Enforce` (there is
-    /// no `Violate` lowering at all for either — flagged below, out of this
-    /// issue's scope since fixing it means editing a fenced file). The box's
-    /// thresholds (`min_distance / PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR`,
-    /// `min_distance / PEDESTRIAN_BOX_LATERAL_DIVISOR`) used to be literals
-    /// duplicated in both files; SW-34 hoisted them to
+    /// no `Violate` lowering at all for either — flagged below, since fixing
+    /// it means editing a fenced file). The box's thresholds
+    /// (`min_distance / PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR`, `min_distance /
+    /// PEDESTRIAN_BOX_LATERAL_DIVISOR`) live as
     /// `pedestrian_crossing::PEDESTRIAN_BOX_{LONGITUDINAL,LATERAL}_DIVISOR`,
     /// imported here, so there is exactly one copy of each number. Kept as
     /// divisors rather than multiplied ratios: `x / 1.5` and `x * (1.0/1.5)`
-    /// are not bit-identical in IEEE-754 (SW-27's shape). This measurement
-    /// is what makes a mismatch between the two files visible at all —
-    /// before SW-31 fixed this branch, a pedestrian pair that only satisfied
-    /// the box's longitudinal branch (large `\|dx\|`, small `\|dy\|`) was
-    /// reported as a `min_distance` *violation* by the generic check even
-    /// though the encoded box was genuinely satisfied — a false positive, not
-    /// just a blind spot. See `test_pedestrian_box_is_measured_not_the_longitudinal_proxy`.
+    /// are not bit-identical in IEEE-754. This measurement is what makes a
+    /// mismatch between the two files visible at all — a pedestrian pair
+    /// that only satisfies the box's longitudinal branch (large `\|dx\|`,
+    /// small `\|dy\|`) must not be reported as a `min_distance` *violation*
+    /// by the generic check when the encoded box is genuinely satisfied —
+    /// that would be a false positive, not just a blind spot. See
+    /// `test_pedestrian_box_is_measured_not_the_longitudinal_proxy`.
     ///
-    /// The fix only changes which formula decides `safety_violations` /
+    /// This only changes which formula decides `safety_violations` /
     /// `all_constraints_satisfied` for a pedestrian pair. The scalar
     /// `scenario.validation.min_distance`/`min_ttc` fields still accumulate
     /// from the generic same-lane longitudinal reading for *every* pair,
@@ -141,8 +140,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// formula and asserts they match `scenario.validation` exactly. So for a
     /// pure ego+pedestrian scenario the reported `min_distance` number is
     /// still the longitudinal gap, not the box — a pre-existing scalar
-    /// ambiguity this issue did not have to touch to close the actual
-    /// violation-reporting gap.
+    /// ambiguity distinct from the violation-reporting gap this closes.
     fn compute_validation_metrics(
         &self,
         scenario: &mut crate::scenario::model::Scenario,
@@ -153,7 +151,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         let mut min_distance: Option<f64> = None;
         let mut violations = Vec::new();
 
-        // SW-10/H7: the validator's "same lane" test must be the *same*
+        // The validator's "same lane" test must be the *same*
         // predicate the encoder asserts, or the tool enforces one thing and
         // reports another. `encode_same_lane_constraint` (and the TTC /
         // distance propositions built on it) is
@@ -161,10 +159,10 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         // — the discrete match alone misses actors that are laterally
         // overlapping mid-manoeuvre or travelling in opposite directions.
         //
-        // SW-27: it is not enough to write the same formula here; it has to
-        // be the same *function*. Re-typed as a bare `f64` `<`, this
-        // disagreed with the exact evaluation on the boundary — exactly where
-        // adjacent lane centres sit — and reported gaps the encoder had never
+        // It is not enough to write the same formula here; it has to
+        // be the same *function*. Re-typed as a bare `f64` `<`, this would
+        // disagree with the exact evaluation on the boundary — exactly where
+        // adjacent lane centres sit — and report gaps the encoder never
         // constrained as breaches. `same_lane_f64` is the one `f64` reading of
         // the predicate, with the rounding budget the exact side does not
         // need; see `encoder_utils::LANE_OVERLAP_EPS`.
@@ -227,9 +225,8 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                             Some(min_distance.map_or(distance, |m: f64| m.min(distance)));
 
                         // `TTC_CLOSING_SPEED_EPSILON`, not a second `0.01` literal:
-                        // this file already carried both, and SW-30's sweep is the
-                        // reminder that a value repeated by hand is one edit away
-                        // from disagreeing with itself (see that constant's doc for
+                        // a value repeated by hand is one edit away from
+                        // disagreeing with itself (see that constant's doc for
                         // why `tests/common/invariants.rs` and `tests/optimizer_test.rs`
                         // still carry their own copies rather than importing this one).
                         let epsilon = TTC_CLOSING_SPEED_EPSILON;
@@ -269,9 +266,9 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                             };
 
                         // Box: |dx| > min_distance/LONGITUDINAL OR
-                        // |dy| > min_distance/LATERAL (SW-34: shared divisors
-                        // with `pedestrian_crossing.rs`, not reproduced
-                        // literals). Both comparisons are strict in the
+                        // |dy| > min_distance/LATERAL, sharing divisors
+                        // with `pedestrian_crossing.rs` rather than reproducing
+                        // literals. Both comparisons are strict in the
                         // encoding (no `.ge`), so — matching the tolerance
                         // direction used everywhere else in this function —
                         // a measurement within METRIC_TOL of clearing a side
@@ -297,16 +294,16 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                             ));
                         }
 
-                        // SW-44. The box above is *sampled*, and the ego covers
+                        // The box above is *sampled*, and the ego covers
                         // far more ground in one `time_step` than the box is
                         // long: at 20 m/s and `time_step: 0.5` it moves 10 m
                         // against a `threshold_x` of 1 m for the usual
                         // `min_distance: 2.0`. So a trajectory can satisfy the
-                        // box at every step and still have driven straight
-                        // through the pedestrian in between, and — because this
-                        // function sampled exactly the way the encoder asserts —
-                        // be reported safe. It was: an `enforce`d single-lane
-                        // spec with `min_distance: 6.0` came back
+                        // box at every step and still drive straight through
+                        // the pedestrian in between, and — because this
+                        // function samples exactly the way the encoder asserts
+                        // — be reported safe: an `enforce`d single-lane
+                        // spec with `min_distance: 6.0` could come back
                         // `all_constraints_satisfied: true` with `dx` going
                         // `-3.000 → +7.375` across one step at `|dy| = 1.875`
                         // against a `threshold_y` of 4.0.
@@ -363,10 +360,10 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                         // the road and the other actor behind it and moving
                         // forward — same guard as the encoder's `ped_on_road`
                         // / `approaching`. `ttc_safe` there is non-strict
-                        // (`.ge`, SW-35), matching this check's own boundary
+                        // (`.ge`), matching this check's own boundary
                         // (`ttc < min_ttc - METRIC_TOL` calls `ttc == min_ttc`
-                        // safe) the same way `.ge` already did for the
-                        // vehicle-vehicle `TTCGT` (SW-12).
+                        // safe) the same way `.ge` does for the
+                        // vehicle-vehicle `TTCGT`.
                         let ped_on_road =
                             ped_state.position().y >= 0.0 && ped_state.position().y <= road_width;
                         let ego_behind = other_state.position().x < ped_state.position().x;
@@ -443,7 +440,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                         }
                     }
 
-                    // Lateral separation (SW-10, note from SW-03). The encoder
+                    // Lateral separation. The encoder
                     // lowers `min_lateral_distance` to
                     // `Proposition::LateralDistanceGT` — an unguarded
                     // |py1 - py2| > d at every step — but the validator never
@@ -467,16 +464,13 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                         }
                     }
 
-                    // `RelativeVelocityGT` (`max_relative_velocity`, SW-31).
+                    // `RelativeVelocityGT` (`max_relative_velocity`).
                     // `scenarios/mod.rs` lowers this for every pair,
                     // unguarded by lane, with `Negated` polarity: the safe
                     // condition is `|vx1 - vx2| <= max_relative_velocity`
                     // (non-strict — the negation of the encoder's strict
-                    // `.gt`). Previously unmeasured anywhere in the tool,
-                    // including `tests/common/invariants.rs`; see
-                    // `unsafe_following.yaml` in the report, an adversarial
-                    // corpus example built to violate exactly this field that
-                    // reported `all_constraints_satisfied: true` pre-fix.
+                    // `.gt`). See `unsafe_following.yaml`, an adversarial
+                    // corpus example built to violate exactly this field.
                     if let Some(max_rel_vel) = self.spec.max_relative_velocity {
                         let rel_vel = (state1.velocity().vx - state2.velocity().vx).abs();
                         if rel_vel > max_rel_vel + METRIC_TOL {
@@ -494,7 +488,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             }
         }
 
-        // `VelocityLT`/`VelocityGT` (`max_velocity`/`min_velocity`, SW-31).
+        // `VelocityLT`/`VelocityGT` (`max_velocity`/`min_velocity`).
         // `scenarios/mod.rs` lowers both per-actor, unguarded, for every
         // actor including pedestrians (no scenario type currently sets
         // either field for a pedestrian, but the lowering does not exclude
@@ -761,7 +755,7 @@ mod tests {
             //
             // The 1e-6 slack is the same rational-to-double rounding error
             // `compute_validation_metrics` allows for (see `METRIC_TOL`
-            // there): since SW-12 the encoder asserts `gap >= min_ttc *
+            // there): the encoder asserts `gap >= min_ttc *
             // closing_speed` non-strictly and Z3 answers on the boundary, and
             // recovering a TTC by dividing two rounded `f64`s lands a ULP low
             // — 2.999999999999991 against a threshold of 3.
@@ -838,8 +832,8 @@ mod tests {
         });
     }
 
-    /// SW-31: `min_velocity` (`Proposition::VelocityGT`) was lowered by
-    /// `scenarios/mod.rs` but never measured by `compute_validation_metrics`.
+    /// `min_velocity` (`Proposition::VelocityGT`) is lowered by
+    /// `scenarios/mod.rs` and measured by `compute_validation_metrics`.
     /// No shipped corpus example sets `min_velocity`, so this constructs the
     /// violation directly: a single decelerating actor under `Violate` mode,
     /// which must end up slower than the floor at some point.
@@ -898,16 +892,16 @@ mod tests {
         });
     }
 
-    /// SW-31/deliverable 3: `pedestrian_crossing.rs` lowers `min_distance` to
+    /// `pedestrian_crossing.rs` lowers `min_distance` to
     /// `Proposition::RectangularDistanceGT` (a box: `|dx| > d/2 OR |dy| >
     /// d/1.5`), not the longitudinal-only model `compute_validation_metrics`
-    /// used for every other scenario type. Because a pedestrian's lane is
+    /// uses for every other scenario type. Because a pedestrian's lane is
     /// pinned to 0 and so is the ego's in this scenario type, `same_lane` is
-    /// structurally true, so pre-fix the generic check ran anyway and could
-    /// disagree with the box in both directions. This constructs the
-    /// direction that matters most: a pair the box calls safe (cleared on the
-    /// longitudinal branch) that the old longitudinal-only check called a
-    /// *violation* — a false positive, not just a blind spot.
+    /// structurally true, so the generic check must not disagree with the
+    /// box in either direction. This constructs the direction that matters
+    /// most: a pair the box calls safe (cleared on the longitudinal branch)
+    /// that a longitudinal-only check would call a *violation* — a false
+    /// positive, not just a blind spot.
     #[test]
     fn test_pedestrian_box_is_measured_not_the_longitudinal_proxy() {
         use crate::scenario::model::{
@@ -1038,21 +1032,21 @@ mod tests {
         });
     }
 
-    /// SW-34. The pedestrian safety box's two ratios used to be independent
+    /// The pedestrian safety box's two ratios must not be independent
     /// `f64` literals in `pedestrian_crossing.rs::generate_safety` (what gets
     /// asserted) and here in `compute_validation_metrics` (what gets
-    /// measured) — the exact SW-27/SW-30 shape, one edit away from
-    /// disagreeing silently. Hoisted to
-    /// `pedestrian_crossing::PEDESTRIAN_BOX_{LONGITUDINAL,LATERAL}_DIVISOR`,
-    /// imported by both. This test pins that coupling down: it computes the
+    /// measured) — that shape is one edit away from disagreeing silently.
+    /// Instead both import
+    /// `pedestrian_crossing::PEDESTRIAN_BOX_{LONGITUDINAL,LATERAL}_DIVISOR`.
+    /// This test pins that coupling down: it computes the
     /// box thresholds from the shared constants exactly as
     /// `compute_validation_metrics` does, and cross-checks them, bit for
     /// bit, against the `threshold_x`/`threshold_y` the encoder actually
     /// asserts (extracted from the `RectangularDistanceGT` atom
-    /// `generate_safety` produces). Before this commit the shared constants
-    /// this test names did not exist, so it could not even compile against
-    /// that code — a stronger failure than a numeric mismatch, and the
-    /// reason this is a coupling test rather than a tolerance-based one.
+    /// `generate_safety` produces). If the shared constants this test names
+    /// did not exist, it would not even compile against that code — a
+    /// stronger failure than a numeric mismatch, and the reason this is a
+    /// coupling test rather than a tolerance-based one.
     #[test]
     fn test_pedestrian_box_thresholds_share_one_definition() {
         use crate::ltl::formula::{LTLFormula, Proposition};
@@ -1079,12 +1073,12 @@ mod tests {
 
         assert_eq!(
             asserted.0, measured_threshold_x,
-            "SW-34: asserted threshold_x must equal the shared constant \
+            "asserted threshold_x must equal the shared constant \
              compute_validation_metrics measures against, bit for bit"
         );
         assert_eq!(
             asserted.1, measured_threshold_y,
-            "SW-34: asserted threshold_y must equal the shared constant \
+            "asserted threshold_y must equal the shared constant \
              compute_validation_metrics measures against, bit for bit"
         );
 

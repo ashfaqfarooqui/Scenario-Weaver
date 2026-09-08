@@ -148,15 +148,13 @@ mod tests {
 
     /// The validation metrics must be *computed*, not left unevaluated.
     ///
-    /// SW-12: this used to run on `create_test_spec()`, whose npc (12-14 m/s,
-    /// 60-80 m ahead) is faster than the ego and simply drives away, so
-    /// whether a TTC ever got computed depended on which satisfying model Z3
-    /// happened to return — `Always(TTCGT(..))` is a guarded implication and
-    /// says nothing when nobody closes. The forward-progress bound changed
-    /// that arbitrary choice and the test started failing, correctly: it had
-    /// been asserting the solver's luck. The spec here puts a *slower* npc in
-    /// front of the ego, so a closing conflict exists by construction and the
-    /// metric has to be evaluated for any model at all.
+    /// `create_test_spec()`'s npc (12-14 m/s, 60-80 m ahead) is faster than
+    /// the ego and simply drives away, so whether a TTC ever gets computed
+    /// depends on which satisfying model Z3 happens to return —
+    /// `Always(TTCGT(..))` is a guarded implication and says nothing when
+    /// nobody closes. The spec here puts a *slower* npc in front of the ego
+    /// instead, so a closing conflict exists by construction and the metric
+    /// has to be evaluated for any model at all.
     #[test]
     fn test_extract_scenario_validation_metrics() {
         let mut spec = create_test_spec();
@@ -168,12 +166,12 @@ mod tests {
         spec.actors[1].position = ValueOrRange::Value(80.0);
         spec.actors[1].speed = ValueOrRange::Value(9.0);
         // Two lane changes that cancel. `CutInLeftModel::validate` requires
-        // the npc to declare at least one, and SW-28 now additionally
-        // requires them to *end* in the ego's lane. A single `Left` change
-        // satisfied the first rule and violated the second: it took the npc
-        // to lane 0 and left it there, so the pair this test measures never
-        // shared a lane after t = 0 — the metrics it asserts on were being
-        // computed from the t = 0 sample alone.
+        // the npc to declare at least one, and also requires them to *end*
+        // in the ego's lane. A single `Left` change would satisfy the first
+        // rule and violate the second: it would take the npc to lane 0 and
+        // leave it there, so the pair this test measures would never share
+        // a lane after t = 0 — the metrics it asserts on would be computed
+        // from the t = 0 sample alone.
         spec.actors[1].lane_changes = vec![
             LaneChangeConfig {
                 direction: LaneChangeDirection::Left,
@@ -295,15 +293,12 @@ mod tests {
 
     #[test]
     fn test_extract_scenario_no_road_spec() {
-        // SW-29: this used to reach the encoder and assert "either succeeds
-        // with defaults or errors — both are acceptable", which was true only
-        // because `LTLGenerator::generate` skipped `ScenarioSpec::validate`
-        // entirely; that omission is exactly the bug SW-29 fixes. `validate`
-        // has always rejected `road: None` outright ("road specification is
-        // required" is its very first check), so a spec with no road was
-        // never actually a "use sensible defaults" case — it is invalid, and
-        // now `generate` says so before ever reaching the encoder. This test
-        // now asserts that rejection instead of a vacuous "either is fine".
+        // `LTLGenerator::generate` runs `ScenarioSpec::validate`, which
+        // rejects `road: None` outright ("road specification is required" is
+        // its very first check), so a spec with no road is never a "use
+        // sensible defaults" case — it is invalid, and `generate` says so
+        // before ever reaching the encoder. This test asserts that
+        // rejection.
         let mut spec = create_test_spec();
         spec.road = None;
 

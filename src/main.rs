@@ -73,7 +73,7 @@ fn main() -> Result<()> {
 
     // Parse specification, resolving `imports:` relative to the input file's
     // own directory (parse_yaml_file, not the import-blind parse_yaml + read_to_string
-    // that used to live here — see SW-13/D3).
+    // that used to live here).
     let mut spec = scenario_weaver::dsl::parser::parse_yaml_file(&cli.input)
         .with_context(|| format!("Failed to load specification from {}", cli.input.display()))?;
 

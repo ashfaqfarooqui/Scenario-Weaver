@@ -1,10 +1,10 @@
-//! Shared lane-id mapping between the `.xosc` and `.xodr` exporters (SW-15).
+//! Shared lane-id mapping between the `.xosc` and `.xodr` exporters.
 //!
 //! The two artifacts must refer to the same physical lane by the same id, but
 //! they use different conventions:
 //!
 //! - The scenario's internal lane index (`State::cartesian::lane`, 0-based,
-//!   derived from `py` — SW-10) is direction-independent:
+//!   derived from `py`) is direction-independent:
 //!   `py = lane*lane_width + lane_width/2` regardless of whether that lane
 //!   carries forward or backward traffic (see `cartesian.rs`).
 //! - OpenDRIVE ids are split by direction relative to the road's reference
@@ -18,11 +18,11 @@
 //! `LanePosition` elements this crate emits cannot disagree with the `.xodr`
 //! lane ids describing the same road. `RoadSpec::validate` guarantees
 //! `lane_directions` is a single forward-then-backward block, which is what
-//! makes the assignment well-defined (SW-16 E2).
+//! makes the assignment well-defined.
 //!
-//! `xodr_exporter::build_lane_section` calls this function directly (SW-20)
-//! rather than recomputing the mapping with its own counters, so the two
-//! files cannot drift apart again.
+//! `xodr_exporter::build_lane_section` calls this function directly rather
+//! than recomputing the mapping with its own counters, so the two files
+//! cannot drift apart again.
 
 use crate::dsl::types::RoadSpec;
 

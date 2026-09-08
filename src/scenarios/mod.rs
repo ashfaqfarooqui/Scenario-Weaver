@@ -54,13 +54,13 @@ pub trait ScenarioModel: Send + Sync {
 /// The cut-in's *conflict*: while the NPC and the ego share the target lane, the NPC is
 /// in front and the ego is gaining on it.
 ///
-/// **Why a scenario model asserts anything about closing at all (SW-22).** An `enforce`d
+/// **Why a scenario model asserts anything about closing at all.** An `enforce`d
 /// `min_ttc` lowers to `G(TTCGT(ego, npc, T))`, and `TTCGT` is a *guarded implication* —
 /// "whenever this pair is converging, its TTC exceeds `T`". Nothing required a pair to
 /// converge, so Z3 was free to answer with traffic that never does, and
-/// `compute_validation_metrics` then reported `min_ttc: null`, "never evaluated".
-/// Measured at `894409b`, that was **every** example in the corpus missing a TTC: all ten
-/// were `cut_in_left` or `cut_in_right`, and no other scenario type was affected.
+/// `compute_validation_metrics` then reported `min_ttc: null`, "never evaluated" — every
+/// `cut_in_left` and `cut_in_right` example in the corpus was affected, and no other
+/// scenario type was.
 ///
 /// The trajectories say why. In `cut_in_left` the ego *overtook* the NPC in the adjacent
 /// lane and the NPC then merged in **behind** it, slower and finally stationary — a lane
@@ -69,16 +69,16 @@ pub trait ScenarioModel: Send + Sync {
 /// "changes lanes to cut in front of the ego vehicle", and only the *initial*
 /// `Ahead(npc, ego)` ever said so.
 ///
-/// **Why this shape and not `F(approaching)`.** SW-12 built the existential — a `Closing`
-/// proposition under `F(⋁ over pairs)` — and it worked and was unaffordable: `cut_in_left`
-/// 4 s → 12 s for one scenario, >500 s for the five it declares. A disjunction over the
-/// horizon asks Z3 to *search* for the instant. Here the antecedent is one the template
-/// already forces — `cut_in_behavior`'s `Until` makes `InLane(npc, target_lane)` true at
-/// some step, and the ego, which has no lane changes, holds its lane — so
+/// **Why this shape and not `F(approaching)`.** An existential — a `Closing`
+/// proposition under `F(⋁ over pairs)` — works but is unaffordable: `cut_in_left` went
+/// from 4 s to 12 s for one scenario, and >500 s for the five it declares. A disjunction
+/// over the horizon asks Z3 to *search* for the instant. Here the antecedent is one the
+/// template already forces — `cut_in_behavior`'s `Until` makes `InLane(npc, target_lane)`
+/// true at some step, and the ego, which has no lane changes, holds its lane — so
 /// `G(antecedent → Approaching)` cannot be satisfied vacuously, and every conjunct is an
-/// implication Z3 *propagates* rather than a disjunct it chooses between. That is SW-11's
-/// speed-bucket lesson (guards that partition, not selectors Z3 picks) applied to the
-/// conflict itself.
+/// implication Z3 *propagates* rather than a disjunct it chooses between. That is the
+/// same speed-bucket lesson (guards that partition, not selectors Z3 picks) applied to
+/// the conflict itself.
 ///
 /// **Both lane atoms are in the antecedent on purpose.** They are `Int` equalities, so as
 /// hypotheses they are free, and together they imply `encode_same_lane_constraint`'s
@@ -151,7 +151,7 @@ fn cut_in_conflict(
 /// Whether a safety atom already states the *safe* condition, or states the
 /// *unsafe* one (so the safe condition is its negation).
 ///
-/// SW-21/item 3. Every safety atom below reduces to the same Enforce/Violate/
+/// Every safety atom below reduces to the same Enforce/Violate/
 /// Ignore triple — `Enforce` keeps the safe formula, `Violate` demands its
 /// negation eventually hold, `Ignore` adds nothing — except which of "the
 /// atom" or "its negation" *is* the safe formula differs by atom. `TTCGT`,

@@ -19,8 +19,8 @@ use openscenario_rs::types::positions::{Orientation, Position};
 use openscenario_rs::types::road::RoadNetwork;
 use openscenario_rs::ScenarioBuilder;
 
-/// The OpenSCENARIO revision this project targets, declared explicitly
-/// (SW-15 M13). `1.3` is what `ScenarioBuilder::with_header` already
+/// The OpenSCENARIO revision this project targets, declared explicitly.
+/// `1.3` is what `ScenarioBuilder::with_header` already
 /// defaults to; calling `with_revision` makes that a deliberate choice
 /// instead of an accident of the dependency's default, and gives future
 /// changes to that default nothing to silently break.
@@ -28,16 +28,15 @@ const OSC_REV_MAJOR: u16 = 1;
 const OSC_REV_MINOR: u16 = 3;
 
 /// Vehicle bounding-box dimensions used for every exported `PassengerCar`
-/// entity (SW-15 H8). These match `openscenario_rs::VehicleBuilder::car()`'s
+/// entity. These match `openscenario_rs::VehicleBuilder::car()`'s
 /// own preset exactly — made explicit here, via `with_dimensions`, so a
 /// change to that dependency default cannot silently change what this crate
-/// ships. The DSL does not yet carry per-actor dimensions (see the SW-15
-/// report: `ActorSpec` is built via plain struct literals with no
-/// `..Default::default()` in `src/scenarios/*.rs` and `src/solver/*.rs`, both
-/// out of this issue's touch list, so adding required fields there is not a
-/// same-issue-sized change), so every vehicle uses this single constant set.
-/// `min_distance` therefore remains centre-to-centre, not bumper-to-bumper —
-/// unchanged by this issue, tracked as a solver-side follow-up.
+/// ships. The DSL does not yet carry per-actor dimensions (`ActorSpec` is
+/// built via plain struct literals with no `..Default::default()` in
+/// `src/scenarios/*.rs` and `src/solver/*.rs`, so adding required fields
+/// there is a larger change), so every vehicle uses this single constant
+/// set. `min_distance` therefore remains centre-to-centre, not
+/// bumper-to-bumper — a solver-side follow-up.
 const VEHICLE_LENGTH_M: f64 = 4.5;
 const VEHICLE_WIDTH_M: f64 = 1.8;
 const VEHICLE_HEIGHT_M: f64 = 1.4;
@@ -74,10 +73,10 @@ fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<S
     // Build scenario description for the header
     let description = build_scenario_description(scenario);
 
-    // The `.xodr`'s `s=0` is not always world `x=0` -- SW-16/M12 pulls the
-    // road's start back to cover a backward-direction actor's negative `x`.
-    // Every `LanePosition` below must subtract this same offset so its `s`
-    // means the same physical point the companion `.xodr` does.
+    // The `.xodr`'s `s=0` is not always world `x=0` -- the road's start is
+    // pulled back to cover a backward-direction actor's negative `x`. Every
+    // `LanePosition` below must subtract this same offset so its `s` means
+    // the same physical point the companion `.xodr` does.
     let (road_start_x, _) = compute_road_geometry(scenario);
 
     // Create basic scenario structure with entities
@@ -190,7 +189,7 @@ fn export_to_xosc_impl(scenario: &Scenario, road_file: Option<&str>) -> Result<S
 /// Build a trajectory from an actor's state sequence
 ///
 /// Each vertex is a `LanePosition` referencing the same lane id the
-/// companion `.xodr` uses for this physical lane (SW-15 E1), rather than a
+/// companion `.xodr` uses for this physical lane, rather than a
 /// bare `WorldPosition` that shares no identifier with the road network.
 fn build_trajectory(
     actor: &crate::scenario::model::ActorTrajectory,
@@ -237,21 +236,18 @@ fn build_trajectory(
 
 /// Build a `LanePosition` for the given world coordinates, referencing the
 /// lane id `lane_index_to_xodr_id` derives for the same physical lane in the
-/// companion `.xodr` (SW-15 E1). Heading is carried via `<Orientation h="…">`
+/// companion `.xodr`. Heading is carried via `<Orientation h="…">`
 /// since `LanePosition` (unlike `WorldPosition`) has no direct heading
 /// attribute.
 ///
 /// `s` is the actor's world `x` relative to the exported road's own start:
 /// `xodr_exporter::compute_road_geometry` does not always put that start at
 /// `x=0` -- a backward-direction actor reaching `x<0` pulls it back to cover
-/// that excursion (SW-16/M12) -- so `s` here is `x - road_start_x`, the same
-/// offset the `.xodr` file's `s=0` sits at. `road_start_x` is `.0` of that
-/// same `compute_road_geometry` call, computed once in
-/// `export_to_xosc_impl` and threaded down here (SW-20), so this file cannot
-/// silently disagree with the `.xodr` it is meant to reference. This was
-/// previously flagged rather than fixed because `xodr_exporter.rs` was
-/// fenced to SW-16; SW-20's `lane_ids` addendum lifted that fence for this
-/// specific fix.
+/// that excursion -- so `s` here is `x - road_start_x`, the same offset the
+/// `.xodr` file's `s=0` sits at. `road_start_x` is `.0` of that same
+/// `compute_road_geometry` call, computed once in `export_to_xosc_impl` and
+/// threaded down here, so this file cannot silently disagree with the
+/// `.xodr` it is meant to reference.
 ///
 /// `z` is never emitted: the exported road never carries an elevation
 /// profile (`xodr_exporter::export_to_xodr` always sets
@@ -347,7 +343,7 @@ fn build_init_actions(
         // Calculate heading from velocity
         let heading = compute_heading(initial_state);
 
-        // Lane-referenced initial position (SW-15 E1), matching the
+        // Lane-referenced initial position, matching the
         // trajectory vertices below so the whole file is self-consistent.
         let position = lane_position(
             &scenario.road,
@@ -480,7 +476,7 @@ mod tests {
         assert!(xml.contains("<Story"));
     }
 
-    /// SW-15 E1: the exported trajectory and initial teleport reference a
+    /// The exported trajectory and initial teleport reference a
     /// lane id, not just a bare world position, and that id matches what
     /// `lane_index_to_xodr_id` (shared with the `.xodr` exporter) derives
     /// for the same lane index.
@@ -540,9 +536,9 @@ mod tests {
         );
     }
 
-    /// SW-20 (`lane_ids` addendum): a backward-direction actor that reaches
-    /// `x<0` makes `xodr_exporter::compute_road_geometry` pull the exported
-    /// road's start back to cover it (SW-16/M12), so the `.xodr`'s `s=0` is
+    /// A backward-direction actor that reaches `x<0` makes
+    /// `xodr_exporter::compute_road_geometry` pull the exported road's
+    /// start back to cover it, so the `.xodr`'s `s=0` is
     /// no longer world `x=0`. `LanePosition`'s `s` must follow that same
     /// offset -- this is the case no example in `examples/` currently
     /// exercises (none reaches negative `x`), so it is covered here
@@ -614,7 +610,7 @@ mod tests {
         );
     }
 
-    /// SW-15 H8: vehicle dimensions are emitted explicitly (not left to the
+    /// Vehicle dimensions are emitted explicitly (not left to the
     /// dependency's implicit `.car()` default) and match the constants this
     /// file documents as the DSL's assumed default.
     #[test]
@@ -650,7 +646,7 @@ mod tests {
         assert!(xml.contains(&format!("height=\"{VEHICLE_HEIGHT_M}\"")));
     }
 
-    /// SW-15 M13: the declared revision is the one this file explicitly
+    /// The declared revision is the one this file explicitly
     /// requests via `with_revision`, not an accidental dependency default.
     #[test]
     fn test_export_to_xosc_declares_explicit_revision() {

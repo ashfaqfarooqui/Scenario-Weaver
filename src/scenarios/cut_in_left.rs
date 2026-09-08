@@ -124,8 +124,8 @@ impl CutInLeftModel {
             lane: target_lane,
         }));
 
-        // A lane change alone is not a cut-in: SW-22 measured the NPC merging *behind*
-        // an ego that had already overtaken it, which satisfied every safety bound
+        // A lane change alone is not a cut-in: the NPC could merge *behind* an ego
+        // that had already overtaken it, which would satisfy every safety bound
         // vacuously. `cut_in_conflict` requires the merge to happen in front of an ego
         // that is closing. See its doc comment for why it is an implication and not an
         // `F(..)`.

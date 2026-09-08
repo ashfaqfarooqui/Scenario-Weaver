@@ -248,16 +248,14 @@ pub fn collect_lane_change_data(
                     let start_step = usize::midpoint(start_step_min, start_step_max);
 
                     // Skip lane changes that begin beyond the scenario horizon.
-                    // SW-25/SW-29: this used to be `>`, one off from the `>=`
-                    // used by `ScenarioSpec::validate` and by
+                    // Must match the `>=` used by `ScenarioSpec::validate` and by
                     // `CartesianEncoder::encode_smooth_lane_transition`'s own
-                    // `start_step >= self.horizon` guard. This call and
-                    // `ScenarioSpec::validate` now share
-                    // `lane_change_start_past_horizon` and cannot drift apart
-                    // again; `cartesian.rs` is out of this issue's file list
-                    // (`src/solver/encoders/` is fenced) so its copy is still
-                    // a separate `>=` literal — numerically identical today,
-                    // but not wired to the shared predicate.
+                    // `start_step >= self.horizon` guard — a bare `>` here would be
+                    // one off from those. This call and `ScenarioSpec::validate`
+                    // share `lane_change_start_past_horizon` and cannot drift apart;
+                    // `cartesian.rs`'s copy is still a separate `>=` literal —
+                    // numerically identical today, but not wired to the shared
+                    // predicate.
                     if lane_change_start_past_horizon(start_step, horizon) {
                         return None;
                     }
@@ -280,8 +278,8 @@ pub fn collect_lane_change_data(
 /// One non-pedestrian actor's initial-condition fields, collected up front so
 /// `encode_initial_conditions` can iterate them without holding a borrow of
 /// `spec` across the `&mut self` calls that assert each actor's constraints
-/// (SW-20: the two coordinate encoders built this same 10-tuple from the same
-/// filter independently; this is the shared extraction).
+/// (the two coordinate encoders would otherwise each build this same 10-tuple
+/// from the same filter independently; this is the shared extraction).
 pub struct VehicleInitialState {
     pub actor_id: String,
     pub lane: usize,
@@ -320,8 +318,7 @@ pub fn collect_vehicle_initial_state(spec: &ScenarioSpec) -> Vec<VehicleInitialS
         .collect()
 }
 
-/// Rounding budget for evaluating the same-lane predicate in `f64`, in metres
-/// (SW-27).
+/// Rounding budget for evaluating the same-lane predicate in `f64`, in metres.
 ///
 /// # The boundary, decided
 ///
@@ -475,7 +472,7 @@ mod tests {
     };
 
     // -----------------------------------------------------------------
-    // rational_from_f64 / real_from_f64 (SW-08)
+    // rational_from_f64 / real_from_f64
     // -----------------------------------------------------------------
 
     #[test]
@@ -675,7 +672,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // extract_real (SW-08: pinned before the conversion was touched)
+    // extract_real
     // -----------------------------------------------------------------
 
     /// `extract_real` divides numerator by denominator. The wave-1 mutation
@@ -1105,7 +1102,7 @@ mod tests {
         });
     }
 
-    /// SW-27: the exact predicate and its `f64` twin must return the same
+    /// The exact predicate and its `f64` twin must return the same
     /// answer for every lane centre in the corpus's lane-width range —
     /// including the widths where `f64` subtraction of two lane centres
     /// undershoots (3.2 is the one that broke: `4.8 - 1.6` is

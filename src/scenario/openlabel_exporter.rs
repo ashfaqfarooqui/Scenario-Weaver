@@ -36,7 +36,7 @@ struct OpenLabelOntology {
 /// (`schema_version`, `file_version`, `annotator`, `comment`) sit at the top
 /// level; everything this project adds that the schema does not define lives
 /// under the namespaced `scenario_weaver` extension object instead of as
-/// bare, non-schema PascalCase keys (SW-17 M14).
+/// bare, non-schema PascalCase keys.
 #[derive(Serialize)]
 struct OpenLabelMetadata {
     schema_version: &'static str,
@@ -51,12 +51,11 @@ struct OpenLabelMetadata {
 ///
 /// `creator` is derived from the crate's own version at compile time
 /// (`env!("CARGO_PKG_VERSION")`), never a hand-written year baked into a
-/// `&'static str`, so it cannot go stale the way the old literal did (SW-17
-/// M14). The old `Image` (always `""`)
-/// and `ScenarioDatabase` (`"SCENARIOWEAVER"`, a name with no referent) fields
-/// carried no real information and are dropped rather than namespaced. `Name`
-/// and `Description` duplicated `scenario_id`/`comment` one level up and are
-/// likewise dropped.
+/// `&'static str`, so it cannot go stale. Fields that carry no real
+/// information — an always-empty `Image`, a `ScenarioDatabase` name with no
+/// referent, and `Name`/`Description` fields that would only duplicate
+/// `scenario_id`/`comment` one level up — are dropped rather than
+/// namespaced.
 #[derive(Serialize)]
 struct ScenarioWeaverExtension {
     scenario_id: String,
@@ -77,7 +76,7 @@ struct GeneratorInfo {
 /// `<ScenarioObject name="...">` exactly (both derive from `ActorTrajectory::id`
 /// via `xosc_exporter::export_to_xosc_impl`'s `add_vehicle`/`add_pedestrian`
 /// calls), which is what makes the `.ol.json` and `.xosc` for one scenario
-/// joinable by name (SW-17 E4 / D4).
+/// joinable by name.
 #[derive(Serialize)]
 struct OpenLabelObject {
     name: String,
@@ -255,23 +254,23 @@ fn build_tags(scenario: &Scenario) -> BTreeMap<String, OpenLabelTag> {
         tags.push(simple_tag("HumanPedestrian"));
     }
 
-    // SW-17 M14: a `RoadTypeMotorway`/`RoadTypeDistributor`/`RoadTypeMinor` heuristic
-    // used to be inferred here from lane count and directionality alone and pushed
-    // under the ontology URI as if it were a real classification. It was not: a
-    // 3-lane `cut_in_left` and a 2-lane `pedestrian_crossing` landed in different
-    // buckets purely from lane count, with nothing behind the label but a guess (see
-    // MASTER.md / FINDINGS.md M14). ASAM OpenLABEL's ontology mechanism is meant for
+    // A `RoadTypeMotorway`/`RoadTypeDistributor`/`RoadTypeMinor` classification
+    // inferred here from lane count and directionality alone would be pushed
+    // under the ontology URI as if it were a real classification. It would not
+    // be: a 3-lane `cut_in_left` and a 2-lane `pedestrian_crossing` would land
+    // in different buckets purely from lane count, with nothing behind the
+    // label but a guess. ASAM OpenLABEL's ontology mechanism is meant for
     // vocabularies a project actually defines and stands behind (confirmed against
     // https://www.asam.net/standards/detail/openlabel/: "organizations can import
     // their own ontologies... rather than relying on predefined classifications"),
     // not a proxy computed from unrelated fields. Emitting no road-type tag is more
     // honest than emitting a wrong one. A `road_class` field on `RoadSpec` would let
-    // this be reintroduced correctly.
+    // this be introduced correctly.
 
     // Lane travel direction — only emit when every lane agrees on a single
     // direction. A bidirectional road (mixed `+1`/`-1`) has no single travel
     // direction to report; emitting both `TravelDirectionRight` and
-    // `TravelDirectionLeft` for every such road conveyed nothing (SW-17 M14).
+    // `TravelDirectionLeft` for every such road would convey nothing.
     let lane_count = scenario.road.lane_directions.len();
     if lane_count > 0 {
         let all_right = scenario.road.lane_directions.iter().all(|&d| d == 1);
@@ -338,17 +337,16 @@ fn simple_tag(name: &str) -> OpenLabelTag {
 /// Returns true if any actor moves to a lower-numbered lane (a **left**
 /// change).
 ///
-/// SW-17 E5: this used to call an *increasing* lane index "left", which
-/// disagreed with both the DSL and the encoder. `RoadSpec` lane index counts
-/// up with y (`cartesian.rs`'s `encode_lane_position_coupling_at_time`:
-/// `py = lane * lane_width + lane_width / 2`, so lane 0 is at `y = 1.7` and
-/// lane 1 is at `y = 5.2` for a 3.5 m lane — verified, not assumed), and
-/// `cartesian.rs`'s `encode_smooth_lane_transition` maps
-/// `LaneChangeDirection::Right` to `lane_delta = actor_direction` — `+1` for
-/// the default forward-travelling actor — i.e. **`Right` increases the lane
-/// index**. `types.rs`'s `LaneChangeDirection` doc comment now says the same
-/// thing; this function was the one place still disagreeing with the
-/// encoder it exists to describe.
+/// Calling an *increasing* lane index "left" would disagree with both the
+/// DSL and the encoder. `RoadSpec` lane index counts up with y
+/// (`cartesian.rs`'s `encode_lane_position_coupling_at_time`: `py = lane *
+/// lane_width + lane_width / 2`, so lane 0 is at `y = 1.7` and lane 1 is at
+/// `y = 5.2` for a 3.5 m lane — verified, not assumed), and `cartesian.rs`'s
+/// `encode_smooth_lane_transition` maps `LaneChangeDirection::Right` to
+/// `lane_delta = actor_direction` — `+1` for the default forward-travelling
+/// actor — i.e. **`Right` increases the lane index**. `types.rs`'s
+/// `LaneChangeDirection` doc comment agrees, and this function must agree
+/// with the encoder it exists to describe.
 fn has_lane_change_left(scenario: &Scenario) -> bool {
     scenario.actors.iter().any(|actor| {
         actor
@@ -371,7 +369,7 @@ fn has_lane_change_right(scenario: &Scenario) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Objects / frames (SW-17 E4, decision D4 — Route A)
+// Objects / frames
 // ---------------------------------------------------------------------------
 
 /// Build the `objects` and `frames` sections: one object per actor (named to
@@ -631,9 +629,9 @@ mod tests {
 
     #[test]
     fn test_road_type_heuristic_removed() {
-        // SW-17 M14: the RoadType* lane-count heuristic shipped a guess under
-        // the ontology URI. It is gone; no RoadType* tag is emitted at all,
-        // for any lane configuration, until a real `road_class` field exists.
+        // A RoadType* lane-count heuristic would ship a guess under the
+        // ontology URI. No RoadType* tag is emitted at all, for any lane
+        // configuration, until a real `road_class` field exists.
         let road = RoadSpec {
             num_lanes: 4,
             lane_width: 3.5,
@@ -719,10 +717,9 @@ mod tests {
 
     #[test]
     fn test_travel_direction_tags_bidirectional() {
-        // Mixed [1,1,-1,-1] → SW-17 M14: neither TravelDirectionRight nor
+        // Mixed [1,1,-1,-1]: neither TravelDirectionRight nor
         // TravelDirectionLeft, since a bidirectional road has no single
-        // travel direction to report. Emitting both (the pre-fix behaviour)
-        // conveyed nothing.
+        // travel direction to report. Emitting both would convey nothing.
         let road = RoadSpec {
             num_lanes: 4,
             lane_width: 3.5,
@@ -883,7 +880,7 @@ mod tests {
 
     #[test]
     fn test_lane_change_to_higher_index_tags_right() {
-        // SW-17 E5: increasing lane index matches `cartesian.rs`'s
+        // Increasing lane index matches `cartesian.rs`'s
         // `LaneChangeDirection::Right` (a forward actor's `Right => lane+1`),
         // so it must produce `MotionLaneChangeRight`, not Left.
         let scenario = make_scenario_with_lane_change(true);
@@ -908,7 +905,7 @@ mod tests {
         assert!(!types.contains(&"MotionLaneChangeRight"));
     }
 
-    /// SW-17 E5 headline check: `examples/cut_in_left.yaml` declares
+    /// `examples/cut_in_left.yaml` declares
     /// `direction: right` for the npc's only lane change (lane 0 -> lane 1,
     /// per its own comment). The exported `.ol.json` for that scenario must
     /// tag `MotionLaneChangeRight`, not `MotionLaneChangeLeft`.
@@ -962,7 +959,7 @@ mod tests {
             !types.contains(&"RoadTypeMinor")
                 && !types.contains(&"RoadTypeMotorway")
                 && !types.contains(&"RoadTypeDistributor"),
-            "no RoadType* tag must appear (heuristic removed, SW-17 M14)"
+            "no RoadType* tag must appear (road-type heuristic removed)"
         );
         assert!(
             !types.contains(&"TravelDirectionRight"),
@@ -1044,7 +1041,7 @@ mod tests {
 
     #[test]
     fn test_objects_present_and_named_after_actor_ids() {
-        // SW-17 E4 (D4, Route A): one object per actor, named after the
+        // One object per actor, named after the
         // actor's `id` — the same string the `.xosc` exporter uses as its
         // `<ScenarioObject name="...">` (see xosc_exporter.rs's
         // `add_vehicle`/`add_pedestrian` calls, both keyed on `actor.id`).

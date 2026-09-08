@@ -1,7 +1,7 @@
 //! Bounded LTL encoding and atomic-proposition lowering.
 //!
 //! This is the "encode an LTL formula/proposition as Z3 constraints" half of
-//! `src/solver/encoder.rs`, split out by SW-19: bounded model checking expands
+//! `src/solver/encoder.rs`: bounded model checking expands
 //! temporal operators over the finite time horizon, and proposition lowering
 //! converts each atomic [`Proposition`] into a Z3 boolean at a specific time
 //! step. Both only need read-only access to the encoder's Z3 variables (the
@@ -65,11 +65,11 @@ pub(crate) fn encode_ltl_bounded(
             if time < horizon {
                 encode_ltl_bounded(accessor, spec, phi, time + 1, horizon)
             } else {
-                // SW-12/L1. At the horizon there is no next state, and
-                // this used to yield `false`. Because `Always` expands
-                // over `time..=horizon` *inclusive*, that made every
+                // At the horizon there is no next state. Yielding `false`
+                // here would be wrong: because `Always` expands
+                // over `time..=horizon` *inclusive*, that would make every
                 // `G(X phi)` unsatisfiable regardless of `phi` — the
-                // conjunct at `t = horizon` was the literal `false`.
+                // conjunct at `t = horizon` would be the literal `false`.
                 //
                 // Bounded model checking has no information about what
                 // happens after the bound, so the honest reading of `X`
@@ -142,7 +142,7 @@ pub(crate) fn encode_ltl_bounded(
 /// A function of the unordered pair, never of one member of it: the shared
 /// travel direction when the two actors agree, and the fixed road frame
 /// (+1) when they do not. See the `Ahead` arm of `encode_proposition` for
-/// why (SW-12/M4).
+/// why.
 fn ahead_frame(spec: &ScenarioSpec, actor1: &str, actor2: &str) -> i32 {
     let dir = |id: &str| {
         spec.actors
@@ -163,14 +163,13 @@ fn ahead_frame(spec: &ScenarioSpec, actor1: &str, actor2: &str) -> i32 {
 /// 0 <= py_ped <= road_width  ∧  px_ego < px_ped  ∧  vx_ego > 0
 /// ```
 ///
-/// SW-43. One definition, two callers: `PedestrianTTCGT`'s antecedent and the
+/// One definition, two callers: `PedestrianTTCGT`'s antecedent and the
 /// `PedestrianTTCGuard` atom `pedestrian_crossing.rs` asserts to keep that
 /// antecedent from being false at every step. They must be the same formula —
 /// if the guard the scenario model forces were even slightly weaker than the
 /// one the TTC is conditioned on, forcing it would prove nothing about the TTC
 /// — so there is exactly one copy of the three comparisons here rather than a
-/// second set in a different file, which is the shape SW-27 and SW-34 each
-/// found already gone wrong.
+/// second set in a different file that could drift out of sync.
 ///
 /// `road_width` is `lane_width * num_lanes`, the same formula `OnSidewalk`,
 /// `CrossingRoad` and `compute_validation_metrics` all use.
@@ -217,19 +216,19 @@ fn encode_proposition(
 
         // Ahead(actor1, actor2): actor1 is ahead of actor2.
         //
-        // SW-12/M4. The frame used to be read off *actor1* alone, which
-        // made the relation symmetric instead of antisymmetric whenever
+        // Reading the frame off *actor1* alone would make the relation
+        // symmetric instead of antisymmetric whenever
         // the two actors travelled in opposite directions. For ego
         // (dir = +1) against an oncoming NPC (dir = -1):
         //
         //     Ahead{ego, onc}  =>  px_ego > px_onc
         //     Ahead{onc, ego}  =>  px_onc < px_ego
         //
-        // — the same constraint, so both directions of the relation were
+        // — the same constraint, so both directions of the relation would be
         // simultaneously satisfiable. `head_on.rs` and
         // `overtake_left.rs` both apply `Ahead` to mixed-direction pairs.
         //
-        // The frame is now a function of the *pair*, not of actor1: the
+        // The frame is instead a function of the *pair*, not of actor1: the
         // shared travel direction when the two agree, and the fixed road
         // frame (+x) when they do not. Being pair-symmetric, the same
         // comparison direction is used for `Ahead(a,b)` and `Ahead(b,a)`,
@@ -246,15 +245,15 @@ fn encode_proposition(
 
         // DistanceGT(actor1, actor2, d): same_lane ⟹ |px1[t] - px2[t]| > d
         //
-        // SW-10/H7. This used to be a bare `|px1 - px2| > d` with no lane
-        // guard, so two vehicles in physically different lanes still had
+        // A bare `|px1 - px2| > d` with no lane
+        // guard would force two vehicles in physically different lanes
         // to keep `min_distance` apart longitudinally — over-constraining
         // every multi-lane spec, and disagreeing with
-        // `compute_validation_metrics`, which has always gated the metric
+        // `compute_validation_metrics`, which gates the metric
         // on the actors sharing a lane. The guarded form is the one the
-        // docs describe and the one the validator checks; it is also what
-        // the (previously dead) `encode_distance_constraint` in both
-        // coordinate encoders already implemented.
+        // docs describe and the one the validator checks; it also matches
+        // what `encode_distance_constraint` in both
+        // coordinate encoders implements.
         //
         // The guard matters just as much in `Violate` mode: the negation
         // `¬(same_lane ⟹ safe)` is `same_lane ∧ ¬safe`, i.e. "get close
@@ -272,18 +271,18 @@ fn encode_proposition(
 
             // |px1 - px2| >= d, as (px1 - px2 >= d) OR (px2 - px1 >= d).
             //
-            // SW-12. The comparison is deliberately non-strict, and this
-            // is the whole of the violate-mode fix. `compute_validation_metrics`
+            // The comparison is deliberately non-strict.
+            // `compute_validation_metrics`
             // reports a breach when `distance < min_distance`, so "safe"
-            // for the validator is `distance >= min_distance`. The encoder
-            // asserted the strict `>`, and `Violate` mode is the negation
-            // of whatever the encoder asserted: `!(d > 5)` is `d <= 5`,
+            // for the validator is `distance >= min_distance`. Asserting the
+            // strict `>` here instead would make `Violate` mode assert the negation
+            // of that: `!(d > 5)` is `d <= 5`,
             // which is satisfied by `d == 5` exactly — a solution the
-            // validator then reports as *satisfying* the constraint the
+            // validator would then report as *satisfying* the constraint the
             // spec asked to have violated.
-            // `test_violate_mode_negates_constraint` measured exactly
-            // 5.0000 against a threshold of 5.00 and passed only because
-            // its assertion was `<=`.
+            // `test_violate_mode_negates_constraint` measures exactly
+            // 5.0000 against a threshold of 5.00, which only passes because
+            // its assertion is `<=`.
             //
             // With `>=` here the two agree: enforce asserts what the
             // validator calls safe, and violate asserts its exact
@@ -317,7 +316,7 @@ fn encode_proposition(
 
         // Approaching(follower, leader): leader in front, follower gaining — the
         // lane-free half of the state in which a TTC exists at all. See the
-        // proposition's doc comment (SW-22) for why `TTCGT` needs this to mean
+        // proposition's doc comment for why `TTCGT` needs this to mean
         // anything, and why the lane test is the caller's antecedent, not part of
         // this atom.
         Proposition::Approaching { follower, leader } => {
@@ -327,10 +326,10 @@ fn encode_proposition(
         // OnSidewalk(actor, side): -SIDEWALK_WIDTH <= py < 0 (left) or
         // road_width < py <= road_width + SIDEWALK_WIDTH (right).
         //
-        // Previously an unbounded half-plane (`py < 0` / `py > road_width`), which let
+        // An unbounded half-plane (`py < 0` / `py > road_width`) would let
         // Z3 park a pedestrian arbitrarily far off the road — up to 10.7 m measured on
-        // pedestrian_wide_road (SW-16 E3, re-attributed from SW-10). Bounded to a strip
-        // matching the `LaneType::Sidewalk` the xodr exporter now emits.
+        // pedestrian_wide_road. Bounded instead to a strip
+        // matching the `LaneType::Sidewalk` the xodr exporter emits.
         Proposition::OnSidewalk { actor, side } => {
             let py = accessor.get_lateral_pos(actor, time);
             let zero = Real::from_rational(0_i64, 1_i64);
@@ -384,9 +383,9 @@ fn encode_proposition(
 
             // |dx| >= threshold_x: dx >= threshold_x OR dx <= -threshold_x
             //
-            // SW-33. Found while checking this negation is not vacuous
-            // for `Violate`: with the strict `>`/`<` this used to be,
-            // `.negate()` (De Morgan) gives the *non-strict* conjunction
+            // Checking this negation is not vacuous
+            // for `Violate`: with a strict `>`/`<` here,
+            // `.negate()` (De Morgan) would give the *non-strict* conjunction
             // `dx <= tx AND dy <= ty` — satisfiable with `dx == tx`
             // exactly, which `compute_validation_metrics`'s
             // `box_safe = dx > tx - METRIC_TOL || ...` calls safe (the
@@ -395,9 +394,9 @@ fn encode_proposition(
             // witness in practice (verified: an isolated `min_distance:
             // violate` spec settled on `dx == threshold_x` for several
             // consecutive steps), so `Violate` could produce a scenario
-            // reporting no box violation at all — the SW-12/30/35
-            // boundary shape, for this proposition too, just not named
-            // in the original issue. Non-strict here makes the negation
+            // reporting no box violation at all — the same
+            // boundary shape as the other propositions in this file.
+            // Non-strict here makes the negation
             // strict (`dx < tx AND dy < ty`), so `Violate` can no longer
             // settle on the exact boundary the validator calls safe.
             let dx_positive = dx.ge(&threshold_x_real);
@@ -417,22 +416,22 @@ fn encode_proposition(
 
         // PedestrianTTCGT: Time-to-collision for perpendicular crossing
         //
-        // SW-35. This is the SW-12/SW-30 boundary defect a third time,
-        // in a guarded implication rather than a plain comparison.
+        // This is the same boundary shape as `DistanceGT` and
+        // `LateralDistanceGT` above, in a guarded implication rather than a plain comparison.
         // `¬(A ⟹ B)` is `A ∧ ¬B`; the antecedent `A`
         // (`ped_on_road ∧ approaching`) is unaffected by the strictness
         // of the consequent, so the question reduces to the same one
-        // SW-12/SW-30 answered for `B` (`ttc_safe`) alone.
+        // answered for `B` (`ttc_safe`) alone.
         // `compute_validation_metrics` (below, the `pedestrian_pair`
         // branch) calls `ttc == min_ttc` safe (it flags a violation only
-        // at `ttc < min_ttc - METRIC_TOL`). `ttc_safe` was the strict
-        // `distance > ttc * ego_vx`, so `Violate`'s negation
-        // `A ∧ ¬ttc_safe` had `¬ttc_safe` as the non-strict
+        // at `ttc < min_ttc - METRIC_TOL`). If `ttc_safe` were the strict
+        // `distance > ttc * ego_vx`, `Violate`'s negation
+        // `A ∧ ¬ttc_safe` would have `¬ttc_safe` as the non-strict
         // `distance <= ttc * ego_vx`, satisfiable at exactly
         // `distance == ttc * ego_vx` — the boundary the validator calls
         // safe. Non-strict here (`.ge`) makes `¬ttc_safe` strict
         // (`distance < ttc * ego_vx`), matching the validator's boundary
-        // exactly, as SW-12/SW-30 did for their propositions.
+        // exactly.
         Proposition::PedestrianTTCGT {
             ego,
             pedestrian,
@@ -442,7 +441,7 @@ fn encode_proposition(
             let ego_vx = accessor.get_longitudinal_vel(ego, time);
             let ped_px = accessor.get_longitudinal_pos(pedestrian, time);
 
-            // SW-43. The guard is built by the shared helper, not inline, so
+            // The guard is built by the shared helper, not inline, so
             // `PedestrianTTCGuard` — the atom `pedestrian_crossing.rs` asserts
             // to stop this implication being vacuous — is *the same formula*
             // as this implication's antecedent by construction rather than by
@@ -461,7 +460,7 @@ fn encode_proposition(
 
         // PedestrianTTCGuard: the `PedestrianTTCGT` antecedent, on its own.
         //
-        // SW-43. See the doc comment on the variant (`ltl/formula.rs`) for why
+        // See the doc comment on the variant (`ltl/formula.rs`) for why
         // a guard is worth naming, and `pedestrian_crossing.rs::generate_safety`
         // for the one place it is asserted.
         Proposition::PedestrianTTCGuard { ego, pedestrian } => {
@@ -471,17 +470,17 @@ fn encode_proposition(
         // VelocityGT: Actor's longitudinal speed exceeds threshold (min_velocity).
         // Linear constraint: |vx| >= threshold
         //
-        // SW-41. `generate_default_safety` (scenarios/mod.rs) uses this atom
+        // `generate_default_safety` (scenarios/mod.rs) uses this atom
         // as `AtomPolarity::Positive` for `min_velocity`: the atom itself is
         // the safe condition, so `Violate` asserts its negation eventually.
         // `compute_validation_metrics` calls a step safe whenever
         // `vx_abs >= min_vel - METRIC_TOL`, i.e. it treats `vx_abs == min_vel`
-        // exactly as satisfying the bound. This used to assert the strict
-        // `>`, so `Violate`'s negation was the non-strict `|vx| <= velocity`,
+        // exactly as satisfying the bound. Asserting the strict
+        // `>` here instead would make `Violate`'s negation the non-strict `|vx| <= velocity`,
         // satisfiable at `vx == velocity` exactly — a point the validator
         // does not flag as a violation. Non-strict here (`.ge`/`.le`) makes
-        // the negation strict, the same fix SW-12/30/33/35 made for their
-        // propositions.
+        // the negation strict, matching the boundary shape used for the
+        // other propositions in this file.
         Proposition::VelocityGT { actor, velocity } => {
             let vx = accessor.get_longitudinal_vel(actor, time);
             let threshold_val = real_from_f64(*velocity);
@@ -497,11 +496,11 @@ fn encode_proposition(
         // VelocityLT: Actor's longitudinal speed is below threshold (max_velocity).
         // Linear constraint: |vx| <= threshold
         //
-        // SW-41. Same reasoning as `VelocityGT` above, mirrored: this atom is
+        // Same reasoning as `VelocityGT` above, mirrored: this atom is
         // `AtomPolarity::Positive` for `max_velocity`, and
         // `compute_validation_metrics` calls a step safe whenever
-        // `vx_abs <= max_vel + METRIC_TOL`. The strict `<` this used to
-        // assert made `Violate`'s negation the non-strict `|vx| >= velocity`,
+        // `vx_abs <= max_vel + METRIC_TOL`. A strict `<`
+        // here instead would make `Violate`'s negation the non-strict `|vx| >= velocity`,
         // satisfiable at `vx == velocity` exactly, which the validator does
         // not flag. Non-strict here makes the negation strict.
         Proposition::VelocityLT { actor, velocity } => {
@@ -519,17 +518,17 @@ fn encode_proposition(
         // LateralDistanceGT: Lateral distance between actors exceeds threshold
         // Linear constraint: |py1 - py2| >= distance
         //
-        // SW-30. Same defect SW-12 fixed for `DistanceGT`, in the one
-        // proposition it did not touch. `compute_validation_metrics`
+        // Same boundary shape as `DistanceGT` above.
+        // `compute_validation_metrics`
         // reports a breach only at `lateral < min_lat - METRIC_TOL`
         // (encoder.rs, `compute_validation_metrics`), i.e. it calls
-        // `lateral >= min_lat` safe. This used to assert the strict `>`,
-        // so under `Violate` the negation `!(d > min_lat)` is `d <=
+        // `lateral >= min_lat` safe. Asserting the strict `>` here instead
+        // would mean under `Violate` the negation `!(d > min_lat)` is `d <=
         // min_lat`, satisfiable at `d == min_lat` exactly — a point the
         // validator does not consider a breach. Non-strict here makes
         // `Violate`'s negation `d < min_lat` strictly, matching the
-        // validator's own boundary exactly, as SW-12 did for
-        // `DistanceGT`.
+        // validator's own boundary exactly, as `DistanceGT` does
+        // above.
         Proposition::LateralDistanceGT {
             actor1,
             actor2,
@@ -572,7 +571,7 @@ fn encode_proposition(
     }
 }
 
-// SW-41. Test-only: the classification below exists purely to drive
+// Test-only: the classification below exists purely to drive
 // `test_strictness_coverage_is_exhaustive_and_documented` and
 // `test_measured_propositions_agree_with_validator_at_the_boundary`, so it is
 // `#[cfg(test)]` rather than `pub(crate)` in the production build — the
@@ -589,8 +588,8 @@ mod strictness_coverage_impl {
     /// Whether a `Proposition` variant's Enforce/Violate boundary is
     /// checked against `compute_validation_metrics` at all, and if so, whether
     /// that check has been confirmed to agree with the encoder's strictness at
-    /// the exact numeric boundary — the shape SW-12/30/33/35 each found and
-    /// fixed independently (`Violate` settling on `distance == threshold`
+    /// the exact numeric boundary — the shape multiple propositions in this
+    /// file guard against independently (`Violate` settling on `distance == threshold`
     /// exactly, and the validator, testing non-strictly, calling that safe).
     ///
     /// This `match` has **no wildcard arm** on purpose: adding a 13th
@@ -610,9 +609,8 @@ mod strictness_coverage_impl {
         /// all. Not a defect by itself — `Violate` still asserts something, Z3
         /// still solves it — but the strict/non-strict question is *unreachable*
         /// here: nothing independently measures whether the encoder and the
-        /// reported scenario agree, which is exactly where SW-12/30/33/35's
-        /// defect shape hid for as long as it did. This is the SW-31/SW-41 gap;
-        /// see `SW-41-strictness-sweep.md` for the follow-up issue.
+        /// reported scenario agree, which is exactly the kind of gap where the
+        /// boundary defect shape above could hide undetected.
         Unmeasured,
         /// Not a thresholded safety comparison that a spec-level `Enforce`/
         /// `Violate` polarity is ever applied to (a discrete equality, a
@@ -641,7 +639,7 @@ mod strictness_coverage_impl {
             // `compute_validation_metrics`.
             Proposition::OnSidewalk { .. } | Proposition::CrossingRoad { .. } => Unmeasured,
 
-            // The lane-free guard half of a directed conflict (SW-22). Its own
+            // The lane-free guard half of a directed conflict. Its own
             // boundary (closing speed exactly at `TTC_CLOSING_SPEED_EPSILON`) is
             // deliberately strict and matches `compute_validation_metrics`'s own
             // `rel_vel > epsilon` exactly (see `encode_approaching`'s doc
@@ -650,7 +648,7 @@ mod strictness_coverage_impl {
             // sweep is about does not apply to an antecedent.
             Proposition::Approaching { .. } => NotApplicable,
 
-            // SW-43's pedestrian analogue of `Approaching`: the `PedestrianTTCGT`
+            // The pedestrian analogue of `Approaching`: the `PedestrianTTCGT`
             // antecedent named on its own so `pedestrian_crossing.rs` can force
             // it. Like `Approaching` it carries no threshold of its own and is
             // never given an Enforce/Violate polarity — it is only ever the
@@ -992,13 +990,13 @@ mod tests {
     }
 
     /// Helper: create a two-actor spec with both in the same lane (for TTC/distance tests)
-    /// `Ahead(a, b)` and `Ahead(b, a)` must not both hold (SW-12/M4).
+    /// `Ahead(a, b)` and `Ahead(b, a)` must not both hold.
     ///
-    /// The failing case is a *mixed-direction* pair, because the frame used to
-    /// be read off actor1 alone. For ego (dir = +1) against an oncoming npc
-    /// (dir = -1) the lowering produced `px_ego > px_onc` for one direction of
+    /// The failing case would be a *mixed-direction* pair, if the frame were
+    /// read off actor1 alone. For ego (dir = +1) against an oncoming npc
+    /// (dir = -1) that lowering would produce `px_ego > px_onc` for one direction of
     /// the relation and `px_onc < px_ego` for the other — the same constraint,
-    /// so asserting both was satisfiable and "ahead" was not a strict order.
+    /// so asserting both would be satisfiable and "ahead" would not be a strict order.
     /// `head_on.rs` and `overtake_left.rs` both apply `Ahead` to exactly this
     /// kind of pair.
     ///
@@ -1202,12 +1200,11 @@ mod tests {
         });
     }
 
-    /// SW-30. `min_lateral_distance` had SW-12's defect in the one
-    /// constraint SW-12 did not touch: `LateralDistanceGT` lowered to a
-    /// *strict* `|py1 - py2| > d`, so `Violate` mode asserted its negation
+    /// If `LateralDistanceGT` lowered to a
+    /// *strict* `|py1 - py2| > d`, `Violate` mode would assert its negation
     /// `|py1 - py2| <= d` — satisfiable **at exactly `d`**, a point
     /// `compute_validation_metrics` (`lateral < min_lat - METRIC_TOL`) does
-    /// not consider a breach.
+    /// not consider a breach. This test guards against that regression.
     ///
     /// `create_two_actor_diff_lane_spec` places ego in lane 1 and npc in lane
     /// 0 on a 3.5 m-wide road, and with no `lane_changes` configured for
@@ -1226,7 +1223,7 @@ mod tests {
     /// `HeadOn`) also mandates at least one `lane_changes` entry, which
     /// drives `|py1 - py2|` towards 0 regardless of this constraint — so a
     /// corpus example cannot isolate this defect from that unrelated
-    /// convergence (see the SW-30 report for the sweep this comes from).
+    /// convergence.
     #[test]
     fn test_lateral_distance_violate_mode_is_strict_at_the_boundary() {
         let cfg = Config::new();
@@ -1242,9 +1239,9 @@ mod tests {
             // 3.5 m apart — the road's lane_width — at every time step.
             let boundary = 3.5;
 
-            // `Violate` asserts the negation of `LateralDistanceGT`. Before
-            // SW-30 that negation was `|py1 - py2| <= boundary`, satisfied by
-            // the fixed 3.5 m gap exactly.
+            // `Violate` asserts the negation of `LateralDistanceGT`. A
+            // non-strict lowering would make that negation `|py1 - py2| <= boundary`,
+            // satisfied by the fixed 3.5 m gap exactly.
             let formula = LTLFormula::Atom(Proposition::LateralDistanceGT {
                 actor1: "ego".to_string(),
                 actor2: "npc".to_string(),
@@ -1253,39 +1250,39 @@ mod tests {
             .negate();
             encoder.encode_ltl(&formula);
 
-            // Fixed: the negation is now `|py1 - py2| < boundary`, strict,
+            // The actual lowering makes the negation `|py1 - py2| < boundary`, strict,
             // which the rigid 3.5 m gap cannot satisfy — correctly UNSAT,
             // rather than accepting the boundary as a violation the
             // validator would go on to call safe.
             assert_eq!(
                 encoder.check(),
                 SatResult::Unsat,
-                "SW-30: violate mode must not be satisfiable by the exact \
+                "violate mode must not be satisfiable by the exact \
                  threshold distance ({boundary:.4} m) — that is the boundary \
                  the validator calls safe, not a breach"
             );
         });
     }
 
-    /// SW-35. `PedestrianTTCGT` lowers to a guarded implication,
-    /// `ped_on_road ∧ approaching ⟹ ttc_safe`, and `ttc_safe` was the
-    /// strict `distance > ttc * ego_vx` (encoder.rs `encode_proposition`).
-    /// The guard changes the *shape* of the negation relative to SW-12
-    /// (`DistanceGT`) and SW-30 (`LateralDistanceGT`), which negate plain
+    /// `PedestrianTTCGT` lowers to a guarded implication,
+    /// `ped_on_road ∧ approaching ⟹ ttc_safe`, and `ttc_safe` is the
+    /// non-strict `distance >= ttc * ego_vx` (encoder.rs `encode_proposition`).
+    /// The guard changes the *shape* of the negation relative to
+    /// `DistanceGT` and `LateralDistanceGT`, which negate plain
     /// comparisons, but not the conclusion: `¬(A ⟹ B)` is `A ∧ ¬B`, and the
     /// antecedent `A` (`ped_on_road ∧ approaching`) is untouched by the
     /// strictness of `B` (`ttc_safe`) — so once `A` holds, whether the
     /// negation is satisfiable at the boundary reduces to exactly the same
-    /// question SW-12/SW-30 answered: is `¬ttc_safe` `<=` (non-strict,
+    /// question: is `¬ttc_safe` `<=` (non-strict,
     /// satisfiable at the boundary) or `<` (strict, not)?
     ///
     /// `compute_validation_metrics` (encoder.rs, the `pedestrian_pair`
     /// branch) flags a TTC violation only at `ttc < min_ttc - METRIC_TOL`,
-    /// i.e. it calls `ttc == min_ttc` safe. Pre-fix, `ttc_safe` was strict
-    /// `>`, so `Violate`'s negation `¬ttc_safe` was the non-strict
+    /// i.e. it calls `ttc == min_ttc` safe. If `ttc_safe` were strict
+    /// `>`, `Violate`'s negation `¬ttc_safe` would be the non-strict
     /// `distance <= ttc * ego_vx`, satisfiable at exactly `distance == ttc *
-    /// ego_vx` — the point the validator calls safe. Same defect, third
-    /// instance, different proposition shape.
+    /// ego_vx` — the point the validator calls safe. This test guards
+    /// against that same defect shape for this proposition.
     ///
     /// Every quantity here is pinned by `ValueOrRange::Value`, so the
     /// antecedent (`ped_on_road`, `ego_behind`, `ego_moving_forward`) is true
@@ -1356,8 +1353,8 @@ mod tests {
             encoder.create_variables();
             encoder.encode_initial_conditions();
 
-            // `Violate` asserts the negation of `PedestrianTTCGT`. Before
-            // SW-35 that negation's `¬ttc_safe` half was
+            // `Violate` asserts the negation of `PedestrianTTCGT`. A
+            // non-strict `ttc_safe` would make that negation's `¬ttc_safe` half
             // `distance <= ttc * ego_vx`, satisfied by the pinned boundary
             // (`20 <= 2.0 * 10`) exactly.
             let formula = LTLFormula::Atom(Proposition::PedestrianTTCGT {
@@ -1368,14 +1365,14 @@ mod tests {
             .negate();
             encoder.encode_ltl(&formula);
 
-            // Fixed: `¬ttc_safe` is now `distance < ttc * ego_vx`, strict,
+            // The actual lowering makes `¬ttc_safe` `distance < ttc * ego_vx`, strict,
             // which the pinned boundary (`20 == 2.0 * 10`) cannot satisfy —
             // correctly UNSAT, rather than accepting the exact threshold as
             // a violation the validator would go on to call safe.
             assert_eq!(
                 encoder.check(),
                 SatResult::Unsat,
-                "SW-35: violate mode must not be satisfiable by the exact \
+                "violate mode must not be satisfiable by the exact \
                  TTC boundary — that is the boundary the validator calls \
                  safe, not a breach"
             );
@@ -1468,10 +1465,10 @@ mod tests {
         });
     }
 
-    /// SW-33. Found while checking `RectangularDistanceGT`'s negation is not
-    /// vacuous for `Violate` — same SW-12/SW-30/SW-35 boundary shape,
-    /// unnamed in the original issue. The box's `dx`/`dy` comparisons were
-    /// strict `>`/`<`, so `.negate()` (De Morgan) gave the non-strict
+    /// Checking `RectangularDistanceGT`'s negation is not
+    /// vacuous for `Violate` — same boundary shape as `DistanceGT`,
+    /// `LateralDistanceGT`, and `PedestrianTTCGT` above. If the box's `dx`/`dy` comparisons were
+    /// strict `>`/`<`, `.negate()` (De Morgan) would give the non-strict
     /// conjunction `dx <= tx AND dy <= ty`, satisfiable with `dx == tx`
     /// exactly — a point `compute_validation_metrics`'s
     /// `box_safe = dx > tx - METRIC_TOL || ...` calls safe.
@@ -1545,7 +1542,7 @@ mod tests {
             encoder.encode_initial_conditions();
 
             // `Violate` asserts the negation of `RectangularDistanceGT`.
-            // Before SW-33's boundary fix, that negation was
+            // A non-strict lowering would make that negation
             // `dx <= 1.0 AND dy <= 1.333`, satisfied by the pinned boundary
             // (`dx == 1.0` exactly, `dy == 0`).
             let formula = LTLFormula::Atom(Proposition::RectangularDistanceGT {
@@ -1557,14 +1554,14 @@ mod tests {
             .negate();
             encoder.encode_ltl(&formula);
 
-            // Fixed: the negation is now `dx < 1.0 AND dy < 1.333`, strict,
+            // The actual lowering makes the negation `dx < 1.0 AND dy < 1.333`, strict,
             // which the pinned `dx == 1.0` cannot satisfy — correctly
             // UNSAT, rather than accepting the exact threshold as a
             // violation the validator would go on to call safe.
             assert_eq!(
                 encoder.check(),
                 SatResult::Unsat,
-                "SW-33: violate mode must not be satisfiable by the exact \
+                "violate mode must not be satisfiable by the exact \
                  box boundary — that is the boundary the validator calls \
                  safe, not a breach"
             );
@@ -1599,10 +1596,9 @@ mod tests {
             )))));
             encoder.encode_ltl(&formula);
 
-            // SW-12/L1. This test asserted `Unsat`, which is the defect rather
-            // than the specification: `X` past the bound yielded the literal
-            // `false`, and because `Always` expands over `time..=horizon`
-            // *inclusive*, every `G(X phi)` was unsatisfiable no matter what
+            // If `X` past the bound lowered to the literal
+            // `false`, then because `Always` expands over `time..=horizon`
+            // *inclusive*, every `G(X phi)` would be unsatisfiable no matter what
             // `phi` said — see `test_always_next_is_satisfiable` below.
             // Bounded model checking knows nothing about states after the
             // bound, so the honest reading is "not refuted by this trace".
@@ -1614,14 +1610,13 @@ mod tests {
         });
     }
 
-    /// `G(X phi)` must be satisfiable (SW-12/L1).
+    /// `G(X phi)` must be satisfiable.
     ///
-    /// The direct consequence of the bug above: `Always` expands over
+    /// `Always` expands over
     /// `time..=horizon` inclusive, so its last conjunct is `X` evaluated *at*
-    /// the horizon. With `X` past the bound lowered to `false`, that conjunct
-    /// was the literal `false` and every `G(X phi)` in the language was
-    /// unsatisfiable regardless of `phi`. Nothing in the shipped scenario
-    /// templates uses `X` today, which is why this went unnoticed.
+    /// the horizon. If `X` past the bound lowered to `false`, that conjunct
+    /// would be the literal `false` and every `G(X phi)` in the language would be
+    /// unsatisfiable regardless of `phi`.
     #[test]
     fn test_always_next_is_satisfiable() {
         let cfg = Config::new();
@@ -1648,14 +1643,14 @@ mod tests {
             assert_eq!(
                 encoder.check(),
                 SatResult::Sat,
-                "G(X phi) must be satisfiable; it was unsat for every phi before SW-12/L1"
+                "G(X phi) must be satisfiable for every phi"
             );
         });
     }
 
-    // SW-41 -----------------------------------------------------------------
+    // ------------------------------------------------------------------------
     //
-    // The durable check for the SW-12/30/33/35 defect shape: an encoder
+    // The durable check for the boundary-strictness defect shape: an encoder
     // comparison lowered strictly where `compute_validation_metrics` tests it
     // non-strictly, so `Violate` mode can satisfy its negation exactly on the
     // boundary (`distance == threshold`) and the validator — testing `>=` —
@@ -1994,7 +1989,7 @@ mod tests {
             measured_count, 8,
             "expected exactly 8 Measured propositions today (DistanceGT, TTCGT, \
              LateralDistanceGT, RelativeVelocityGT, RectangularDistanceGT, \
-             PedestrianTTCGT, VelocityGT, VelocityLT) — SW-31 reported 3; if this \
+             PedestrianTTCGT, VelocityGT, VelocityLT); if this \
              assertion fails because that number changed, update it deliberately, \
              not by deleting the assertion"
         );

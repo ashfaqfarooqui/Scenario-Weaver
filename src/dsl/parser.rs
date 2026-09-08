@@ -25,7 +25,7 @@ pub fn parse_yaml(yaml_content: &str) -> Result<ScenarioSpec> {
         road.road_length = Some(road_length);
     }
 
-    // SW-21/M9. This used to unconditionally overwrite each actor's
+    // This used to unconditionally overwrite each actor's
     // `direction` from `road.lane_directions[actor.lane]` here, silently
     // discarding whatever the user wrote — even though `spec.validate()`
     // (above) had just validated that same field, misleading the user into

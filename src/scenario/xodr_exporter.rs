@@ -127,20 +127,20 @@ pub fn export_to_xodr(scenario: &Scenario) -> Result<String> {
 /// spec's `road_length` (when set) and always covers every actor's observed
 /// `x` extent, with a padding margin on both ends.
 ///
-/// Two defects this fixes (M12):
-/// - Previously `road_length` short-circuited the trajectory-derived estimate
-///   entirely, so a spec with an explicit (or `parser.rs`-defaulted) length
-///   shorter than the trajectories it carried silently shipped that way —
-///   `overtake_with_opposite` reached `x=267.5` on a `length="3.0e2"` — no
-///   defect there, but `cut_in_left_optimize_max_ttc` reached `x=303.26` on
-///   the same 300 m default. Now the final length is
-///   `max(spec_length, trajectory_extent * margin)`, so it can only grow.
-/// - Previously the geometry always started at `x=0`, so a backward-direction
-///   actor reaching `x<0` landed at a negative `s`, outside the road's
-///   `[0, length]` range. Now the geometry's start `x` (and therefore `s=0`)
-///   is pulled back to cover the most negative observed `x`, with padding.
+/// Two things this guards against:
+/// - `road_length` alone must not short-circuit the trajectory-derived
+///   estimate: a spec with an explicit (or `parser.rs`-defaulted) length
+///   shorter than the trajectories it carries would otherwise ship that way —
+///   e.g. `overtake_with_opposite` reaches `x=267.5` on a `length="3.0e2"`,
+///   and `cut_in_left_optimize_max_ttc` reaches `x=303.26` on the same 300 m
+///   default. The final length is `max(spec_length, trajectory_extent *
+///   margin)`, so it can only grow.
+/// - The geometry must not always start at `x=0`, or a backward-direction
+///   actor reaching `x<0` lands at a negative `s`, outside the road's
+///   `[0, length]` range. The geometry's start `x` (and therefore `s=0`) is
+///   pulled back to cover the most negative observed `x`, with padding.
 ///
-/// `pub(crate)` (SW-20) so `xosc_exporter::lane_position` can compute the same
+/// `pub(crate)` so `xosc_exporter::lane_position` can compute the same
 /// `s = world_x - start_x` the `.xodr`'s own `s=0` uses, instead of assuming
 /// `start_x == 0`.
 pub(crate) fn compute_road_geometry(scenario: &Scenario) -> (f64, f64) {
@@ -281,21 +281,20 @@ fn center_road_mark() -> RoadMark {
 /// Forward lanes (`direction == 1`) become right-side lanes (IDs -1, -2, …).
 /// Backward lanes (`direction == -1`) become left-side lanes (IDs +1, +2, …).
 /// `RoadSpec::validate` guarantees `lane_directions` is a single
-/// forward-then-backward block (SW-16 E2), which is what makes this
-/// assignment agree with the scenario's `py = lane*lane_width +
-/// lane_width/2` mapping.
+/// forward-then-backward block, which is what makes this assignment agree
+/// with the scenario's `py = lane*lane_width + lane_width/2` mapping.
 ///
 /// A `LaneType::Sidewalk` strip is added just outside the driving lanes on
 /// both sides — the region `OnSidewalk` bounds its half-plane to in
-/// `src/solver/encoder.rs` (SW-16 E3) — so a pedestrian standing there is on
-/// something the `.xodr` actually describes. Its width is
+/// `src/solver/encoder.rs` — so a pedestrian standing there is on something
+/// the `.xodr` actually describes. Its width is
 /// `max(SIDEWALK_WIDTH, observed excursion + margin)` (see
 /// [`sidewalk_widths`]): `SIDEWALK_WIDTH` bounds where `OnSidewalk` can
 /// become true, but that is a pointwise ("eventually") proposition, not an
 /// "always" one, so nothing stops a pedestrian from drifting further after
 /// satisfying it — the exporter widens the drawn sidewalk to cover whatever
-/// the trajectory actually does, the same trajectory-driven pattern M12
-/// uses for road length.
+/// the trajectory actually does, the same trajectory-driven pattern used for
+/// road length.
 fn build_lane_section(scenario: &Scenario) -> Result<LaneSection> {
     let road = &scenario.road;
     let (right_sidewalk_width, left_sidewalk_width) = sidewalk_widths(scenario);
@@ -323,9 +322,9 @@ fn build_lane_section(scenario: &Scenario) -> Result<LaneSection> {
     let mut right_lanes: Vec<RightLane> = Vec::new(); // forward (+1) → negative IDs
     let mut left_lanes: Vec<LeftLane> = Vec::new(); // backward (−1) → positive IDs
 
-    // Id assignment now goes through `lane_ids::lane_index_to_xodr_id`
-    // (SW-20/SW-15) rather than a second, hand-rolled outermost-first
-    // counter: OpenDRIVE ID -1 is innermost (closest to the reference line),
+    // Id assignment goes through `lane_ids::lane_index_to_xodr_id` rather
+    // than a second, hand-rolled outermost-first counter: OpenDRIVE ID -1
+    // is innermost (closest to the reference line),
     // -n is outermost, and the scenario's lane 0 — at the lowest y, the
     // outermost right lane — gets the most negative ID. This is the same
     // assignment the `.xosc` exporter's `LanePosition` elements use, so the
@@ -474,9 +473,9 @@ mod tests {
         assert!(xml.contains("<OpenDRIVE"));
     }
 
-    /// SW-16 M12: a backward-direction actor reaching `x < 0` must stay
-    /// within the exported road's `s` range (`geometry.x` ..
-    /// `geometry.x + length`), not land at a negative, out-of-range `s`.
+    /// A backward-direction actor reaching `x < 0` must stay within the
+    /// exported road's `s` range (`geometry.x` .. `geometry.x + length`),
+    /// not land at a negative, out-of-range `s`.
     #[test]
     fn test_xodr_negative_x_actor_stays_within_road_s_range() {
         use crate::scenario::model::{Acceleration, ActorTrajectory, Position, State, Velocity};
@@ -522,7 +521,7 @@ mod tests {
         assert!((geom_x - start_x).abs() < 1e-9);
     }
 
-    /// SW-16 E3: the exported sidewalk widens to cover a pedestrian's actual
+    /// The exported sidewalk widens to cover a pedestrian's actual
     /// lateral excursion, rather than assuming a fixed width is always
     /// enough (the encoder's `OnSidewalk` bound only pins one instant, not
     /// the whole trajectory — see `sidewalk_widths`'s doc comment).

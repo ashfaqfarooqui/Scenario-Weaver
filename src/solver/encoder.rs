@@ -3,7 +3,7 @@
 //! `GenericEncoder` is a delegating façade over the coordinate-specific encoders
 //! (`CartesianEncoder`/`BicycleEncoder`, via the `CoordinateEncoder` trait): variable
 //! creation, kinematics, and the coordinate-specific constraints all go through it. This
-//! file also keeps a handful of items shared by more than one of the modules SW-19 split
+//! file also keeps a handful of items shared by more than one of the modules split
 //! out of it — `encode_ttc_constraint` (the encoder-side TTC lowering; the near-duplicate
 //! in the validator lives in `src/scenario/metrics.rs`), `directed_conflict`/
 //! `encode_approaching`/[`DirectedConflict`] (used by both `src/ltl/encode.rs`'s
@@ -24,9 +24,9 @@ use crate::solver::encoders::cartesian::CartesianEncoder;
 ///
 /// `OnSidewalk` (below) bounds the pedestrian half-plane to this strip rather than leaving
 /// it unbounded, and `src/scenario/xodr_exporter.rs` emits a matching `LaneType::Sidewalk`
-/// of this width so the two agree (SW-16 E3, re-attributed from SW-10). 2.0 m is a
-/// conventional urban sidewalk width and comfortably covers the corpus's measured pre-fix
-/// excursions (pedestrian_running/pedestrian_crossing ~2.0 m; pedestrian_wide_road ~0.44 m).
+/// of this width so the two agree. 2.0 m is a conventional urban sidewalk width and
+/// comfortably covers the corpus's measured excursions (pedestrian_running/pedestrian_crossing
+/// ~2.0 m; pedestrian_wide_road ~0.44 m).
 pub const SIDEWALK_WIDTH: f64 = 2.0;
 
 /// Trait providing read-only access to Z3 variables for scenario-specific constraints.
@@ -177,17 +177,17 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         self.encode_forward_progress();
     }
 
-    /// Require every vehicle to actually traverse the scenario (SW-12/M5).
+    /// Require every vehicle to actually traverse the scenario.
     ///
-    /// Nothing used to: the coordinate encoders assert only a sign condition
-    /// on `vx` (`vx >= 0` forward, `vx <= 0` backward) and `min_velocity`
-    /// defaults to `ConstraintMode::Ignore`, so "everybody stops" was a legal
-    /// answer to every specification — and a very attractive one, because a
+    /// The coordinate encoders assert only a sign condition on `vx` (`vx >= 0`
+    /// forward, `vx <= 0` backward) and `min_velocity` defaults to
+    /// `ConstraintMode::Ignore`, so without this, "everybody stops" would be a
+    /// legal answer to every specification — and a very attractive one, because a
     /// pair of parked cars satisfies every distance and TTC threshold
-    /// trivially. On `cut_in_left` both vehicles came to a dead stop 98 m
-    /// apart and the result was emitted with `all_constraints_satisfied: true`;
-    /// on all three pedestrian examples the only vehicle stood still for a
-    /// majority of the horizon.
+    /// trivially. Without it, on `cut_in_left` both vehicles could come to a dead
+    /// stop 98 m apart and the result would still be emitted with
+    /// `all_constraints_satisfied: true`; on all three pedestrian examples the
+    /// only vehicle would stand still for a majority of the horizon.
     ///
     /// The constraint is on net displacement over the whole horizon:
     ///
@@ -208,7 +208,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// displacement is near zero by design, and `PEDESTRIAN_*` already bounds
     /// their speed on both axes.
     ///
-    /// SW-39 adds a second, narrower floor alongside the displacement one: the
+    /// A second, narrower floor applies alongside the displacement one: the
     /// longitudinal speed at the *final* step must be back up to
     /// `TERMINAL_SPEED_FRACTION` of the actor's declared initial speed. The
     /// displacement floor alone only bounds an average over the horizon, and
@@ -221,7 +221,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// not an ending state. Both bounds are one linear inequality per actor
     /// against a compile-time constant, so this stays in QF_LRA.
     ///
-    /// SW-40 narrows the terminal floor to the actors that can meet it. "A dip,
+    /// The terminal floor is narrowed to the actors that can meet it. "A dip,
     /// not an ending state" covers a stop in the middle of the horizon and says
     /// nothing about a stop *at* it, and a spec can demand exactly that: with
     /// `speed: 20.0` and `acceleration: [-5.0, -1.9]` the declared band forces
@@ -235,8 +235,8 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// `speed.max() + a_along_max * duration >= TERMINAL_SPEED_FRACTION *
     /// speed.min()`, i.e. only when the actor's declared dynamics can reach it
     /// — see the `a_along_max` comment below. Nothing is relaxed for an actor
-    /// that *could* hold its speed and simply chose not to, which is the case
-    /// SW-39 exists for.
+    /// that *could* hold its speed and simply chose not to; the terminal floor
+    /// still applies to that case.
     fn encode_forward_progress(&mut self) {
         use crate::dsl::types::{
             ActorRole, CoordinateSystem, MIN_FORWARD_PROGRESS_FRACTION, TERMINAL_SPEED_FRACTION,
@@ -256,7 +256,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                 let displacement_required =
                     MIN_FORWARD_PROGRESS_FRACTION * a.speed.min() * duration * dir;
 
-                // SW-40. The terminal-speed floor is asserted only where the
+                // The terminal-speed floor is asserted only where the
                 // actor's own declared dynamics can actually meet it. The
                 // velocity chain is `v[t+1] = v[t] + a[t]*dt` with
                 // `a[t]` in the declared band at every step, so the fastest
@@ -430,24 +430,22 @@ pub(crate) fn encode_ttc_constraint(
     let epsilon = Real::from_rational(1_i64, 100_i64); // 0.01 m/s to avoid division by zero
 
     // "Same lane" condition for TTC — one predicate, shared with the
-    // `DistanceGT` lowering and with `compute_validation_metrics`
-    // (SW-10/H7): `lane1 == lane2 OR |py1 - py2| < lane_width`.
+    // `DistanceGT` lowering and with `compute_validation_metrics`:
+    // `lane1 == lane2 OR |py1 - py2| < lane_width`.
     //
-    // This used to special-case direction: y-proximity for
-    // opposite-direction pairs, bare discrete lane match for
-    // same-direction pairs. That split existed because `lane` could not be
-    // trusted — it was pinned on a schedule (H2) — so widening it for
-    // same-direction pairs would have fired on actors that were not
-    // really overlapping. With `lane` now derived from `py` the disjunct
-    // means something precise for every pair: either the two occupy the
-    // same lane strip, or one of them is mid-manoeuvre and they are
-    // laterally within a lane width of each other. Both are conflicts.
+    // The predicate does not special-case direction: it does not use
+    // y-proximity for opposite-direction pairs and a bare discrete lane
+    // match for same-direction pairs. Such a split would only be safe if
+    // `lane` were trustworthy for both, but `lane` is derived from `py`, so
+    // the disjunct means something precise for every pair: either the two
+    // occupy the same lane strip, or one of them is mid-manoeuvre and they
+    // are laterally within a lane width of each other. Both are conflicts.
     //
-    // Keeping the split would have left the validator stricter than the
-    // encoder: with the widened validator predicate, `overtake_left`
-    // reported `TTC 0.28 s < 2.00 s` at t=7.5 on a spec that declares
-    // min_ttc *enforce* — a violation the encoder had never asserted
-    // against, because the merge happens with the discrete lanes still
+    // A discrete-lane-only same-direction case would leave the validator
+    // stricter than the encoder: with the widened validator predicate,
+    // `overtake_left` reports `TTC 0.28 s < 2.00 s` at t=7.5 on a spec that
+    // declares min_ttc *enforce* — a violation the encoder must assert
+    // against even while the merge happens with the discrete lanes still
     // differing.
     let same_lane = encode_same_lane_constraint(
         lane1,
@@ -472,13 +470,13 @@ pub(crate) fn encode_ttc_constraint(
     // TTC >= min_ttc means: distance / rel_vel >= min_ttc, i.e.
     // distance >= min_ttc * rel_vel (rel_vel > 0 on this branch).
     //
-    // Non-strict for the same reason as `DistanceGT` above (SW-12):
+    // Non-strict for the same reason as `DistanceGT` above:
     // `compute_validation_metrics` calls `ttc < min_ttc` a violation, so
     // safe is `ttc >= min_ttc`, and `Violate` mode — the negation of what
     // the encoder asserts — then means `ttc < min_ttc` strictly rather
-    // than the boundary-satisfying `ttc <= min_ttc`.
-    // `cut_in_left_adversarial_all` reported `min_ttc = 3.0` against a
-    // threshold of exactly 3.0 under the strict form.
+    // than the boundary-satisfying `ttc <= min_ttc`. A strict form would
+    // wrongly reject `cut_in_left_adversarial_all`, which reports
+    // `min_ttc = 3.0` against a threshold of exactly 3.0.
     let ttc_safe_1 = distance_1.ge(&(&min_ttc_val * &rel_vel_1));
 
     // Case 2: actor2 ahead, actor1 behind, actor1 faster
@@ -508,7 +506,7 @@ pub(crate) fn encode_ttc_constraint(
 /// `same_lane` disjunction**, which is what makes it cheap enough to assert 101 times.
 /// The lane test belongs in the *antecedent* of whatever implication uses this: a
 /// disjunction in a consequent Z3 must satisfy is a choice it searches over, one per
-/// step, while the same disjunction as a hypothesis is propagation (SW-11's lesson).
+/// step, while the same disjunction as a hypothesis is propagation.
 /// Measured on `cut_in_left`'s five scenarios against a 15.0 s pre-fix baseline: with
 /// `same_lane` in the consequent, 103 s; with the lane match hoisted into the
 /// antecedent, 14.1 s.
@@ -516,8 +514,8 @@ pub(crate) fn encode_ttc_constraint(
 /// Both comparisons are strict, matching `compute_validation_metrics`'s
 /// `state1.x > state2.x` and `rel_vel > epsilon` exactly. A non-strict `>=` on the
 /// closing floor would let Z3 answer *on* it, which the validator then declines to
-/// measure — the same enforce-one-thing/report-another boundary mismatch SW-12 fixed
-/// for `DistanceGT` and `METRIC_TOL` documents.
+/// measure — the same enforce-one-thing/report-another boundary mismatch that
+/// `DistanceGT` and `METRIC_TOL` document elsewhere.
 pub(crate) fn encode_approaching(
     accessor: &dyn EncoderAccessor,
     follower: &str,
@@ -541,7 +539,7 @@ pub(crate) fn encode_approaching(
 /// "same lane" test ([`encode_same_lane_constraint`] — discrete lane match *or*
 /// lateral overlap), the same requirement that the follower be strictly behind, and
 /// the same closing-speed floor. Both [`Self::collect_directed_conflicts`] (the
-/// optimizer objectives, SW-14) and the `Converging` proposition (SW-22) go through
+/// optimizer objectives) and the `Converging` proposition go through
 /// it, so an objective, an assertion and a reported metric cannot drift apart.
 ///
 /// Every term is a difference of existing variables — no products, so QF_LRA.
@@ -596,10 +594,10 @@ pub(crate) struct DirectedConflict {
     /// `vx_follow - vx_lead` — at least `ε` under `guard`
     pub(crate) closing: Real,
 }
-/// A breach is only a breach beyond the representation error (SW-12).
+/// A breach is only a breach beyond the representation error.
 ///
 /// The encoder asserts `distance >= min_distance` and
-/// `gap >= min_ttc * closing_speed` as exact rationals, and since SW-12 it
+/// `gap >= min_ttc * closing_speed` as exact rationals, and it
 /// asserts them non-strictly, so Z3 answers *on* the boundary:
 /// `min_distance` comes back as exactly 5, `gap` as exactly
 /// `3 * closing_speed`. Rendering those rationals as `f64` and then
@@ -751,7 +749,7 @@ mod tests {
         spec
     }
 
-    /// SW-37. Cartesian's `get_longitudinal_vel` returns a signed velocity
+    /// Cartesian's `get_longitudinal_vel` returns a signed velocity
     /// (`velocities_x`, `cartesian.rs:768`); Bicycle's returns `speed_v`, which
     /// `bicycle.rs:1098` documents as non-negative and direction-locked. For a
     /// `direction: 1` actor the two coincide, which is exactly why the two
@@ -901,14 +899,15 @@ mod tests {
         delta.unwrap()
     }
 
-    /// SW-38. `LaneChangeDirection::Right`/`Left` are relative to the
-    /// actor's own heading, not an absolute lane-index step — SW-17 E5
-    /// settled this (see the doc comment on `LaneChangeDirection` and
+    /// `LaneChangeDirection::Right`/`Left` are relative to the
+    /// actor's own heading, not an absolute lane-index step (see the doc
+    /// comment on `LaneChangeDirection` and
     /// `CartesianEncoder::encode_smooth_lane_transition`, both of which map
-    /// `Right => actor.direction`, `Left => -actor.direction`). Before this
-    /// fix `BicycleEncoder::encode_lane_coupling_with_lane_changes` used a
-    /// hardcoded `Right => 1, Left => -1`, which agrees with cartesian only
-    /// for a forward actor. `backward_lane_change_spec` puts `npc` at
+    /// `Right => actor.direction`, `Left => -actor.direction`). A hardcoded
+    /// `Right => 1, Left => -1` in
+    /// `BicycleEncoder::encode_lane_coupling_with_lane_changes` would agree
+    /// with cartesian only for a forward actor. `backward_lane_change_spec`
+    /// puts `npc` at
     /// `direction: -1` performing a `Right` lane change on the *same* YAML
     /// under both coordinate systems; the two must move it the same way.
     #[test]
@@ -1063,10 +1062,10 @@ mod tests {
             let npc_py_f64: f64 = crate::solver::backend::parse_z3_real_pub(&npc_py_0.to_string());
 
             // Exact lane centres: lane*width + width/2 with width = 3.5.
-            // The tolerance used to be 0.5 m, which was wide enough to accept
-            // the 1.70 / 5.20 the encoder actually produced when half_width was
-            // built as `(lane_width * 5.0) as i64 / 10` and 17.5 truncated to
-            // 17 (SW-08/C1). 1e-9 is the exactness Z3's rationals give.
+            // A tolerance as wide as 0.5 m would also accept 1.70 / 5.20, which
+            // is what a `half_width` built as `(lane_width * 5.0) as i64 / 10`
+            // (17.5 truncated to 17) produces instead. 1e-9 is the exactness
+            // Z3's rationals give.
             assert!(
                 (ego_py_f64 - 5.25).abs() < 1e-9,
                 "ego_py should be exactly 5.25, got {}",
@@ -1112,10 +1111,9 @@ mod tests {
             println!("Ego vx[0]: {:?}", ego_vx_0);
 
             // px[1] = px[0] + vx[0]*dt + 0.5*ax[0]*dt^2 with dt = 0.5.
-            // The forward-Euler form this used to assert (px0 + vx0*0.5, at a
-            // 0.1 tolerance) is short by 0.5*ax*dt^2 — 1.0 m per step at the
-            // ax = -8 the solver picks here, ten times the old tolerance. See
-            // SW-08/H1.
+            // A forward-Euler form (px0 + vx0*0.5, at a 0.1 tolerance) would be
+            // short by 0.5*ax*dt^2 — 1.0 m per step at the ax = -8 the solver
+            // picks here, ten times that tolerance.
             let ego_vx_1 = model
                 .eval(encoder.get_longitudinal_vel("ego", 1), true)
                 .unwrap();

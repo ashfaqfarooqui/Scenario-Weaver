@@ -18,8 +18,8 @@ use z3::ast::{Bool, Real};
 use z3::{Config, SatResult};
 
 /// Outcome of a single Z3 solve attempt, kept distinguishable all the way out to the
-/// caller. Folding `Unknown` into `Unsat` here is exactly the bug SW-13/H9 fixes: a
-/// solver timeout or incompleteness result is not a proof that no scenario exists.
+/// caller. Folding `Unknown` into `Unsat` would be wrong: a solver timeout or
+/// incompleteness result is not a proof that no scenario exists.
 enum SolveOutcome {
     Sat(Box<Scenario>),
     Unsat,
@@ -50,7 +50,7 @@ fn encode_standard_pipeline<B: Z3Backend + 'static>(
 /// Drive the generate-N-diverse-scenarios loop, given a closure that runs one solve
 /// attempt (already including blocking clauses against everything generated so far).
 ///
-/// Behaviour, made explicit (previously undocumented, see SW-13/H9):
+/// Behaviour:
 /// - `Unsat` on any iteration stops the loop — "no more unique scenarios exist" is a
 ///   legitimate, successful terminal state, so a partial result (e.g. `-n 10` yielding
 ///   3) is returned as `Ok` with only a `warn!`.
@@ -128,10 +128,11 @@ where
 /// Uses blocking clauses to ensure each generated scenario is different.
 /// Specifically, we block based on NPC initial conditions (position and velocity).
 ///
-/// Honours `spec.optimization_target` (SW-13/D4): previously this always went through
-/// the plain SAT solver, so `--optimize` set on the CLI was silently dropped whenever
-/// `num_scenarios > 1`. It now runs each of the N solves through the Z3 optimizer
-/// backend instead, with the same blocking clauses enforcing diversity between them.
+/// Honours `spec.optimization_target`: each of the N solves runs through the Z3
+/// optimizer backend when one is set, with the same blocking clauses enforcing
+/// diversity between them, rather than always going through the plain SAT solver
+/// (which would silently drop `--optimize` set on the CLI whenever
+/// `num_scenarios > 1`).
 ///
 /// # Arguments
 /// * `spec` - Scenario specification
@@ -367,12 +368,11 @@ mod tests {
     use crate::ltl::generator::LTLGenerator;
     use std::collections::HashMap;
 
-    /// SW-13/H9: `SatResult::Unknown` must never be reported to the caller as
+    /// `SatResult::Unknown` must never be reported to the caller as
     /// `Unsatisfiable` — a solver timeout/incompleteness is a different diagnosis
     /// from a proof that no scenario exists. Exercised at the `drive_generation`
     /// level with a stubbed solve result, since forcing a real Z3 `unknown` would
-    /// require deliberately leaving the decidable linear-arithmetic fragment
-    /// (SW-11's territory), which this issue does not touch.
+    /// require deliberately leaving the decidable linear-arithmetic fragment.
     #[test]
     fn unknown_on_first_attempt_reports_solver_unknown_not_unsatisfiable() {
         let result: Result<Vec<Scenario>> = drive_generation(
