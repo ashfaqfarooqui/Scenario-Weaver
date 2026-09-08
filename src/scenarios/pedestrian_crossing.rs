@@ -14,18 +14,33 @@ use crate::solver::encoder_utils::real_from_f64;
 /// (`threshold_x = min_distance / LONGITUDINAL`, `threshold_y = min_distance
 /// / LATERAL`) and reproduced by `compute_validation_metrics`
 /// (`solver/encoder.rs`, the `pedestrian_pair` branch) to measure exactly
-/// what got asserted. SW-34: these used to be independent literals in the
-/// two files — the SW-27/SW-30 shape, one edit from disagreeing — hoisted
-/// here so there is exactly one copy of each number.
+/// what got asserted. Keeping them as independent literals in the two files
+/// would be one edit from disagreeing, so they are hoisted here so there is
+/// exactly one copy of each number.
 ///
 /// Deliberately divisors, not multiplied ratios: `x / 2.0` and `x * 0.5` are
 /// bit-identical in IEEE-754, but `x / 1.5` and `x * (1.0 / 1.5)` are not —
 /// `1.0 / 1.5` is not exactly representable. Keeping the division form
-/// preserves the exact arithmetic both files already did; a multiplication
-/// form would have moved the pedestrian snapshot in the last bit for no
-/// reason, which is the whole story behind SW-27.
+/// preserves the exact arithmetic both files already do; a multiplication
+/// form would move the pedestrian snapshot in the last bit for no reason.
 pub(crate) const PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR: f64 = 2.0;
 pub(crate) const PEDESTRIAN_BOX_LATERAL_DIVISOR: f64 = 1.5;
+
+/// How many steps at the end of the horizon the pedestrian must be
+/// *settled* on the far kerb for (the final step plus a short tail before it).
+///
+/// The crossing goal `F(OnSidewalk(far))` only pins the far kerb at *some* step
+/// and leaves it free everywhere else, so the pedestrian reached the far kerb
+/// for a single step and walked back into the road (ending mid-road). Requiring
+/// the last few steps to lie on the far kerb — past the kerb centre, not merely
+/// a millimetre onto the sidewalk — makes "arrives and stays" a hard bound.
+///
+/// A fixed suffix is deliberate: it is a per-step containment Z3 *propagates*,
+/// not the `F(G(...))` / `∃k.∀t≥k` shape that makes Z3 *search* over where the
+/// settled tail begins. Two steps is enough because the pedestrian's speed is
+/// capped (`encoders::pedestrian`): it cannot hover off the kerb and jump onto
+/// it within one step, so pinning the final steps drags the approach with it.
+const SETTLE_TAIL_STEPS: usize = 2;
 
 /// Pedestrian crossing scenario model
 pub(crate) struct PedestrianCrossingModel;
@@ -89,13 +104,13 @@ impl ScenarioModel for PedestrianCrossingModel {
         // For perpendicular crossing: lateral distance is more critical than longitudinal
         // Using threshold/1.5 gives conservative safety (~1.3m for 2m threshold)
         //
-        // SW-33. Used to be gated on `Enforce` only, so `Violate` (and
-        // `Ignore`, though that already meant "assert nothing") asserted
-        // nothing at all — a `violate`d pedestrian `min_distance` silently
-        // produced an ordinary scenario, the same failure SW-32 fixed for
-        // `min_lateral_distance` a few lines below. Routed through
-        // `push_constraint` like every other constraint in this file and in
-        // `generate_default_safety`. The negation is meaningful: `atom` is
+        // Gating this on `Enforce` only would mean `Violate` (and `Ignore`,
+        // though that already meant "assert nothing") asserted nothing at
+        // all — a `violate`d pedestrian `min_distance` would silently
+        // produce an ordinary scenario, the same failure that has to be
+        // avoided for `min_lateral_distance` a few lines below. Routed
+        // through `push_constraint` like every other constraint in this file
+        // and in `generate_default_safety`. The negation is meaningful: `atom` is
         // the disjunction `|dx| > tx OR |dy| > ty`, so `atom.negate()` is the
         // conjunction `|dx| <= tx AND |dy| <= ty` — an ordinary box interior,
         // satisfiable, not vacuous.
@@ -111,10 +126,10 @@ impl ScenarioModel for PedestrianCrossingModel {
             super::AtomPolarity::Positive,
         );
 
-        // SW-32. `min_lateral_distance` used to be parsed, documented and
-        // validated, then silently dropped here: this override replaced
-        // `generate_default_safety`'s per-pair loop wholesale and never once
-        // read the field, so an `enforce`d `min_lateral_distance` changed
+        // `min_lateral_distance` is parsed, documented and validated, so it must
+        // not be silently dropped here: this override replaces
+        // `generate_default_safety`'s per-pair loop wholesale, and if it never
+        // read the field an `enforce`d `min_lateral_distance` would change
         // nothing about the encoding. Lowered the same way
         // `generate_default_safety` (`scenarios/mod.rs`) does for every other
         // scenario type — `push_constraint` with `AtomPolarity::Positive` —
@@ -154,19 +169,17 @@ impl ScenarioModel for PedestrianCrossingModel {
 
         // Pedestrian-specific TTC (perpendicular crossing).
         //
-        // SW-33. Same defect as the box above: gated on `Enforce` only, so
-        // `Violate` asserted nothing. `PedestrianTTCGT` lowers to the guarded
+        // Same concern as the box above: gating this on `Enforce` only would
+        // mean `Violate` asserts nothing. `PedestrianTTCGT` lowers to the guarded
         // implication `ped_on_road ∧ approaching ⟹ ttc_safe`
         // (`encoder.rs`), whose negation is
         // `ped_on_road ∧ approaching ∧ ¬ttc_safe` — it requires the
-        // antecedent to actually hold, not just any state, so this is the
-        // one of the two negations in this issue worth checking rather than
-        // assuming. Verified satisfiable end-to-end (not vacuous, not
-        // UNSAT): with SW-35 landed first, `ttc_safe` is non-strict, so
-        // `¬ttc_safe` is the strict `distance < ttc * ego_vx` — an ordinary
-        // close call, not a boundary condition — and a `violate`d
-        // `pedestrian_crossing.yaml` produces a real breach (see the SW-33
-        // report/tests for the numbers).
+        // antecedent to actually hold, not just any state, so this negation is
+        // worth checking rather than assuming. Verified satisfiable end-to-end
+        // (not vacuous, not UNSAT): `ttc_safe` is non-strict, so `¬ttc_safe` is
+        // the strict `distance < ttc * ego_vx` — an ordinary close call, not a
+        // boundary condition — and a `violate`d `pedestrian_crossing.yaml`
+        // produces a real breach.
         super::push_constraint(
             &mut constraints,
             spec.constraint_modes.min_ttc(),
@@ -178,37 +191,37 @@ impl ScenarioModel for PedestrianCrossingModel {
             super::AtomPolarity::Positive,
         );
 
-        // SW-43. The crossing must be a *conflict*, or the bound above
-        // constrains nothing.
+        // The crossing must be a *conflict*, or the bound above constrains
+        // nothing.
         //
         // `PedestrianTTCGT` is a guarded implication — "whenever the pedestrian
         // is on the road with the ego behind it and closing, the TTC exceeds
         // `min_ttc`" — and the pedestrian's `py` is a solver variable, not an
         // input. `generate_ltl` asks only that the pedestrian reach the far
-        // sidewalk *eventually*, so Z3 could satisfy `G(PedestrianTTCGT(..))`
-        // by keeping the pedestrian clear of the road at exactly the steps
-        // where the ego is bearing down on it and crossing once the ego was
-        // past. Measured on an `enforce`d two-lane spec before this constraint
-        // existed: the pedestrian starts at the lane centre (`py[0]` is pinned
-        // there by `encode_pedestrian_initial_state`, so the guard is true at
-        // `t=0` whatever else happens), steps *off* the road by `t=3` while the
-        // ego is still 22 m away, waits on the near kerb through the ego's
-        // whole approach, and crosses over steps 19-30 with the ego already
-        // past it. The `enforce`d 2 s bound was evaluated only at the three
-        // opening steps, 33 m out — an `enforce` that no crossing could ever
-        // fail. This is SW-22's defect one scenario type over; see
-        // `scenarios::cut_in_conflict` for the precedent and the cost argument.
+        // sidewalk *eventually*, so without this constraint Z3 could satisfy
+        // `G(PedestrianTTCGT(..))` by keeping the pedestrian clear of the road
+        // at exactly the steps where the ego is bearing down on it and
+        // crossing once the ego was past. For example, on an `enforce`d
+        // two-lane spec: the pedestrian steps onto the road early, is *off*
+        // it again by `t=3` while the ego is still 22 m away, waits on the
+        // near kerb through the
+        // ego's whole approach, and crosses over steps 19-30 with the ego
+        // already past it. The `enforce`d 2 s bound would then be evaluated
+        // only at the three opening steps, 33 m out — an `enforce` that no
+        // crossing could ever fail. This is the same defect one scenario type
+        // over from `scenarios::cut_in_conflict`; see there for the precedent
+        // and the cost argument.
         //
-        // **The shape, and why not the obvious one.** Not `F(guard)`: SW-12
-        // built that existential for the cut-in and measured it at >500 s for
-        // five scenarios, because a disjunction over the horizon asks Z3 to
+        // **The shape, and why not the obvious one.** Not `F(guard)`: that
+        // existential, built for the cut-in, measures at >500 s for five
+        // scenarios, because a disjunction over the horizon asks Z3 to
         // *search* for the instant. This is `G(antecedent → conflict)` with an
         // antecedent the template already forces — `generate_ltl` asserts
-        // `F(CrossingRoad(ped))`, and SW-42's `Invariant::Liveness` confirms the
+        // `F(CrossingRoad(ped))`, and `Invariant::Liveness` confirms the
         // shipped trajectory really does cross — so every conjunct is an
         // implication Z3 propagates. Unlike the cut-in's `same_lane`, the
         // consequent here contains no disjunction at all, which is the half of
-        // SW-22's 103 s → 14.1 s measurement that did the damage.
+        // the cut-in's 103 s → 14.1 s measurement that did the damage.
         //
         // **Why the consequent is the TTC's own guard atom** rather than a
         // hand-written "and the ego is approaching": a conflict formula weaker
@@ -346,8 +359,8 @@ impl ScenarioModel for PedestrianCrossingModel {
             backend.assert(&lane_t.eq(&zero_lane));
         }
 
-        // SW-44. The safety box is *sampled*, so the ego can drive through it
-        // between two steps.
+        // The safety box is *sampled*, so without this constraint the ego
+        // could drive through it between two steps.
         //
         // `RectangularDistanceGT` asserts `|dx| >= threshold_x OR |dy| >=
         // threshold_y` at each discrete step, and `threshold_x` is
@@ -355,14 +368,14 @@ impl ScenarioModel for PedestrianCrossingModel {
         // 1 m long for the usual `min_distance: 2.0`. An ego at 20 m/s covers
         // 10 m in a `time_step: 0.5`, so it can sit at `dx = -3.0` at one step
         // and `dx = +7.4` at the next, satisfy the box at every sampled step,
-        // and have driven straight through the pedestrian in between. Measured
-        // before this constraint existed, on a single-lane spec with
-        // `min_distance: 6.0` where lateral clearance is geometrically
-        // impossible: every step reported `boxOK`, `all_constraints_satisfied`
-        // came back `true`, and `dx` went `-3.000 → +7.375` across one step
-        // with `|dy| = 1.875` against a `threshold_y` of 4.0. The box is
-        // smaller than one step of travel at any realistic speed, so this is
-        // the normal case rather than a corner one.
+        // and have driven straight through the pedestrian in between. For
+        // example, on a single-lane spec with `min_distance: 6.0` where
+        // lateral clearance is geometrically impossible: every step would
+        // report `boxOK`, `all_constraints_satisfied` would come back `true`,
+        // and `dx` would go `-3.000 → +7.375` across one step with `|dy| =
+        // 1.875` against a `threshold_y` of 4.0. The box is smaller than one
+        // step of travel at any realistic speed, so this is the normal case
+        // rather than a corner one.
         //
         // The guard: **the pair may not swap longitudinal order between two
         // steps unless it is laterally clear at both of them, on the same
@@ -374,8 +387,8 @@ impl ScenarioModel for PedestrianCrossingModel {
         //
         // **Cost.** One assertion per step per scenario, over the one
         // ego-pedestrian pair a `pedestrian_crossing` spec has — the shape
-        // SW-22 established as affordable (an implication Z3 propagates), not
-        // the `F(⋁ over the horizon)` shape SW-12 measured at >500 s. It is a
+        // established elsewhere as affordable (an implication Z3 propagates), not
+        // the `F(⋁ over the horizon)` shape that measures at >500 s. It is a
         // disjunction, so Z3 case-splits, but over four fixed alternatives at
         // one step rather than over the horizon. Measured: the three
         // `examples/pedestrian_*.yaml` are `min_distance: ignore` and so are
@@ -479,6 +492,49 @@ impl ScenarioModel for PedestrianCrossingModel {
             }
         }
 
+        // Settle on the far kerb and stay there.
+        //
+        // `generate_ltl` asks only `F(OnSidewalk(far))`, which pins the far
+        // kerb at one step and leaves `py` free at every other; combined with a
+        // pedestrian that can now only move forward across the road,
+        // the loosest witness reaches the far kerb for a single step at the very
+        // end — and `OnSidewalk` is satisfied by `py = road_width + ε`, a
+        // millimetre onto the sidewalk. This adds, alongside (not instead of)
+        // the liveness goal, a hard requirement that the last `SETTLE_TAIL_STEPS`
+        // steps lie *past the kerb centre* on the far sidewalk:
+        //
+        //   left_to_right  → far = right kerb: road_width + SIDEWALK/2 <= py <= road_width + SIDEWALK
+        //   right_to_left  → far =  left kerb:      -SIDEWALK <= py <= -SIDEWALK/2
+        //
+        // The kerb-centre margin (`SIDEWALK/2`) is symmetric with where the
+        // pedestrian's *start* is seated on the near kerb, and folds in the
+        // "arrives by a hair and hovers" case. All bounds are linear on the
+        // existing `py` variables, so this stays in QF_LRA.
+        let direction = pedestrian
+            .behavior
+            .get("direction")
+            .and_then(|v| v.as_str())
+            .unwrap_or("left_to_right");
+        let crosses_left_to_right = direction != "right_to_left";
+
+        let road_width = spec.get_lane_width() * spec.get_num_lanes() as f64;
+        let sidewalk = crate::solver::encoder::SIDEWALK_WIDTH;
+        // Far-kerb band [lo, hi], past the kerb centre in the crossing direction.
+        let (lo, hi) = if crosses_left_to_right {
+            (road_width + sidewalk / 2.0, road_width + sidewalk)
+        } else {
+            (-sidewalk, -sidewalk / 2.0)
+        };
+        let lo_real = real_from_f64(lo);
+        let hi_real = real_from_f64(hi);
+
+        let settle_from = horizon.saturating_sub(SETTLE_TAIL_STEPS.saturating_sub(1));
+        for t in settle_from..=horizon {
+            let py = encoder.get_lateral_pos(pedestrian_id, t);
+            backend.assert(&py.ge(&lo_real));
+            backend.assert(&py.le(&hi_real));
+        }
+
         Ok(())
     }
 }
@@ -571,16 +627,16 @@ mod tests {
         assert!(formula_str.contains("InLane"));
     }
 
-    /// SW-33. Both `RectangularDistanceGT` (`min_distance`) and
-    /// `PedestrianTTCGT` (`min_ttc`) used to be gated on
-    /// `ConstraintMode::Enforce` only, so `Violate` fell through and asserted
-    /// nothing — `generate_safety` returned `LTLFormula::True` for either
-    /// field's contribution. Routed through `push_constraint` like every
-    /// other constraint in this module, `Violate` now asserts
-    /// `F(¬(atom))` (`AtomPolarity::Positive`, `ConstraintMode::Violate`).
-    /// Against the pre-SW-33 code this assertion fails: the formula string
-    /// contains no `RectangularDistanceGT`/`PedestrianTTCGT` at all, since
-    /// nothing was pushed.
+    /// Both `RectangularDistanceGT` (`min_distance`) and `PedestrianTTCGT`
+    /// (`min_ttc`) must not be gated on `ConstraintMode::Enforce` only, or
+    /// `Violate` falls through and asserts nothing — `generate_safety` would
+    /// return `LTLFormula::True` for either field's contribution. Routed
+    /// through `push_constraint` like every other constraint in this module,
+    /// `Violate` asserts `F(¬(atom))` (`AtomPolarity::Positive`,
+    /// `ConstraintMode::Violate`). This test guards against the regression
+    /// where the formula string contains no
+    /// `RectangularDistanceGT`/`PedestrianTTCGT` at all, since nothing was
+    /// pushed.
     #[test]
     fn test_pedestrian_min_distance_violate_asserts_the_negation() {
         use crate::dsl::types::{Constraint, ConstraintMode, ConstraintModes};
@@ -614,14 +670,14 @@ mod tests {
         );
     }
 
-    /// SW-43. An `enforce`d pedestrian `min_ttc` must come with the conflict
-    /// that makes it evaluable: `G(CrossingRoad(ped) → PedestrianTTCGuard(..))`,
+    /// An `enforce`d pedestrian `min_ttc` must come with the conflict that
+    /// makes it evaluable: `G(CrossingRoad(ped) → PedestrianTTCGuard(..))`,
     /// where the guard atom is `PedestrianTTCGT`'s own antecedent. Without it,
     /// `G(PedestrianTTCGT(..))` is satisfiable with the antecedent false at
     /// every step that matters — a pedestrian who waits on the kerb for the ego
-    /// to pass and crosses behind it — so the bound cannot fail. Against the
-    /// pre-SW-43 code this assertion fails: the formula string contains no
-    /// `PedestrianTTCGuard` at all. `tests/pedestrian_conflict_test.rs` is the
+    /// to pass and crosses behind it — so the bound cannot fail. This test
+    /// guards against that regression: the formula string must contain
+    /// `PedestrianTTCGuard`. `tests/pedestrian_conflict_test.rs` is the
     /// end-to-end half, on the trajectory rather than on the formula.
     #[test]
     fn test_pedestrian_min_ttc_enforce_also_asserts_the_conflict() {
@@ -652,8 +708,7 @@ mod tests {
     /// `F(guard ∧ ¬ttc_safe)` — and under `Ignore` the spec has said the TTC is
     /// not under test, so there is no vacuous `enforce` to protect and nothing
     /// to justify constraining the trajectory. This is also why the three
-    /// `examples/pedestrian_*.yaml`, all `min_ttc: ignore`, are unchanged by
-    /// SW-43.
+    /// `examples/pedestrian_*.yaml`, all `min_ttc: ignore`, are unaffected.
     #[test]
     fn test_pedestrian_min_ttc_violate_and_ignore_do_not_add_the_conflict() {
         use crate::dsl::types::{ConstraintMode, ConstraintModes};

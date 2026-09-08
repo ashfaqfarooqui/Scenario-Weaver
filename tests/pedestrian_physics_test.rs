@@ -127,6 +127,122 @@ fn test_pedestrian_crosses_laterally() {
     );
 }
 
+/// SW-45: the authored `speed:` governs the *crossing* (the lateral velocity
+/// `vy`), not an along-road drift, and the along-road velocity `vx` of a
+/// crossing pedestrian is ≈0.
+///
+/// Before the fix the crossing ran at the raw walk cap (2.0 m/s) regardless of
+/// the authored `speed:` [0.8, 1.5], the authored speed was pinned to `vx`
+/// where it decayed to a standstill and could sign-flip (a pedestrian walking
+/// backwards along the road), and `vy` was free of the authored bound
+/// entirely. Concretely, before: `vx: 0.8 → 0.5 → 0.2 → 0 …` and
+/// `vy: 2.0 → 2.0 → 2.0 …` peaking at 2.0.
+#[test]
+fn test_pedestrian_crossing_speed_is_the_lateral_crossing_speed() {
+    let (scenario, spec) = generate_from_file("pedestrian_crossing.yaml");
+    let ped_spec = spec
+        .actors
+        .iter()
+        .find(|a| a.role == ActorRole::Pedestrian)
+        .expect("pedestrian in spec");
+    let authored_max = ped_spec.speed.max();
+    let authored_min = ped_spec.speed.min();
+
+    let ped = scenario.get_actor("pedestrian").expect("pedestrian actor");
+
+    // vx ≈ 0 at every step: no along-road drift.
+    for s in &ped.states {
+        assert!(
+            s.velocity().vx.abs() <= common::TOL,
+            "vx should be ≈0 for a crossing pedestrian, got {:.6} at t={:.2}",
+            s.velocity().vx,
+            s.time
+        );
+    }
+
+    // The crossing speed lives on vy: it never exceeds the authored max (it
+    // used to sit at the 2.0 walk cap, above the authored 1.5), and the sign
+    // follows the left_to_right crossing direction (vy ≥ 0 — never backwards).
+    for s in &ped.states {
+        assert!(
+            s.velocity().vy >= -common::TOL,
+            "left_to_right crossing must not move backwards: vy={:.6} at t={:.2}",
+            s.velocity().vy,
+            s.time
+        );
+        assert!(
+            s.velocity().vy.abs() <= authored_max + common::TOL,
+            "crossing speed vy={:.6} exceeds the authored max {authored_max} at t={:.2} \
+             (the pre-fix trajectory ran at the 2.0 walk cap)",
+            s.velocity().vy,
+            s.time
+        );
+    }
+
+    // And the crossing actually happens at the authored speed: the peak |vy|
+    // reaches into the authored band, rather than the crossing being carried
+    // by vx.
+    let peak_vy = ped
+        .states
+        .iter()
+        .map(|s| s.velocity().vy.abs())
+        .fold(0.0_f64, f64::max);
+    assert!(
+        peak_vy >= authored_min - common::TOL,
+        "the crossing speed vy should reach the authored band [{authored_min}, {authored_max}]; \
+         peak |vy| was only {peak_vy:.6}"
+    );
+}
+
+/// SW-46: a pedestrian who crosses the road must *arrive at the far kerb and
+/// stay there*, not graze it for one step and drift back into the road.
+///
+/// Before the fix the crossing goal was `F(OnSidewalk(far))`, which pins the
+/// far kerb at one step and leaves `py` free everywhere else: the shipped
+/// `pedestrian_crossing` reached `py ≈ 7.0` for a single step and walked back to
+/// `py ≈ 4.78` — a standstill in the *middle* of a `[0, 7]` road. This asserts
+/// the pedestrian ends past the far-kerb centre (`road_width + SIDEWALK/2`) and
+/// is settled there across the tail, for all three examples.
+#[test]
+fn test_pedestrian_arrives_and_settles_on_the_far_kerb() {
+    use scenario_weaver::solver::encoder::SIDEWALK_WIDTH;
+
+    for (file, ped_id) in [
+        ("pedestrian_crossing.yaml", "pedestrian"),
+        ("pedestrian_running.yaml", "runner"),
+        ("pedestrian_wide_road.yaml", "ped"),
+    ] {
+        let (scenario, spec) = generate_from_file(file);
+        let road_width = spec.get_lane_width() * spec.get_num_lanes() as f64;
+        // All three examples cross left_to_right, so the far kerb is the right
+        // one and the kerb centre is at road_width + SIDEWALK/2.
+        let kerb_centre = road_width + SIDEWALK_WIDTH / 2.0;
+
+        let ped = scenario.get_actor(ped_id).expect("pedestrian actor");
+        let py_end = ped.states.last().expect("states").position().y;
+
+        // Arrived: the final position is past the far-kerb centre, not merely a
+        // hair onto the sidewalk and not back in the road.
+        assert!(
+            py_end >= kerb_centre - common::TOL,
+            "{file}: pedestrian must end past the far-kerb centre {kerb_centre:.3}, \
+             ended at py={py_end:.3} (pre-fix it drifted back to mid-road)"
+        );
+
+        // Settled: the tail does not dip back below the kerb centre.
+        let tail = 2usize.min(ped.states.len());
+        for s in &ped.states[ped.states.len() - tail..] {
+            assert!(
+                s.position().y >= kerb_centre - common::TOL,
+                "{file}: pedestrian left the far kerb before the end: py={:.3} < {kerb_centre:.3} \
+                 at t={:.2}",
+                s.position().y,
+                s.time
+            );
+        }
+    }
+}
+
 // ─── Running pedestrian ───
 
 #[test]
@@ -145,23 +261,55 @@ fn test_pedestrian_running_speed_bounds() {
     let (scenario, spec) = generate_from_file("pedestrian_running.yaml");
     common::assert_invariant(&scenario, &spec, Invariant::Envelope);
 
-    // `walking_mode: run` must actually raise the ceiling, and the running
-    // pedestrian must actually use some of it — otherwise the mode is decorative
-    // and the envelope check would pass on a walking trajectory.
+    // `walking_mode: run` raises the crossing-speed ceiling above the walking
+    // cap. Post-SW-45 the crossing speed lives on `vy` (not `vx`), so the run
+    // ceiling applies to `vy`.
+    //
+    // The previous form of this test asserted `speed() > walk_cap` strictly.
+    // That only passed because of the SW-45 bug it is now independent of: the
+    // authored speed used to be pinned to `vx` as well, so `speed() =
+    // hypot(vx, vy)` reached ~2.83 even when `vy` sat at the 2.0 cap. With `vx`
+    // now correctly ≈0, the runner (authored `[2.0, 3.0]`, floor == the 2.0
+    // walk cap) may legitimately cross at exactly its authored floor — Z3 is
+    // not obliged to spend the full authored ceiling over a generous horizon.
+    // So this asserts the crossing reaches the authored floor and never
+    // exceeds the *run* ceiling; that the run ceiling is genuinely raised
+    // above the walk cap (a walker would be clamped) is proved directly in
+    // `encoders::pedestrian`'s `test_bounds_step_running_mode_higher_speed`.
+    let runner_spec = spec
+        .actors
+        .iter()
+        .find(|a| a.role == ActorRole::Pedestrian)
+        .expect("runner in spec");
+    let authored_min = runner_spec.speed.min();
+    let authored_max = runner_spec.speed.max();
+    assert!(
+        authored_max > PEDESTRIAN_WALK_MAX_SPEED,
+        "pedestrian_running must author a speed above the walk cap for run mode to matter"
+    );
+
     let runner = scenario.get_actor("runner").expect("runner actor");
-    let fastest = runner
+    let fastest_vy = runner
         .states
         .iter()
-        .map(|s| s.velocity().speed())
+        .map(|s| s.velocity().vy.abs())
         .fold(0.0_f64, f64::max);
     assert!(
-        fastest <= PEDESTRIAN_RUN_MAX_SPEED * std::f64::consts::SQRT_2 + common::TOL,
-        "runner speed {fastest:.4} exceeds the running box's diagonal"
+        fastest_vy <= PEDESTRIAN_RUN_MAX_SPEED + common::TOL,
+        "runner crossing speed {fastest_vy:.4} exceeds the running ceiling"
     );
     assert!(
-        fastest > PEDESTRIAN_WALK_MAX_SPEED,
-        "pedestrian_running declares walking_mode: run but the runner never exceeds the \
-         walking ceiling ({PEDESTRIAN_WALK_MAX_SPEED}); fastest was {fastest:.4}"
+        fastest_vy >= authored_min - common::TOL,
+        "the runner should cross at its authored speed (>= {authored_min}); \
+         fastest |vy| was {fastest_vy:.4}"
+    );
+    // vx carries no speed any more.
+    assert!(
+        runner
+            .states
+            .iter()
+            .all(|s| s.velocity().vx.abs() <= common::TOL),
+        "runner vx should be ≈0 (crossing speed is on vy)"
     );
 }
 

@@ -219,7 +219,14 @@ fn test_objectives_produce_distinct_results() {
 fn test_optimizer_pedestrian_crossing() {
     let mut spec = common::parse_example("pedestrian_crossing.yaml");
     spec.optimization_target = OptimizationTarget::MinimizeDistance;
-    spec.duration = 5.0;
+    // 8.0 s, not 5.0 s: SW-45 makes the pedestrian cross at its authored walking
+    // speed (<= 1.5 m/s) rather than the 2.0 m/s walk cap the buggy encoder let
+    // it use, and SW-46 requires it to actually reach the far kerb and settle
+    // there. Crossing a 7 m road from the near kerb (py = -1.0) to past the far
+    // kerb centre (py >= 8.0) is 9 m, which needs ~6 s at 1.5 m/s; a 5.0 s
+    // horizon is now physically too short and the spec is (correctly) UNSAT.
+    // The optimiser property under test is unchanged by the longer horizon.
+    spec.duration = 8.0;
     spec.time_step = 0.5;
 
     let scenario = common::generate_spec_or_fail(spec);

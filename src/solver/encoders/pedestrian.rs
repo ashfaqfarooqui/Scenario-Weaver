@@ -6,11 +6,10 @@
 //! Both `CartesianEncoder` and `BicycleEncoder` call these helpers, and the
 //! Cartesian encoder additionally uses [`encode_pedestrian_kinematics_step`]
 //! for its *vehicles*: the Cartesian model is a 2D point mass for every actor,
-//! and before SW-09 the only thing that distinguished a vehicle from a
-//! pedestrian there was that the vehicle's `vy` was never chained to its `ay`
-//! (finding C2 — a free lateral acceleration that bounded nothing and put
-//! fiction in the exported `.xosc`). There is now one integration step, used by
-//! everything the Cartesian encoder emits.
+//! and a vehicle's `vy` there is chained to its `ay` exactly like a
+//! pedestrian's, rather than left as a free lateral acceleration that bounds
+//! nothing and would put fiction in the exported `.xosc`. There is one
+//! integration step, used by everything the Cartesian encoder emits.
 //!
 //! All conversions from `f64` go through [`real_from_f64`], which is exact for
 //! every value a spec can hold; the ad-hoc `(x * 10.0) as i64` truncations this
@@ -50,30 +49,61 @@ fn pedestrian_accel_range(actor: &ActorSpec) -> (f64, f64) {
     )
 }
 
+/// Whether the pedestrian crosses the road in the `left_to_right` sense — from
+/// the left kerb (`py < 0`) towards the right kerb (`py > road_width`), i.e.
+/// increasing `py`. Read from `behavior.direction`, the crossing-direction
+/// field the scenario model and the start-kerb placement both use; absent it,
+/// default to `left_to_right`. This is **not** `actor.direction`, which is the
+/// along-road heading and says nothing about the crossing.
+fn pedestrian_crosses_left_to_right(actor: &ActorSpec) -> bool {
+    actor.behavior.get("direction").and_then(|v| v.as_str()) != Some("right_to_left")
+}
+
+/// The authored crossing speed, capped by the walking/running limit. This is
+/// the magnitude the authored `speed:` puts on the lateral (crossing) axis
+/// `vy`; the sign is applied by the caller from the crossing direction.
+fn pedestrian_crossing_speed_band(actor: &ActorSpec) -> (f64, f64) {
+    let max_speed = pedestrian_max_speed(actor);
+    (
+        actor.speed.min().min(max_speed),
+        actor.speed.max().min(max_speed),
+    )
+}
+
 /// Encode the initial state constraints for a pedestrian at t=0.
 ///
 /// - `px[0]`: range or fixed from `actor.position`
-/// - `py[0]`: computed from `actor.lane * lane_width + lane_width / 2.0`
-/// - `vx[0]`: the actor's own speed range, signed by `actor.direction` and
-///   intersected with `[-max_speed, +max_speed]`
-/// - `vy[0]`: left UNCONSTRAINED (pedestrian may already be crossing)
+/// - `py[0]`: the kerb the pedestrian crosses *from* — the left sidewalk
+///   (`py = -SIDEWALK_WIDTH / 2`) for a `left_to_right` crossing, the right
+///   sidewalk (`py = road_width + SIDEWALK_WIDTH / 2`) for `right_to_left`.
+///   A pedestrian has no lane, so its `py` is not a lane centre.
+/// - `vx[0]`: pinned to `0` — the along-road velocity of a *crossing*
+///   pedestrian is ≈0; the authored `speed:` is the crossing speed, not an
+///   along-road drift.
+/// - `vy[0]`: the authored `speed:` range on the lateral (crossing) axis,
+///   signed by the crossing direction (`behavior.direction`) and capped by the
+///   walk/run limit. A pedestrian may begin the scenario already in motion
+///   across the road at walking speed, so this is a range, not a standstill.
 /// - `ax[0]`: bounded by actor acceleration range, clamped to pedestrian limits
 /// - `ay[0]`: left UNCONSTRAINED
 ///
-/// The `vx[0]` rule is deliberately the intersection and not just the speed
-/// cap: the cap alone would discard `speed:` from the spec entirely, which is
-/// what the Cartesian encoder used to honour on its own inline path.
+/// The `speed:` field belongs on `vy`, not `vx`, because a `pedestrian_crossing`
+/// is defined entirely by predicates on `py` (`CrossingRoad`, `OnSidewalk`):
+/// the crossing motion is lateral. Pinning it to `vx` (the old behaviour) let
+/// the authored speed decay to a standstill while the crossing ran at the raw
+/// walk cap, and left `vx` free to sign-flip — a pedestrian walking backwards
+/// along the road.
 #[allow(clippy::too_many_arguments)]
 pub fn encode_pedestrian_initial_state<B: Z3Backend>(
     backend: &B,
     px: &[Real],
     py: &[Real],
     vx: &[Real],
-    _vy: &[Real],
+    vy: &[Real],
     ax: &[Real],
     _ay: &[Real],
     actor: &ActorSpec,
-    lane_width: f64,
+    road_width: f64,
 ) {
     // px[0]: position range or fixed
     let pos_min = actor.position.min();
@@ -85,28 +115,41 @@ pub fn encode_pedestrian_initial_state<B: Z3Backend>(
         backend.assert(&px[0].le(real_from_f64(pos_max)));
     }
 
-    // py[0]: lateral position from lane center
-    let py_initial = actor.lane as f64 * lane_width + lane_width / 2.0;
+    // py[0]: the kerb the pedestrian steps off, NOT a lane centre — a
+    // pedestrian has no lane. It starts on the sidewalk opposite the side it
+    // crosses towards, so the generated crossing traverses the whole road:
+    // a `left_to_right` crossing starts on the left sidewalk (py < 0), a
+    // `right_to_left` one on the right sidewalk (py > road_width). The sign
+    // is read from `behavior.direction`, the same field the scenario model
+    // uses to pick the target sidewalk; absent it, default to the left kerb.
+    let crosses_left_to_right = pedestrian_crosses_left_to_right(actor);
+    let py_initial = if crosses_left_to_right {
+        -SIDEWALK_WIDTH / 2.0
+    } else {
+        road_width + SIDEWALK_WIDTH / 2.0
+    };
     backend.assert(&py[0].eq(real_from_f64(py_initial)));
 
-    // vx[0]: the spec's speed range, signed by direction, capped by the
-    // pedestrian's walking/running limit.
-    let max_speed = pedestrian_max_speed(actor);
-    let (speed_min, speed_max) = if actor.direction == 1 {
-        (actor.speed.min(), actor.speed.max())
-    } else {
-        (-actor.speed.max(), -actor.speed.min())
-    };
-    let vx_min = speed_min.max(-max_speed);
-    let vx_max = speed_max.min(max_speed);
-    if (vx_min - vx_max).abs() < 1e-6 {
-        backend.assert(&vx[0].eq(real_from_f64(vx_min)));
-    } else {
-        backend.assert(&vx[0].ge(real_from_f64(vx_min)));
-        backend.assert(&vx[0].le(real_from_f64(vx_max)));
-    }
+    // vx[0]: the along-road velocity of a crossing pedestrian is ≈0. Pinned to
+    // 0, not to `speed:` — `speed:` is the crossing speed and now lives on vy.
+    backend.assert(&vx[0].eq(real_from_f64(0.0)));
 
-    // vy[0]: UNCONSTRAINED (pedestrian may already be crossing)
+    // vy[0]: the authored crossing speed on the lateral axis, signed by the
+    // crossing direction. A signed value in the speed band is "already in
+    // motion across the road at walking speed" — the affordance the old free
+    // vy[0] provided, now pinned to the authored speed rather than the raw cap.
+    let (speed_lo, speed_hi) = pedestrian_crossing_speed_band(actor);
+    let (vy_min, vy_max) = if crosses_left_to_right {
+        (speed_lo, speed_hi)
+    } else {
+        (-speed_hi, -speed_lo)
+    };
+    if (vy_min - vy_max).abs() < 1e-6 {
+        backend.assert(&vy[0].eq(real_from_f64(vy_min)));
+    } else {
+        backend.assert(&vy[0].ge(real_from_f64(vy_min)));
+        backend.assert(&vy[0].le(real_from_f64(vy_max)));
+    }
 
     // ax[0]: bounded by actor acceleration range, clamped to pedestrian limits
     let (accel_min, accel_max) = pedestrian_accel_range(actor);
@@ -131,7 +174,7 @@ pub fn encode_pedestrian_initial_state<B: Z3Backend>(
 ///
 /// The trapezoidal form is identical to the explicit one given the velocity
 /// updates asserted alongside it, and is the cheaper of the two for Z3 because
-/// it leaves position coupled only to the velocity chain (measured in SW-08).
+/// it leaves position coupled only to the velocity chain.
 /// Everything here is constant × variable, so the encoding stays in QF_LRA.
 ///
 /// `half_dt` must be `dt / 2`; it is passed in rather than derived so the
@@ -191,15 +234,16 @@ pub fn encode_pedestrian_bounds_step<B: Z3Backend>(
     backend.assert(&ay_t.ge(&ax_min_real));
     backend.assert(&ay_t.le(&ax_max_real));
 
-    // Speed octagon (SW-12/M8):
+    // Speed octagon:
     //     |vx| <= v,  |vy| <= v,  |vx| + |vy| <= sqrt(2)*v
     //
-    // The last pair of half-planes is the whole change. Without them the
-    // bound is a *box*, which contains the disk and lets a pedestrian walk at
-    // sqrt(2)*v on the diagonal; `dsl::types` compensated by dividing the
-    // speed constants by sqrt(2), which fixed the diagonal and broke every
-    // other direction — a pedestrian crossing perpendicular to the road, the
-    // dominant case here, was capped at 1.41 m/s instead of 2.0.
+    // The last pair of half-planes is what makes this an octagon rather than
+    // a box. A plain box contains the disk and would let a pedestrian walk at
+    // sqrt(2)*v on the diagonal; compensating by dividing the speed constants
+    // by sqrt(2) would fix the diagonal but cap every other direction too —
+    // a pedestrian crossing perpendicular to the road, the dominant case
+    // here, should reach the full 2.0 m/s rather than being capped at
+    // 1.41 m/s.
     //
     // `|vx| + |vy| <= c` is four linear constraints, one per sign
     // combination, asserted unconditionally: no Bool selector, no case split,
@@ -223,6 +267,38 @@ pub fn encode_pedestrian_bounds_step<B: Z3Backend>(
     backend.assert(&diff.le(&diag_real));
     backend.assert(&(&Real::from_rational(0_i64, 1_i64) - &sum).le(&diag_real));
     backend.assert(&(&Real::from_rational(0_i64, 1_i64) - &diff).le(&diag_real));
+
+    // Crossing model on top of the physical octagon.
+    //
+    // The octagon above is the outer physical envelope. It is not enough on its
+    // own: it lets `vy` climb to the raw walk/run cap mid-cross (so the authored
+    // `speed:` only seeds t=0 and the crossing runs at the cap), and it leaves
+    // `vx` free to sign-flip step to step (a pedestrian drifting, even walking
+    // backwards, along the road). Both are wrong for a perpendicular crossing.
+    //
+    // So, at every step:
+    //   - `vx = 0`: a crossing pedestrian has no along-road motion.
+    //   - `vy` is signed by the crossing direction and bounded by the AUTHORED
+    //     speed, not merely the walk/run cap, so `speed:` governs the crossing
+    //     across the whole horizon rather than only at t=0.
+    //
+    // The signed bound keeps a slack end at 0 (`vy >= 0` for left-to-right,
+    // `vy <= 0` for right-to-left) rather than pinning `|vy|` into the band:
+    // the pedestrian must still be able to decelerate to a stop as it settles
+    // on the far kerb, which a hard lower bound would forbid. All four are
+    // linear bounds on existing variables, so this stays in QF_LRA.
+    let zero = Real::from_rational(0_i64, 1_i64);
+    backend.assert(&vx_t.eq(&zero));
+
+    let (_, authored_max) = pedestrian_crossing_speed_band(actor);
+    let authored_max_real = real_from_f64(authored_max);
+    if pedestrian_crosses_left_to_right(actor) {
+        backend.assert(&vy_t.ge(&zero));
+        backend.assert(&vy_t.le(&authored_max_real));
+    } else {
+        backend.assert(&vy_t.le(&zero));
+        backend.assert(&vy_t.ge(real_from_f64(-authored_max)));
+    }
 }
 
 /// Bound a pedestrian's lateral position to the drivable surface plus the
@@ -232,12 +308,12 @@ pub fn encode_pedestrian_bounds_step<B: Z3Backend>(
 /// (`road_width` is a per-spec constant the caller computes once from
 /// `lane_width * num_lanes`), so this stays in QF_LRA.
 ///
-/// This closes the gap SW-16 found and could not close from
-/// `src/solver/encoder.rs`: `OnSidewalk` only appears inside `eventually(...)`,
-/// so it pins `py` into the `SIDEWALK_WIDTH` strip at one instant and leaves
-/// it unconstrained at every other. Reuses the same `SIDEWALK_WIDTH` the
-/// `.xodr` exporter's `sidewalk_widths` floors against, rather than a second
-/// copy of the constant (SW-23).
+/// This closes a gap `src/solver/encoder.rs` cannot close on its own:
+/// `OnSidewalk` only appears inside `eventually(...)`, so it pins `py` into
+/// the `SIDEWALK_WIDTH` strip at one instant and leaves it unconstrained at
+/// every other. Reuses the same `SIDEWALK_WIDTH` the `.xodr` exporter's
+/// `sidewalk_widths` floors against, rather than a second copy of the
+/// constant.
 pub fn encode_pedestrian_lateral_containment<B: Z3Backend>(
     backend: &B,
     py_t: &Real,
@@ -354,8 +430,10 @@ mod tests {
         let cfg = Config::new();
         z3::with_z3_config(&cfg, || {
             let backend = SolverBackend::new();
+            // lane 1 is deliberate: a pedestrian's lane must NOT influence its
+            // start position — it is placed on a kerb, not in a lane centre.
             let actor = make_pedestrian("ped1", 1, ValueOrRange::Value(10.0));
-            let lane_width = 3.5;
+            let road_width = 7.0;
 
             // Create variables (horizon=0 means just 1 timestep)
             let px = vec![Real::new_const("px_0")];
@@ -366,7 +444,7 @@ mod tests {
             let ay = vec![Real::new_const("ay_0")];
 
             encode_pedestrian_initial_state(
-                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width,
+                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, road_width,
             );
 
             assert_eq!(backend.check(), SatResult::Sat);
@@ -380,25 +458,33 @@ mod tests {
                 px_val
             );
 
-            // py should be lane*lane_width + lane_width/2 = 1*3.5 + 1.75 = 5.25
+            // py is the left kerb (-SIDEWALK_WIDTH/2 = -1.0) with no explicit
+            // direction: not the lane 1 centre it used to be pinned to.
             let py_val = eval_real_val(&model, &py[0]);
             assert!(
-                (py_val - 5.25).abs() < 0.01,
-                "py should be 5.25, got {}",
+                (py_val + 1.0).abs() < 0.01,
+                "py should be -1.0 (left kerb), got {}",
                 py_val
             );
 
-            // vx is the actor's own speed range intersected with the walking
-            // cap. `make_pedestrian` declares [0.5, 1.0], which sits inside
-            // ±PEDESTRIAN_WALK_MAX_SPEED, so the cap is what is checked here.
+            // vx is the along-road velocity of a crossing pedestrian: pinned
+            // to 0, not the authored speed (which now lives on the lateral
+            // crossing axis vy).
             let vx_val = eval_real_val(&model, &vx[0]);
             assert!(
-                vx_val >= -PEDESTRIAN_WALK_MAX_SPEED - 0.01
-                    && vx_val <= PEDESTRIAN_WALK_MAX_SPEED + 0.01,
-                "vx should be in [-{}, {}], got {}",
-                PEDESTRIAN_WALK_MAX_SPEED,
-                PEDESTRIAN_WALK_MAX_SPEED,
+                vx_val.abs() < 0.01,
+                "vx[0] should be 0 (no along-road drift), got {}",
                 vx_val
+            );
+
+            // vy carries the authored crossing speed, signed +ve for the
+            // default (left_to_right) direction. `make_pedestrian` declares
+            // [0.5, 1.0], inside the walking cap, so that is the band.
+            let vy_val = eval_real_val(&model, &vy[0]);
+            assert!(
+                vy_val >= 0.5 - 0.01 && vy_val <= 1.0 + 0.01,
+                "vy[0] should carry the authored speed [0.5, 1.0], got {}",
+                vy_val
             );
 
             // ax should be in [-0.5, 0.5] (clamped to pedestrian limits)
@@ -417,7 +503,7 @@ mod tests {
         z3::with_z3_config(&cfg, || {
             let backend = SolverBackend::new();
             let actor = make_pedestrian("ped1", 0, ValueOrRange::Range([5.0, 15.0]));
-            let lane_width = 3.5;
+            let road_width = 7.0;
 
             let px = vec![Real::new_const("px_0")];
             let py = vec![Real::new_const("py_0")];
@@ -427,7 +513,7 @@ mod tests {
             let ay = vec![Real::new_const("ay_0")];
 
             encode_pedestrian_initial_state(
-                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width,
+                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, road_width,
             );
 
             assert_eq!(backend.check(), SatResult::Sat);
@@ -441,23 +527,30 @@ mod tests {
                 px_val
             );
 
-            // py should be 0*3.5 + 1.75 = 1.75
+            // py is the left kerb (-SIDEWALK_WIDTH/2 = -1.0), independent of the
+            // px range and of the (ignored) lane.
             let py_val = eval_real_val(&model, &py[0]);
             assert!(
-                (py_val - 1.75).abs() < 0.01,
-                "py should be 1.75, got {}",
+                (py_val + 1.0).abs() < 0.01,
+                "py should be -1.0 (left kerb), got {}",
                 py_val
             );
         });
     }
 
     #[test]
-    fn test_initial_state_vy_unconstrained() {
+    fn test_initial_state_right_to_left_starts_on_right_kerb() {
         let cfg = Config::new();
         z3::with_z3_config(&cfg, || {
             let backend = SolverBackend::new();
-            let actor = make_pedestrian("ped1", 0, ValueOrRange::Value(10.0));
-            let lane_width = 3.5;
+            let mut actor = make_pedestrian("ped1", 0, ValueOrRange::Value(10.0));
+            actor.behavior.insert(
+                "direction".to_string(),
+                serde_json::Value::String("right_to_left".to_string()),
+            );
+            // Two 3.5 m lanes: the road spans py in [0, 7], so the right kerb
+            // centre is road_width + SIDEWALK_WIDTH/2 = 7 + 1 = 8.0.
+            let road_width = 7.0;
 
             let px = vec![Real::new_const("px_0")];
             let py = vec![Real::new_const("py_0")];
@@ -467,17 +560,50 @@ mod tests {
             let ay = vec![Real::new_const("ay_0")];
 
             encode_pedestrian_initial_state(
-                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width,
+                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, road_width,
             );
 
-            // Assert vy must be exactly 99.0 (way outside walking limits) to prove it's unconstrained
+            assert_eq!(backend.check(), SatResult::Sat);
+            let model = backend.get_model().unwrap();
+
+            let py_val = eval_real_val(&model, &py[0]);
+            assert!(
+                (py_val - 8.0).abs() < 0.01,
+                "py should be 8.0 (right kerb), got {}",
+                py_val
+            );
+        });
+    }
+
+    #[test]
+    fn test_initial_state_vy_carries_signed_crossing_speed() {
+        let cfg = Config::new();
+        z3::with_z3_config(&cfg, || {
+            let backend = SolverBackend::new();
+            let actor = make_pedestrian("ped1", 0, ValueOrRange::Value(10.0));
+            let road_width = 3.5;
+
+            let px = vec![Real::new_const("px_0")];
+            let py = vec![Real::new_const("py_0")];
+            let vx = vec![Real::new_const("vx_0")];
+            let vy = vec![Real::new_const("vy_0")];
+            let ax = vec![Real::new_const("ax_0")];
+            let ay = vec![Real::new_const("ay_0")];
+
+            encode_pedestrian_initial_state(
+                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, road_width,
+            );
+
+            // vy[0] is no longer free: it carries the authored crossing speed.
+            // Forcing it to 99.0 (far above the band) must now be UNSAT — the
+            // old model left vy[0] unconstrained and this was SAT.
             let big_val = Real::from_rational(990, 10);
             backend.assert(&vy[0].eq(&big_val));
 
             assert_eq!(
                 backend.check(),
-                SatResult::Sat,
-                "vy[0] should be unconstrained"
+                SatResult::Unsat,
+                "vy[0] should be pinned to the authored crossing-speed band"
             );
         });
     }
@@ -488,7 +614,7 @@ mod tests {
         z3::with_z3_config(&cfg, || {
             let backend = SolverBackend::new();
             let actor = make_pedestrian("ped1", 0, ValueOrRange::Value(10.0));
-            let lane_width = 3.5;
+            let road_width = 3.5;
 
             let px = vec![Real::new_const("px_0")];
             let py = vec![Real::new_const("py_0")];
@@ -498,7 +624,7 @@ mod tests {
             let ay = vec![Real::new_const("ay_0")];
 
             encode_pedestrian_initial_state(
-                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width,
+                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, road_width,
             );
 
             // Assert ay must be 50.0 (way outside pedestrian limits) to prove it's unconstrained
@@ -519,7 +645,7 @@ mod tests {
         z3::with_z3_config(&cfg, || {
             let backend = SolverBackend::new();
             let actor = make_running_pedestrian("runner", 0, ValueOrRange::Value(5.0));
-            let lane_width = 3.5;
+            let road_width = 3.5;
 
             let px = vec![Real::new_const("px_0")];
             let py = vec![Real::new_const("py_0")];
@@ -529,12 +655,14 @@ mod tests {
             let ay = vec![Real::new_const("ay_0")];
 
             encode_pedestrian_initial_state(
-                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width,
+                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, road_width,
             );
 
-            // Try to force vx > PEDESTRIAN_RUN_MAX_SPEED => should be UNSAT
+            // The crossing speed lives on vy now. Forcing it past the running
+            // cap must be UNSAT (the runner's authored [2.0, 3.0] sits under
+            // the 5.0 run cap, so the effective ceiling is the authored 3.0).
             let too_fast = Real::from_rational((PEDESTRIAN_RUN_MAX_SPEED * 10.0) as i64 + 1, 10);
-            backend.assert(&vx[0].gt(&too_fast));
+            backend.assert(&vy[0].gt(&too_fast));
 
             assert_eq!(
                 backend.check(),
@@ -582,9 +710,8 @@ mod tests {
             let model = backend.get_model().unwrap();
 
             // The position update is the exact constant-acceleration one,
-            // p + v*dt + 1/2*a*dt^2, written trapezoidally. The old
-            // expectations here were the forward-Euler p + v*dt, which is the
-            // H1 defect SW-08 fixed; they differ by 1/2*a*dt^2 exactly.
+            // p + v*dt + 1/2*a*dt^2, written trapezoidally, not the
+            // forward-Euler p + v*dt; the two differ by 1/2*a*dt^2 exactly.
             //
             // px_t1 = 10.0 + 1.0*0.5 + 0.5*0.2*0.25 = 10.525
             let px1 = eval_real_val(&model, &px_t1);
@@ -794,14 +921,17 @@ mod tests {
 
             encode_pedestrian_bounds_step(&backend, &vx, &vy, &ax, &ay, &actor);
 
-            // Force vx = 3.0 (above walk limit but below run limit) => should be SAT
+            // The crossing speed is on vy. Force vy = 3.0 (above the walk limit,
+            // and the runner's authored max) => should be SAT for a runner
+            // authored at [2.0, 3.0]. (vx is now pinned to 0, so the old
+            // vx=3.0 assertion would be UNSAT — speed no longer lives on vx.)
             let v_3 = Real::from_rational(30, 10);
-            backend.assert(&vx.eq(&v_3));
+            backend.assert(&vy.eq(&v_3));
 
             assert_eq!(
                 backend.check(),
                 SatResult::Sat,
-                "vx=3.0 should be SAT for runner"
+                "vy=3.0 should be SAT for runner"
             );
         });
     }
@@ -946,7 +1076,7 @@ mod tests {
         z3::with_z3_config(&cfg, || {
             let backend = SolverBackend::new();
             let actor = make_pedestrian("ped_cross", 0, ValueOrRange::Value(20.0));
-            let lane_width = 3.5;
+            let road_width = 3.5;
             let horizon = 4;
             let dt_val = 0.5;
             let dt = Real::from_rational(5, 10);
@@ -982,7 +1112,7 @@ mod tests {
 
             // 1. Encode initial state
             encode_pedestrian_initial_state(
-                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, lane_width,
+                &backend, &px, &py, &vx, &vy, &ax, &ay, &actor, road_width,
             );
 
             // 2. Encode kinematics and bounds for each step

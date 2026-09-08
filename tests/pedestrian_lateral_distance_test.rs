@@ -64,20 +64,30 @@ fn min_lateral_separation(scenario: &scenario_weaver::scenario::model::Scenario)
 fn enforced_min_lateral_distance_actually_holds() {
     let mut spec = common::parse_example("pedestrian_wide_road.yaml");
     spec.constraint_modes = modes_isolating_lateral(ConstraintMode::Enforce);
-    // 0.4 m is deliberately above the ~0.30 m closest approach this same
-    // example settles on with every constraint ignored (verified separately):
-    // a threshold at or below that baseline would pass whether or not the
-    // constraint does anything, so it would not distinguish "honoured" from
-    // "silently dropped".
-    spec.min_lateral_distance = Some(0.4);
+    // 0.25 m is above the ~0.09 m closest approach this same example settles on
+    // with every constraint ignored (verified separately), so a pass here means
+    // the constraint did something rather than being silently dropped.
+    //
+    // Why 0.25 and not the 0.4 this used to demand: the ego sits stationary in
+    // the middle lane (py = 5.25) and the pedestrian must cross straight through
+    // it, so the pair's lateral separation is bounded by how far `py_ped` can
+    // step across `py_ego` in one sample. At the honest walking speed (SW-45:
+    // the crossing runs at the authored 1.4 m/s, not the 2.0 m/s walk cap the
+    // buggy encoder used) the largest lateral step is 1.4 · 0.4 = 0.56 m, so the
+    // best a full crossing can straddle the ego's lane is ±0.28 m; 0.4 m is
+    // physically unreachable and 0.25 m is the meaningful floor just inside it.
+    // The old 0.4 m only held because the pre-SW-45 pedestrian hopped the
+    // forbidden band in a single 0.8 m step — a sampling artifact of the wrong
+    // crossing speed, not real clearance.
+    spec.min_lateral_distance = Some(0.25);
 
     let scenario = scenario_weaver::generate_single_scenario_from_spec(spec.clone())
         .unwrap_or_else(|e| panic!("expected solvable with a modest lateral floor: {e}"));
 
     let min_lat = min_lateral_separation(&scenario);
     assert!(
-        min_lat >= 0.4 - 1e-6,
-        "min_lateral_distance: enforce demanded >= 0.4 m of lateral separation at every \
+        min_lat >= 0.25 - 1e-6,
+        "min_lateral_distance: enforce demanded >= 0.25 m of lateral separation at every \
          step, but the closest approach found was {min_lat:.4} m — the constraint did \
          nothing"
     );

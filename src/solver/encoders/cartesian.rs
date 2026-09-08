@@ -103,19 +103,18 @@ impl<B: Z3Backend> CartesianEncoder<B> {
     /// `|py - (lane*lane_width + lane_width/2)| <= lane_width/2`.
     ///
     /// This is the mid-manoeuvre counterpart of
-    /// [`Self::encode_lane_position_coupling_at_time`] (SW-10/H2). While a
-    /// vehicle is between two lane centres `py` cannot equal a centre, so the
-    /// equality coupling cannot be asserted — but `lane` must still name the
-    /// lane the vehicle is *physically in*. Bracketing says exactly that:
-    /// `lane` is the index of the lane whose 3.5 m-wide strip contains `py`.
+    /// [`Self::encode_lane_position_coupling_at_time`]. While a vehicle is
+    /// between two lane centres `py` cannot equal a centre, so the equality
+    /// coupling cannot be asserted — but `lane` must still name the lane the
+    /// vehicle is *physically in*. Bracketing says exactly that: `lane` is the
+    /// index of the lane whose 3.5 m-wide strip contains `py`.
     ///
-    /// This replaces the old schedule (`lane == source` for every step of the
-    /// window, `lane == target` only at its last step), under which `py` was
-    /// free to reach the target centre seconds before `lane` acknowledged it,
-    /// and every consumer keyed on `lane` — the TTC proposition's
-    /// `same_lane_discrete`, `compute_effective_dist`,
-    /// `compute_validation_metrics` — read the actors as separated during
-    /// exactly the window a cut-in is about.
+    /// A fixed schedule (`lane == source` for every step of the window,
+    /// `lane == target` only at its last step) would instead let `py` reach
+    /// the target centre seconds before `lane` acknowledged it, and every
+    /// consumer keyed on `lane` — the TTC proposition's `same_lane_discrete`,
+    /// `compute_effective_dist`, `compute_validation_metrics` — would read the
+    /// actors as separated during exactly the window a cut-in is about.
     ///
     /// `lane.to_real() * lane_width` is constant x variable, so this stays
     /// linear; it does move the window steps from pure QF_LRA into mixed
@@ -140,8 +139,8 @@ impl<B: Z3Backend> CartesianEncoder<B> {
     /// A step in which a vehicle is not changing lanes: pinned to the lane
     /// centre, and not moving laterally at all.
     ///
-    /// The `vy = 0` half is new with SW-09 and is the counterpart of the
-    /// bicycle encoder's stable-phase rule. Pinning `py` alone leaves a
+    /// The `vy = 0` half is the counterpart of the bicycle encoder's
+    /// stable-phase rule. Pinning `py` alone leaves a
     /// sawtooth: `py[t+1] = py[t] + (vy[t] + vy[t+1])*dt/2` with `py` fixed
     /// admits any `vy[t+1] = -vy[t]`, so with `|ay| <= 2` and `dt = 0.1` the
     /// solver would alternate `vy` between ±0.1 m/s while parked on the lane
@@ -254,7 +253,7 @@ impl<B: Z3Backend> CartesianEncoder<B> {
     /// Returns `true` if the window was encoded. `false` means the manoeuvre
     /// spans no simulated step and nothing at all was asserted over
     /// `[start_step, end_step]` — the caller must then cover those steps
-    /// itself (SW-25; see `encode_lane_coupling_with_lane_changes`).
+    /// itself (see `encode_lane_coupling_with_lane_changes`).
     fn encode_smooth_lane_transition(
         &mut self,
         actor_id: &str,
@@ -264,18 +263,15 @@ impl<B: Z3Backend> CartesianEncoder<B> {
     ) -> bool {
         // Defense-in-depth: skip encoding if lane change is beyond horizon.
         //
-        // SW-25: this used to return `()`, so the caller could not tell an
-        // encoded window from a discarded one — and its stable-phase loops
-        // skip `[start_step, end_step]` either way. A discarded window
-        // therefore left those steps with *no* lateral constraint: `py` was
-        // held only by the kinematic chain and `lane` by nothing at all, so
-        // the two were free to disagree, which is what `cut_in_right.yaml`
-        // truncated to `duration: 5.0` did at its final step (py = 5.00,
-        // inside lane 1, lane = 0 — and the `MinimizeTtc` optimiser picked
-        // that lane precisely because a free `lane` let it claim to share the
-        // ego's). `ScenarioSpec::validate` now rejects that spec outright, so
-        // this branch should be unreachable from the public API; reporting it
-        // rather than silently swallowing it is what keeps it defensive.
+        // Reporting a discarded window via the `bool` return (rather than
+        // silently swallowing it) matters because the caller's stable-phase
+        // loops skip `[start_step, end_step]` either way: a discarded window
+        // would otherwise leave those steps with *no* lateral constraint —
+        // `py` held only by the kinematic chain and `lane` by nothing at all,
+        // free to disagree with each other. `ScenarioSpec::validate` rejects
+        // specs that would reach this branch from the public API, so it
+        // should be unreachable; the defensive reporting stays in case that
+        // invariant ever slips.
         if start_step >= self.horizon || start_step >= end_step {
             return false;
         }
@@ -370,33 +366,29 @@ impl<B: Z3Backend> CartesianEncoder<B> {
             self.backend.assert(&vy_t.le(&max_vy));
         }
 
-        // Lane variable during the transition (SW-10/H2).
+        // Lane variable during the transition.
         //
-        // The old encoding pinned `lane` on a schedule — `source` for every
-        // step of the window, `target` only at the last one — while `py` was
-        // constrained only at the two endpoints. Z3 was therefore free to sit
-        // on the target lane centre for seconds while `lane` still read
-        // `source`; `overtake_left` flipped `lane` at py = 2.12 and 4.88,
-        // neither of which is a lane centre.
+        // `lane` is derived from `py` rather than pinned on a fixed schedule:
+        // at every step of the window `lane` must be the index of the lane
+        // physically containing `py`. A schedule that pins `lane == source`
+        // for every step of the window and `lane == target` only at the last
+        // one, independently of where `py` actually is, would let the solver
+        // sit on the target lane centre for seconds while `lane` still reads
+        // `source`.
         //
-        // Instead, derive `lane` from `py`: at every step of the window `lane`
-        // must be the index of the lane physically containing `py`. The
-        // timing is *not* lost with the schedule — it was never carried by it.
-        // `py[start_step]` is pinned within 0.5 m of the source centre and
-        // `py[end_step]` within 0.5 m of the target centre (above), and 0.5 m
-        // is inside the 1.75 m half-width, so the bracket forces
-        // `lane[start_step] == source` and `lane[end_step] == target`
-        // exactly as the schedule's two endpoints did. What the schedule
-        // additionally asserted — `lane == source` strictly *inside* the
-        // window — is the bug, not the timing.
+        // The timing is still enforced without a schedule: `py[start_step]`
+        // is pinned within 0.5 m of the source centre and `py[end_step]`
+        // within 0.5 m of the target centre (above), and 0.5 m is inside the
+        // 1.75 m half-width, so the bracket forces `lane[start_step] ==
+        // source` and `lane[end_step] == target` on its own.
         for t in start_step..=end_step.min(self.horizon) {
             self.encode_lane_position_bracket_at_time(actor_id, t);
         }
 
-        // `max_lateral_acceleration` used to be applied only here, over the
-        // lane-change window. Now that `ay` is chained to `vy` for every actor
-        // (SW-09/C2) it is a real envelope everywhere, so `encode_kinematics`
-        // applies it at every step and this window-local copy is gone.
+        // `max_lateral_acceleration` is not applied here, over the
+        // lane-change window: since `ay` is chained to `vy` for every actor,
+        // it is a real envelope everywhere, so `encode_kinematics` applies it
+        // at every step instead.
 
         true
     }
@@ -445,15 +437,14 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
 
         // `max_lateral_acceleration` is a hard envelope, not a safety metric:
         // it has no `ConstraintMode` of its own and `tests/common/invariants.rs`
-        // treats it as unconditional. Before SW-09 it was applied only over
-        // lane-change windows, which cost nothing because `ay` was a free
-        // variable that no equation read. It now bounds the acceleration that
-        // actually drives `vy`, at every step.
+        // treats it as unconditional. It bounds the acceleration that
+        // actually drives `vy`, at every step, not only over lane-change
+        // windows.
         let max_ay = real_from_f64(self.spec.max_lateral_acceleration);
         let neg_max_ay = real_from_f64(-self.spec.max_lateral_acceleration);
 
-        // Road width for the pedestrian lateral-containment bound below
-        // (SW-23): a per-spec constant, computed once for the whole horizon.
+        // Road width for the pedestrian lateral-containment bound below:
+        // a per-spec constant, computed once for the whole horizon.
         let road_width = self.spec.get_lane_width() * self.spec.get_num_lanes() as f64;
 
         for actor in &self.spec.actors {
@@ -482,21 +473,19 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                     //
                     // The octagon replaces the quadratic disk
                     // vx^2 + vy^2 <= v^2 so the encoding stays in QF_LRA
-                    // (10-20x faster, and the optimiser works at all). It used
-                    // to be a plain box, over-conservative by sqrt(2) on the
-                    // diagonal, which the speed constants "compensated" for by
-                    // shrinking — capping a pedestrian crossing perpendicular
-                    // to the road, the dominant case in this corpus, at
-                    // 1.41 m/s instead of 2.0 (SW-12/M8).
+                    // (10-20x faster, and the optimiser works at all), and is
+                    // tighter than a plain box, which is over-conservative by
+                    // sqrt(2) on the diagonal — a pedestrian crossing
+                    // perpendicular to the road, the dominant case in this
+                    // corpus, should be able to reach the full 2.0 m/s rather
+                    // than being capped at 1.41 m/s to compensate.
                     encode_pedestrian_bounds_step(&self.backend, vx_t, vy_t, ax_t, ay_t, actor);
 
                     // `py` bounded to the drivable surface plus the sidewalk
                     // margin, at every step — not only where `OnSidewalk`
-                    // happens to pin one instant (SW-23). Without this, Z3 is
-                    // free to place a pedestrian arbitrarily far past the
-                    // sidewalk strip everywhere `OnSidewalk` isn't literally
-                    // asserted; SW-16 measured up to 2.60 m of drift with the
-                    // proposition-only bound in place.
+                    // happens to pin one instant. Without this, Z3 is free to
+                    // place a pedestrian arbitrarily far past the sidewalk
+                    // strip everywhere `OnSidewalk` isn't literally asserted.
                     encode_pedestrian_lateral_containment(
                         &self.backend,
                         &self.positions_y[actor_id][t],
@@ -598,9 +587,9 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
 
                         // A window the transition declined to encode is not a
                         // manoeuvre, so its steps belong to the surrounding
-                        // stable phase rather than to nobody (SW-25). Without
-                        // this the loops below skip them and they end up with
-                        // no lateral constraint at all.
+                        // stable phase rather than to nobody. Without this the
+                        // loops below skip them and they end up with no
+                        // lateral constraint at all.
                         if !encoded {
                             for t in lc.start_step..=lc.end_step.min(self.horizon) {
                                 self.encode_stable_lateral_state_at_time(&actor_id, t);
@@ -646,7 +635,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
             .filter(|a| a.role == ActorRole::Pedestrian)
             .cloned()
             .collect();
-        let lane_width = self.spec.get_lane_width();
+        let road_width = self.spec.get_lane_width() * self.spec.get_num_lanes() as f64;
         for actor in &pedestrians {
             let actor_id = &actor.id;
             let lane_var = &self.lanes[actor_id][0];
@@ -663,13 +652,20 @@ impl<B: Z3Backend> CoordinateEncoder<B> for CartesianEncoder<B> {
                 &self.accelerations_x[actor_id],
                 &self.accelerations_y[actor_id],
                 actor,
-                lane_width,
+                road_width,
             );
-            self.encode_lane_position_coupling_at_time(actor_id, 0);
+            // No lane-position coupling for a pedestrian: it has no lane, and
+            // `encode_pedestrian_initial_state` has already placed py[0] on a
+            // kerb. Pinning py[0] to the lane centre here (the old behaviour)
+            // both put the pedestrian in the middle of the road and, now that
+            // the helper starts it on the sidewalk, directly contradicts it.
+            // Per-step py is already left free for pedestrians (the octagon
+            // and lateral-containment path above), so this was the only step
+            // that coupled them at all.
         }
 
         // Collect all actor data upfront to avoid borrow checker issues
-        // (SW-20: shared with BicycleEncoder via `collect_vehicle_initial_state`).
+        // (shared with BicycleEncoder via `collect_vehicle_initial_state`).
         for v in collect_vehicle_initial_state(&self.spec) {
             self.encode_actor_initial_state(
                 &v.actor_id,
@@ -1069,12 +1065,10 @@ mod tests {
 
             // Position carries the second-order term:
             //   px[1] = px[0] + vx[0]*dt + 0.5*ax[0]*dt^2
-            // This test previously asserted the forward-Euler form
-            // `px0 + vx0*dt` at a 0.01 tolerance, which is what the encoder
-            // used to assert (SW-08/H1). The two differ by 0.5*ax*dt^2 —
-            // 0.375 m per step at ax = 3, dt = 0.5 — so the old assertion
-            // fails against the corrected update and the 1e-9 tolerance here
-            // is the exactness Z3's rationals actually give.
+            // This is the trapezoidal form, not the forward-Euler
+            // `px0 + vx0*dt`: the two differ by 0.5*ax*dt^2 — 0.375 m per
+            // step at ax = 3, dt = 0.5 — and the 1e-9 tolerance here is the
+            // exactness Z3's rationals actually give.
             let expected_px1 = px0 + vx0 * dt + 0.5 * ax0 * dt * dt;
             assert!(
                 approx_eq(px1, expected_px1, 1e-9),
@@ -1087,7 +1081,7 @@ mod tests {
             );
 
             // The ego is a vehicle, so its lateral update stays forward Euler
-            // until SW-09 chains vy to ay — see encode_kinematics.
+            // — see encode_kinematics.
             let py0 = eval_real(&model, &encoder.positions_y["ego"][0]);
             let py1 = eval_real(&model, &encoder.positions_y["ego"][1]);
             let vy0 = eval_real(&model, &encoder.velocities_y["ego"][0]);
