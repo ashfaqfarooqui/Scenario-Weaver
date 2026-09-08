@@ -322,12 +322,18 @@ pub fn collect_vehicle_initial_state(spec: &ScenarioSpec) -> Vec<VehicleInitialS
 ///
 /// # The boundary, decided
 ///
-/// The predicate is `lane1 == lane2 || |py1 - py2| < lane_width`, and the
-/// boundary is **excluded**: two actors exactly one lane width apart laterally
-/// are in *adjacent* lanes, not the same one, so they are not a conflict pair.
-/// That is not an incidental case. `py = lane * lane_width + lane_width / 2`
-/// puts every pair of neighbouring lane centres at exactly `lane_width`, so the
-/// boundary is where the whole corpus sits whenever nobody is mid-manoeuvre.
+/// The predicate is `lane1 == lane2 || |py1 - py2| < lane_width / 2`, and the
+/// boundary is **excluded**. A vehicle at lane centre
+/// `c = lane * lane_width + lane_width / 2` owns the strip
+/// `(c - lane_width / 2, c + lane_width / 2) = [lane * lane_width,
+/// (lane + 1) * lane_width)`; a second actor shares that lane exactly when it
+/// lies inside that strip, i.e. `|py - c| < lane_width / 2`. Two actors at
+/// *adjacent* lane centres are `lane_width` apart — twice the threshold — so
+/// they are excluded by a wide margin, and the predicate fires for a
+/// lane-changer only once it has crossed half a lane into the other's strip,
+/// not merely edged off its own centre. (The previous form compared against a
+/// full `lane_width`, which fired while the changer was still inside its own
+/// lane strip — the defect this tightening fixes.)
 ///
 /// # Which arithmetic is canonical
 ///
@@ -340,17 +346,19 @@ pub fn collect_vehicle_initial_state(spec: &ScenarioSpec) -> Vec<VehicleInitialS
 ///
 /// # Why the `f64` side needs a band
 ///
-/// A bare `f64` `<` against `lane_width` disagrees with the exact evaluation
-/// *on the boundary*, and only there. At `lane_width = 3.2` the lane centres
-/// are 1.6 and 4.8: exact arithmetic gets `3.2 < 3.2` = false and asserts no
-/// `min_distance` for the pair, while `4.8 - 1.6` in `f64` is
-/// 3.1999999999999997, gets `true`, and reports the untouched gap as a breach.
-/// Measured on `examples/cut_in_left.yaml` with `lane_width = 3.2` at
-/// `93f2ab2`: `min_distance` 2.02 m against an enforced 5.0 m,
-/// `all_constraints_satisfied: false` — a constraint the solver never asserted,
-/// reported as violated.
+/// A bare `f64` `<` against the threshold can disagree with the exact
+/// evaluation *on the boundary*, because both `lane_width / 2` and the lateral
+/// separation are rounded on their way into `f64`. The original full-lane-width
+/// form of this predicate showed the mechanism concretely: at `lane_width = 3.2`
+/// the lane centres are 1.6 and 4.8, exact arithmetic got `3.2 < 3.2` = false
+/// and asserted no `min_distance`, while `4.8 - 1.6` in `f64` is
+/// 3.1999999999999997, got `true`, and reported the untouched gap as a breach
+/// (measured on `examples/cut_in_left.yaml` at `93f2ab2`: `min_distance` 2.02 m
+/// against an enforced 5.0 m, `all_constraints_satisfied: false`). The threshold
+/// has since been tightened to `lane_width / 2`, but the rounding hazard at the
+/// boundary is identical, so the one-sided band is kept.
 ///
-/// So [`same_lane_f64`] compares against `lane_width - LANE_OVERLAP_EPS`. This
+/// So [`same_lane_f64`] compares against `lane_width / 2 - LANE_OVERLAP_EPS`. This
 /// is the same rounding budget, applied in the same one-sided way and for the
 /// same reason, as `Z3Encoder::METRIC_TOL` and `tests/common/invariants.rs::TOL`:
 /// the error it absorbs is rational-to-double rounding (~1e-15 here), nine
@@ -360,7 +368,7 @@ pub fn collect_vehicle_initial_state(spec: &ScenarioSpec) -> Vec<VehicleInitialS
 ///
 /// The band makes the `f64` overlap set a strict *subset* of the exact one:
 /// they differ only for pairs whose lateral separation lies in
-/// `[lane_width - 1e-6, lane_width)`. That direction is deliberate. The
+/// `[lane_width / 2 - 1e-6, lane_width / 2)`. That direction is deliberate. The
 /// validator can no longer report a breach on a pair the encoder left
 /// unconstrained, which is the defect above; what remains is that a `violate`
 /// scenario whose *only* conflicting steps sat inside a one-micrometre lateral
@@ -368,8 +376,8 @@ pub fn collect_vehicle_initial_state(spec: &ScenarioSpec) -> Vec<VehicleInitialS
 /// meaningfully distinguish from adjacent lanes.
 ///
 /// Shifting the exact side by the same epsilon was measured as the alternative
-/// and rejected: it turns every lane-width literal Z3 sees from `7/2` into
-/// `3499999/1000000` (against the whole rationale of [`MAX_DECIMAL_DIGITS`]),
+/// and rejected: it turns every threshold literal Z3 sees from `7/4` into
+/// `1749999/1000000` (against the whole rationale of [`MAX_DECIMAL_DIGITS`]),
 /// and it churned the model of nearly every example in `examples/` — a
 /// corpus-wide output change to fix a boundary nothing but the `f64` reader
 /// ever got wrong.
@@ -378,13 +386,13 @@ pub const LANE_OVERLAP_EPS: f64 = 1e-6;
 /// The lateral distance below which two actors count as sharing a lane, as the
 /// `f64` side must test it.
 ///
-/// See [`LANE_OVERLAP_EPS`]: the predicate's threshold is `lane_width` with the
-/// boundary excluded, and this is that threshold minus the `f64` rounding
+/// See [`LANE_OVERLAP_EPS`]: the predicate's threshold is `lane_width / 2` with
+/// the boundary excluded, and this is that threshold minus the `f64` rounding
 /// budget. Every `f64` evaluation of the predicate must go through
 /// [`same_lane_f64`] rather than re-typing the comparison.
 #[must_use]
 pub fn lane_overlap_threshold(lane_width: f64) -> f64 {
-    lane_width - LANE_OVERLAP_EPS
+    lane_width / 2.0 - LANE_OVERLAP_EPS
 }
 
 /// The `f64` twin of [`encode_same_lane_constraint`], for code holding an
@@ -402,36 +410,41 @@ pub fn same_lane_f64(lane1: usize, lane2: usize, py1: f64, py2: f64, lane_width:
 /// Encode "same lane" check for two actors using y-position proximity
 ///
 /// This function creates a Z3 Bool that is true when two actors are in the
-/// same lateral space (i.e., |py1 - py2| < lane_width, boundary excluded).
+/// same lateral space (i.e., |py1 - py2| < lane_width / 2, boundary excluded).
 /// This is the **canonical** evaluation of the predicate, in exact rationals;
 /// [`same_lane_f64`] is the `f64` twin that has to agree with it, and
 /// [`LANE_OVERLAP_EPS`] documents the boundary and how the two are kept in
 /// step.
 ///
-/// IMPORTANT: This uses AND (not OR) to correctly check absolute value:
-/// |py1 - py2| < lane_width is equivalent to:
-///   (py1 - py2 < lane_width) AND (py2 - py1 < lane_width)
+/// IMPORTANT: This uses AND (not OR) to correctly check absolute value, with
+/// the threshold `t = lane_width / 2`:
+/// |py1 - py2| < t is equivalent to:
+///   (py1 - py2 < t) AND (py2 - py1 < t)
 ///
 /// Using OR would be incorrect because:
-/// - If py1 - py2 = 5.0 and lane_width = 3.5
-/// - py_diff_pos = 5.0, so 5.0 < 3.5 is FALSE
-/// - py_diff_neg = -5.0, so -5.0 < 3.5 is TRUE (always true for negative values!)
+/// - If py1 - py2 = 5.0 and t = 1.75
+/// - py_diff_pos = 5.0, so 5.0 < 1.75 is FALSE
+/// - py_diff_neg = -5.0, so -5.0 < 1.75 is TRUE (always true for negative values!)
 /// - OR would incorrectly return TRUE
 ///
 /// With AND:
 /// - Both conditions must be true
 /// - This correctly requires the actual distance to be less than the threshold
 pub fn encode_y_proximity_constraint(py1: &Real, py2: &Real, lane_width: f64) -> Bool {
-    // Strict, against `lane_width` itself: exact rationals need no guard band,
-    // and adjacent lane centres — which sit at exactly `lane_width` — are
-    // excluded by the strictness. `same_lane_f64` is what has to work to get
-    // the same answer. See `LANE_OVERLAP_EPS`.
-    let lane_width_real = real_from_f64(lane_width);
+    // Strict, against `lane_width / 2`: a vehicle at a lane centre owns the
+    // strip half a lane width to either side, so a second actor shares that
+    // lane exactly when `|py1 - py2| < lane_width / 2`. Exact rationals need no
+    // guard band, and adjacent lane centres — which sit at exactly `lane_width`,
+    // twice the threshold — are excluded by a wide margin. `same_lane_f64` is
+    // what has to work to get the same answer. See `LANE_OVERLAP_EPS`. Note
+    // `lane_width / 2` stays exactly representable for the corpus widths
+    // (`3.5/2 = 7/4`, `3.2/2 = 8/5`), so the exact-rational rationale holds.
+    let lane_width_real = real_from_f64(lane_width / 2.0);
     let py_diff_pos = py1 - py2;
     let py_diff_neg = py2 - py1;
 
-    // FIXED: Use AND to properly check |py1 - py2| < lane_width
-    // Both (py1-py2) < lane_width AND (py2-py1) < lane_width must be true
+    // Use AND to properly check |py1 - py2| < lane_width / 2
+    // Both (py1-py2) < lane_width/2 AND (py2-py1) < lane_width/2 must be true
     Bool::and(&[
         &py_diff_pos.lt(&lane_width_real),
         &py_diff_neg.lt(&lane_width_real),
@@ -442,7 +455,7 @@ pub fn encode_y_proximity_constraint(py1: &Real, py2: &Real, lane_width: f64) ->
 ///
 /// Returns true if actors are in the same lane either by:
 /// 1. Having the same discrete lane value, OR
-/// 2. Having lateral positions strictly within one lane width of each other
+/// 2. Having lateral positions strictly within half a lane width of each other
 ///
 /// [`same_lane_f64`] is the `f64` twin of this predicate; the two must stay in
 /// lockstep — see [`LANE_OVERLAP_EPS`].
@@ -983,13 +996,11 @@ mod tests {
         });
     }
 
-    /// The function's contract is `|py1 - py2| < lane_width`, and the two
-    /// subtractions are what implement it. The sat/unsat pair below does not
-    /// pin them: at `py1 = 1.0, py2 = 2.0` the sum (3.0) is also under a 3.5 m
-    /// lane width, so mutating either `-` to `+` still passes. `py1 = 4.0,
-    /// py2 = 1.0` separates them — the difference is 3.0 (same lane) while the
-    /// sum is 5.0 and the quotient 4.0, both outside the lane width, so this
-    /// case is SAT only for the real operator.
+    /// The function's contract is `|py1 - py2| < lane_width / 2`, and the two
+    /// subtractions are what implement it. `py1 = 2.5, py2 = 1.0` separates the
+    /// operators — with a 3.5 m lane width the threshold is 1.75, and the
+    /// difference is 1.5 (same lane) while the sum is 3.5 and the quotient 2.5,
+    /// both outside 1.75, so this case is SAT only for the real operator.
     #[test]
     fn test_y_proximity_pins_the_difference_not_the_sum_or_quotient() {
         let cfg = Config::new();
@@ -997,18 +1008,18 @@ mod tests {
             let solver = Solver::new();
             let py1 = Real::new_const("py1");
             let py2 = Real::new_const("py2");
-            solver.assert(&py1.eq(&real_from_f64(4.0)));
+            solver.assert(&py1.eq(&real_from_f64(2.5)));
             solver.assert(&py2.eq(&real_from_f64(1.0)));
             solver.assert(&encode_y_proximity_constraint(&py1, &py2, 3.5));
             assert_eq!(
                 solver.check(),
                 SatResult::Sat,
-                "|4.0 - 1.0| = 3.0 is inside a 3.5 m lane width"
+                "|2.5 - 1.0| = 1.5 is inside half a 3.5 m lane width (1.75)"
             );
         });
     }
 
-    /// The mirror image: the difference is outside the lane width while the
+    /// The mirror image: the difference is outside the threshold while the
     /// quotient is inside it, so this is UNSAT only for the real operator.
     #[test]
     fn test_y_proximity_unsat_when_difference_is_wide_but_quotient_is_not() {
@@ -1018,12 +1029,12 @@ mod tests {
             let py1 = Real::new_const("py1");
             let py2 = Real::new_const("py2");
             solver.assert(&py1.eq(&real_from_f64(8.0)));
-            solver.assert(&py2.eq(&real_from_f64(4.0)));
+            solver.assert(&py2.eq(&real_from_f64(6.0)));
             solver.assert(&encode_y_proximity_constraint(&py1, &py2, 3.5));
             assert_eq!(
                 solver.check(),
                 SatResult::Unsat,
-                "|8.0 - 4.0| = 4.0 is outside a 3.5 m lane width, though 8/4 = 2 is not"
+                "|8.0 - 6.0| = 2.0 is outside half a 3.5 m lane width (1.75), though 8/6 = 1.33 is not"
             );
         });
     }
@@ -1151,17 +1162,22 @@ mod tests {
         });
     }
 
-    /// The boundary itself, stated as a test: exactly one lane width apart is
-    /// *adjacent*, not same-lane, on both sides of the tool.
+    /// The boundary itself, stated as a test: the threshold is `lane_width / 2`,
+    /// so exactly half a lane width apart is excluded and anything strictly
+    /// inside is an overlap, on both sides of the tool.
     #[test]
-    fn test_same_lane_f64_excludes_exactly_one_lane_width() {
+    fn test_same_lane_f64_excludes_exactly_half_a_lane_width() {
         assert!(
-            !same_lane_f64(0, 1, 1.6, 4.8, 3.2),
-            "|4.8 - 1.6| is one lane width at 3.2 m: adjacent lanes, not a conflict pair"
+            !same_lane_f64(0, 1, 1.6, 3.2, 3.2),
+            "|3.2 - 1.6| = 1.6 is exactly half a lane width at 3.2 m: the excluded boundary"
         );
         assert!(
-            same_lane_f64(0, 1, 1.6, 4.79, 3.2),
-            "10 cm inside the lane width is an overlap"
+            !same_lane_f64(0, 1, 1.6, 4.8, 3.2),
+            "|4.8 - 1.6| = 3.2 is a full lane width — adjacent lane centres, well outside"
+        );
+        assert!(
+            same_lane_f64(0, 1, 1.6, 3.19, 3.2),
+            "1 cm inside half a lane width is an overlap"
         );
         assert!(
             same_lane_f64(2, 2, 0.0, 100.0, 3.2),

@@ -320,14 +320,21 @@ mod objective {
     const LADDER_TOL: f64 = 1e-6;
 
     /// `src/solver/encoder_utils.rs::encode_same_lane_constraint`: a discrete lane
-    /// match **or** lateral overlap within one lane width. This is also the predicate
+    /// match **or** lateral overlap within half a lane width. This is also the predicate
     /// `compute_validation_metrics` uses, which is the point — before SW-14 the
     /// objectives used the discrete half alone and scored a different set of states
-    /// than the tool reported on.
+    /// than the tool reported on. Calls the shared `same_lane_f64` directly rather
+    /// than re-typing the comparison, so the threshold stays in lockstep with the
+    /// encoder (SW-49 tightened it from `lane_width` to `lane_width / 2`).
     fn same_lane(scenario: &Scenario, a: usize, b: usize, t: usize) -> bool {
         let (s1, s2) = (&scenario.actors[a].states[t], &scenario.actors[b].states[t]);
-        s1.lane() == s2.lane()
-            || (s1.position().y - s2.position().y).abs() < scenario.road.lane_width
+        scenario_weaver::solver::encoder_utils::same_lane_f64(
+            s1.lane(),
+            s2.lane(),
+            s1.position().y,
+            s2.position().y,
+            scenario.road.lane_width,
+        )
     }
 
     /// Same-lane longitudinal gap at one step, or `BIG`.

@@ -155,7 +155,7 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         // predicate the encoder asserts, or the tool enforces one thing and
         // reports another. `encode_same_lane_constraint` (and the TTC /
         // distance propositions built on it) is
-        //     lane1 == lane2  OR  |py1 - py2| < lane_width
+        //     lane1 == lane2  OR  |py1 - py2| < lane_width / 2
         // — the discrete match alone misses actors that are laterally
         // overlapping mid-manoeuvre or travelling in opposite directions.
         //

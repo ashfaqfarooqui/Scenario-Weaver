@@ -179,14 +179,28 @@ fn test_head_on_collision_generation() {
 /// to a dead stop in the middle of a bidirectional road is not a near miss.
 ///
 /// This asserts the physical property directly — the oncoming actor must
-/// still be carrying a usable fraction of its initial speed at the end of the
-/// horizon — rather than a hand-computed displacement constant.
+/// still be carrying a usable fraction of its declared entry speed at the end
+/// of the horizon — rather than a hand-computed displacement constant.
+///
+/// The floor is anchored to the actor's **declared** minimum entry speed, not
+/// the one Z3 happened to sample. `oncoming_npc`'s `speed:` is the range
+/// `[10.0, 12.0]`, so its initial speed is a free variable; the earlier form
+/// compared the final speed against half of the *extracted* initial, which the
+/// solver is free to draw anywhere in that band. That made the bound depend on
+/// an arbitrary satisfying assignment rather than a physical property: the same
+/// final speed of 5.0 m/s reads as "50% of 10" for one valid model and "42% of
+/// 12" for another. (SW-49's tightening of `same_lane` shifted the sampled
+/// initial from 10 to 12 while the final speed — and the min over the horizon,
+/// ~4.1 m/s — stayed put, exposing exactly this coupling.) Half of the declared
+/// minimum, 5.0 m/s, is the physically meaningful "not coasting to a stop" line.
 #[test]
 fn test_head_on_oncoming_retains_speed_through_horizon() {
+    // `oncoming_npc`'s declared `speed:` lower bound in head_on_near_miss.yaml.
+    const DECLARED_MIN_ENTRY_SPEED: f64 = 10.0;
+
     let scenario = near_miss();
     let oncoming = scenario.get_actor("oncoming_npc").expect("oncoming_npc");
 
-    let initial_speed = oncoming.states[0].velocity().vx.abs();
     let final_speed = oncoming
         .states
         .last()
@@ -196,11 +210,11 @@ fn test_head_on_oncoming_retains_speed_through_horizon() {
         .abs();
 
     assert!(
-        final_speed >= 0.5 * initial_speed - 1e-6,
-        "oncoming_npc should retain at least half its initial speed by the end of the \
-         horizon (initial {initial_speed:.3} m/s, final {final_speed:.3} m/s) — a coast to \
-         a dead stop in the middle of a bidirectional road is not a near miss; vx series: \
-         {:?}",
+        final_speed >= 0.5 * DECLARED_MIN_ENTRY_SPEED - 1e-6,
+        "oncoming_npc should retain at least half its declared minimum entry speed \
+         ({DECLARED_MIN_ENTRY_SPEED:.1} m/s) by the end of the horizon (final \
+         {final_speed:.3} m/s) — a coast to a dead stop in the middle of a bidirectional \
+         road is not a near miss; vx series: {:?}",
         oncoming
             .states
             .iter()
