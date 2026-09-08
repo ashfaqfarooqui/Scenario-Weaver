@@ -8,7 +8,7 @@
 //! State: (x, y, θ, v, δ) where θ is heading angle, v is speed, δ is steering
 //! Controls: (a, δ) where a is longitudinal acceleration, δ is steering angle
 //!
-//! Hybrid approach ("Route B-lin", SW-11):
+//! Hybrid approach ("Route B-lin"):
 //! - Longitudinal dynamics are linear: dx/dt = v, dv/dt = a
 //! - Lateral dynamics are driven by the heading: `vy[t] == v̄[t] * θ[t]`, where
 //!   `v̄[t]` is a **constant** reference speed picked from a Bool-selected
@@ -20,10 +20,9 @@
 //! - During lane changes: the coupling above plus the Cartesian-matching
 //!   lateral speed envelope (`|vy| <= 0.15*v` and `|vy| <= 2.0 m/s`).
 //!
-//! Before SW-11, θ and δ were related to nothing: `vy` was a free variable, θ
-//! was pinned to zero outside lane changes and merely rate-bounded inside
-//! them, and extraction threw θ away. Deleting every θ and δ would not have
-//! changed a single output number.
+//! θ and δ are load-bearing: `vy` is derived from θ via the coupling above
+//! (not a free variable), θ is asserted rather than pinned to zero outside
+//! lane changes, and extraction reads θ back out.
 //!
 //! # The linearisation, and its error
 //!
@@ -143,7 +142,7 @@ pub struct BicycleEncoder<B: Z3Backend> {
 
     /// Signed longitudinal velocity (m/s), `get_longitudinal_vel`'s backing store.
     ///
-    /// SW-37. `speed_v` is deliberately a non-negative, direction-locked speed
+    /// `speed_v` is deliberately a non-negative, direction-locked speed
     /// *magnitude* (see the comment above `speed_v`'s field and
     /// `encode_kinematics`'s `px_next = if *direction == 1 {...} else {...}`,
     /// which is where the sign actually lives). `CartesianEncoder`'s
@@ -168,14 +167,12 @@ pub struct BicycleEncoder<B: Z3Backend> {
 
     /// Lateral accelerations (ay, m/s²)
     ///
-    /// Added by SW-09. `vy` used to be an independent variable with nothing
-    /// behind it, and extraction reported a hard-coded `ay = 0.0`, so the
-    /// exported trajectory claimed zero lateral acceleration while `vy` stepped
-    /// 0 -> -8 -> -3 m/s. `vy[t+1] = vy[t] + ay[t]*dt` now ties the two, with
-    /// `|ay| <= spec.max_lateral_acceleration`.
+    /// `vy[t+1] = vy[t] + ay[t]*dt` ties lateral acceleration to lateral
+    /// velocity, with `|ay| <= spec.max_lateral_acceleration`, so the exported
+    /// trajectory's `ay` is consistent with how `vy` actually steps.
     accelerations_y: HashMap<String, Vec<Real>>,
 
-    /// Reference-speed buckets per actor (SW-11): half-open `[lo, hi)` spans
+    /// Reference-speed buckets per actor: half-open `[lo, hi)` spans
     /// paired with the constant `v̄` that stands in for the symbolic `v` in
     /// the heading coupling. They partition the real line, so exactly one
     /// contains any given `v[t]`.
@@ -330,16 +327,14 @@ impl<B: Z3Backend> BicycleEncoder<B> {
             };
 
             // Steering angle bounds, written as the turn-radius constraint
-            // `docs/coordinate-systems.md` has always advertised and no line of
-            // this file previously enforced (SW-11/H6):
+            // `docs/coordinate-systems.md` advertises:
             //
             //   R >= R_min   <=>   |δ| <= atan(L / R_min)
             //
             // `BicycleParams::min_turn_radius` is `L / tan(δ_max)`, so this is
             // exactly `|δ| <= δ_max` — but routed through the radius, which is
             // what makes the radius a real quantity in the encoding instead of
-            // a method with zero callers. Its formula was `L / δ_max` until
-            // SW-11, 14 % off at the 0.6 rad default lock.
+            // a method with zero callers.
             let min_turn_radius = self
                 .spec
                 .get_actor(actor_id)
@@ -538,30 +533,28 @@ impl<B: Z3Backend> BicycleEncoder<B> {
         self.backend
             .assert(&py_end.le(&(&target_center_val + &tolerance)));
 
-        // Lane variable during the transition (SW-10/H2).
+        // Lane variable during the transition.
         //
-        // The old encoding pinned `lane` on a schedule — `source` for every
-        // step of the window, `target` only at the last one — while `py` was
-        // constrained only at the two endpoints. Z3 reached the target centre
-        // early and sat there while `lane` still read `source`; the finding
-        // records t=5.0 and t=6.0 at y=5.25 (lane-1 centre) with lane=0.
+        // `lane` must name the lane whose lane_width-wide strip physically
+        // contains `py`, rather than being pinned on a fixed schedule —
+        // pinning it independently of `py` (which is constrained only at the
+        // two endpoints) would let the solver reach the target centre early
+        // while `lane` still reads `source` for the intervening steps.
         //
-        // Instead, derive `lane` from `py`: `lane` must name the lane whose
-        // lane_width-wide strip physically contains `py`. The cartesian
-        // encoder writes this as |py - lane*w - w/2| <= w/2 directly, because
-        // its source/target lanes are symbolic `Int`s. Here they are concrete
-        // `usize`s, so the same relation is expressed as a two-way case split
-        // over the only two lanes reachable in this window. That keeps this
-        // file in pure LRA — no Int-to-Real coercion, as
+        // The cartesian encoder writes this relation as
+        // |py - lane*w - w/2| <= w/2 directly, because its source/target
+        // lanes are symbolic `Int`s. Here they are concrete `usize`s, so the
+        // same relation is expressed as a two-way case split over the only
+        // two lanes reachable in this window. That keeps this file in pure
+        // LRA — no Int-to-Real coercion, as
         // `encode_lane_position_bounds_const` above is careful to avoid — and
         // is strictly stronger, since it also rules out any third lane index.
         //
-        // The timing does not go away with the schedule: `py[start_step]` is
-        // pinned within 0.5 m of the source centre and `py[end_clamped]`
+        // The timing still holds without a pinned schedule: `py[start_step]`
+        // is pinned within 0.5 m of the source centre and `py[end_clamped]`
         // within 0.5 m of the target centre above, and 0.5 m is inside the
         // half-width, so the case split forces lane == source at the first
-        // step of the window and lane == target at the last, exactly as the
-        // schedule's endpoints did.
+        // step of the window and lane == target at the last.
         let source_lane_val = Int::from_i64(source_lane as i64);
         let target_lane_val = Int::from_i64(target_lane as i64);
         let half_width_val = real_from_f64(lane_width / 2.0);
@@ -595,12 +588,10 @@ impl<B: Z3Backend> BicycleEncoder<B> {
 
         // Velocity ratio constraint during lane change: |vy| <= k * v.
         //
-        // k is now `LATERAL_VELOCITY_RATIO` = 0.15, cartesian's value. It was
-        // 0.5 — the sine of the old ±30° heading bound — on the argument that
-        // "the bicycle model uses heading/steering constraints for realism
-        // rather than a tight vy ratio", which was not true of a heading that
-        // constrained nothing (SW-11/H5). At v = 16 m/s the old bound admitted
-        // vy = 8.0 m/s: 28.8 km/h of pure sideways motion.
+        // k is `LATERAL_VELOCITY_RATIO` = 0.15, matching cartesian's value,
+        // rather than the sine of a looser heading bound: the heading/steering
+        // constraints alone are not a substitute for a tight vy ratio, since
+        // they only bind once θ is actually load-bearing.
         //
         // This is the only bound here that reads the *symbolic* v, so it is the
         // one that stays tight when an actor slows below its bucket midpoint.
@@ -694,7 +685,7 @@ impl<B: Z3Backend> BicycleEncoder<B> {
     }
 
     /// Relate the heading and the steering to the motion — the whole point of
-    /// having a bicycle model (SW-11/H6, decision D3).
+    /// having a bicycle model.
     ///
     /// For every step where the heading may be non-zero, and for each
     /// reference-speed bucket `[lo, hi)` with midpoint `v̄`:
@@ -868,7 +859,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             let mut ay_vars = Vec::new();
             let mut vx_signed_vars = Vec::new();
 
-            // SW-37: the constant sign coefficient for `longitudinal_vel`, a
+            // The constant sign coefficient for `longitudinal_vel`, a
             // compile-time constant (not a solver variable) so `vx_signed[t]
             // == sign * speed_v[t]` stays constant × variable and the problem
             // stays in QF_LRA. Pedestrians are excluded: their `speed_v` is
@@ -994,10 +985,9 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
                 );
 
                 // `py` bounded to the drivable surface plus the sidewalk
-                // margin, at every step (SW-24, following SW-23's cartesian
-                // fix). Without this a bicycle-coordinate pedestrian drifts
-                // arbitrarily far past the sidewalk strip; measured up to
-                // py = 9.28 against a [-2, 9] envelope before this fix.
+                // margin, at every step. Without this a bicycle-coordinate
+                // pedestrian can drift arbitrarily far past the sidewalk
+                // strip.
                 encode_pedestrian_lateral_containment(
                     &self.backend,
                     &self.positions_y[actor_id][t],
@@ -1111,13 +1101,9 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
                 // Lateral, matching the longitudinal axis:
                 //   vy[t+1] = vy[t] + ay[t]*dt
                 //   py[t+1] = py[t] + (vy[t] + vy[t+1]) * dt/2
-                // Before SW-09, `vy` was an independent variable with no
-                // acceleration behind it and extraction reported ay = 0.0
-                // regardless, so the trajectory in the JSON contradicted the
-                // velocities printed beside it (npc: vy 0 -> -8 -> -3 m/s with
-                // ay = 0.000). Chaining vy to a bounded ay also closes the null
-                // space that made forward Euler necessary here: with vy free,
-                // vy[t+1] = -vy[t] left py unchanged at zero cost.
+                // Chaining vy to a bounded ay closes a null space that would
+                // otherwise make forward Euler necessary here: with vy free,
+                // vy[t+1] = -vy[t] would leave py unchanged at zero cost.
                 let ay_t = &self.accelerations_y[actor_id][t];
                 let vy_t1 = &self.velocities_y[actor_id][t + 1];
                 self.backend.assert(&vy_t1.eq(&(vy_t + &(ay_t * &dt_val))));
@@ -1191,7 +1177,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             .filter(|a| a.role == ActorRole::Pedestrian)
             .cloned()
             .collect();
-        let lane_width = self.spec.get_lane_width();
+        let road_width = self.spec.get_lane_width() * self.spec.get_num_lanes() as f64;
         for actor in &pedestrians {
             let actor_id = &actor.id;
             let lane_var = &self.lanes[actor_id][0];
@@ -1208,12 +1194,12 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
                 &self.accelerations[actor_id],
                 &self.accelerations_y[actor_id],
                 actor,
-                lane_width,
+                road_width,
             );
         }
 
         // Collect actor data first to avoid borrow checker issues
-        // (SW-20: shared with CartesianEncoder via `collect_vehicle_initial_state`).
+        // (shared with CartesianEncoder via `collect_vehicle_initial_state`).
         for v in collect_vehicle_initial_state(&self.spec) {
             self.encode_actor_initial_state(
                 &v.actor_id,
@@ -1231,20 +1217,15 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
     }
 
     fn encode_velocity_constraints(&mut self) {
-        // SW-11/H4. This used to assert `v[t] <= actor.speed.max()` at every
-        // step. `actor.speed` is the *initial condition* — `ValueOrRange`, the
-        // band Z3 may pick the starting speed from — while the declared
-        // velocity ceiling is `spec.max_velocity`, which is what
-        // `tests/common/invariants.rs` checks and what `src/scenarios/mod.rs`
-        // lowers to a `VelocityLT` proposition.
-        //
-        // The consequence was not cosmetic. With `speed: 15.0` the ceiling was
-        // 15.0, so `a[t] <= 0` for the whole run regardless of the declared
-        // `acceleration: [-8.0, 3.0]`; combined with the forced constant
-        // acceleration below it, an actor could only coast or brake, and the
-        // audit records an ego decelerating to a complete stop at t = 10 s in
-        // the middle of a highway cut-in and the result being reported valid.
-        // Identical YAML under `coordinate_system: cartesian` had no such cap.
+        // `actor.speed` is the *initial condition* — `ValueOrRange`, the band
+        // Z3 may pick the starting speed from — and must not be conflated
+        // with the declared velocity ceiling, `spec.max_velocity`, which is
+        // what `tests/common/invariants.rs` checks and what
+        // `src/scenarios/mod.rs` lowers to a `VelocityLT` proposition.
+        // Asserting `v[t] <= actor.speed.max()` at every step instead would
+        // cap acceleration to non-positive for the whole run whenever the
+        // initial speed sits at the top of its band, regardless of the
+        // declared `acceleration` range.
         //
         // Cartesian applies no encoder-level speed envelope at all; matching it
         // exactly would drop this method to a no-op, but `spec.max_velocity` is
@@ -1283,15 +1264,12 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
                 self.backend.assert(&a_var.le(&accel_max_val));
             }
 
-            // The forced `a[t+1] == a[t]` that used to live here is gone
-            // (SW-11/H4). It was justified as "smooth monotonic speed profiles
-            // with no longitudinal jitter", but its real effect, next to the
-            // `speed.max()` ceiling above, was to make acceleration impossible:
-            // one value had to serve the whole run, and any positive value
-            // breached the ceiling at some step. Cartesian imposes no such
-            // constraint, so the same YAML produced qualitatively different
-            // dynamics under the two coordinate systems. The acceleration band
-            // asserted above is the whole of the longitudinal envelope now.
+            // No `a[t+1] == a[t]` constraint is forced here: a single
+            // acceleration value for the whole run would make acceleration
+            // effectively impossible next to a tight initial-speed-derived
+            // ceiling, and Cartesian imposes no such constraint either. The
+            // acceleration band asserted above is the whole of the
+            // longitudinal envelope.
         }
     }
 
@@ -1329,14 +1307,14 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
 
         let dt = self.spec.time_step;
 
-        // SW-37: `accelerations` is `dv/dt` for the unsigned magnitude
-        // `speed_v` (`v[t+1] = v[t] + a[t]*dt`, asserted in
-        // `encode_kinematics`), exactly like `speed_v` itself. Once `vx` is
-        // exported signed (`direction * v`, above), `d(vx)/dt` is
-        // `direction * dv/dt`, not `dv/dt` alone — so the exported `ax` needs
-        // the same direction flip `vx` gets, or the two disagree with each
-        // other (`test_kinematic_consistency_across_the_corpus`'s `vx[t+1] ==
-        // vx[t] + ax[t]*dt` check) even though each was self-consistent with
+        // `accelerations` is `dv/dt` for the unsigned magnitude `speed_v`
+        // (`v[t+1] = v[t] + a[t]*dt`, asserted in `encode_kinematics`),
+        // exactly like `speed_v` itself. Once `vx` is exported signed
+        // (`direction * v`, above), `d(vx)/dt` is `direction * dv/dt`, not
+        // `dv/dt` alone — so the exported `ax` needs the same direction flip
+        // `vx` gets, or the two disagree with each other
+        // (`test_kinematic_consistency_across_the_corpus`'s `vx[t+1] ==
+        // vx[t] + ax[t]*dt` check) even though each is self-consistent with
         // the unsigned `v`.
         let direction = self.spec.get_actor(actor_id).map_or(1, |a| a.direction);
         let direction_sign = f64::from(direction);
@@ -1354,10 +1332,8 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             let lane = extract_int(model, &self.lanes[actor_id][t])?;
 
             // Lateral velocity from the heading, `vy = v̄ * sin(θ) ≈ v̄ * θ`,
-            // which is what `docs/coordinate-systems.md` has always claimed the
-            // extractor did. Until SW-11 this line read the free `vy` variable
-            // and the line above was `let _theta = ...` — θ was extracted and
-            // thrown away in the same breath.
+            // which is what `docs/coordinate-systems.md` claims the extractor
+            // does.
             //
             // `v̄` is the reference speed of the bucket Z3 selected at this
             // step. Where the heading is pinned to zero no bucket exists and
@@ -1374,22 +1350,19 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
             // v — direction and all, see `encode_kinematics`'s
             // `px_next = if *direction == 1 {...} else {...}`).
             //
-            // SW-37: this used to be the unsigned `v` itself, which put the
+            // This must not be the unsigned `v` itself, which would put the
             // exported trajectory's velocity out of step with its own
-            // position for a `direction: -1` actor — px correctly walked
-            // backwards while vx reported a positive speed
-            // (`test_kinematic_consistency_across_the_corpus` on
-            // `head_on_near_miss_bicycle` demonstrated this: residual ~= -4.8,
-            // matching the doubled distance a wrong-signed vx integrates).
+            // position for a `direction: -1` actor — px correctly walks
+            // backwards while vx would report a positive speed. Instead,
             // `longitudinal_vel` is `direction * v` (`get_longitudinal_vel`'s
             // backing store, see its field doc comment); for a `direction: 1`
             // actor it is the same Z3 term as `speed_v`, so this changes
             // nothing there.
             let vx = extract_real(model, &self.longitudinal_vel[actor_id][t])?;
 
-            // Lateral acceleration is a real solver variable now (SW-09), tied
-            // to vy by vy[t+1] = vy[t] + ay[t]*dt, so it is read out rather
-            // than reported as a hard-coded zero.
+            // Lateral acceleration is a real solver variable, tied to vy by
+            // vy[t+1] = vy[t] + ay[t]*dt, so it is read out rather than
+            // reported as a hard-coded zero.
             //
             // Longitudinal acceleration is direction-signed to match the now
             // signed `vx` (see the comment above `direction_sign`).
@@ -1421,7 +1394,7 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
     }
 
     fn get_longitudinal_vel(&self, actor_id: &str, time: usize) -> &Real {
-        // SW-37: `longitudinal_vel` is the signed velocity, not `speed_v`'s
+        // `longitudinal_vel` is the signed velocity, not `speed_v`'s
         // unsigned direction-locked magnitude — see the field doc comment.
         &self.longitudinal_vel[actor_id][time]
     }
@@ -1475,20 +1448,14 @@ impl<B: Z3Backend> CoordinateEncoder<B> for BicycleEncoder<B> {
     }
 
     fn encode_lateral_velocity_bounds(&mut self) {
-        // SW-11/H5. This was an empty body whose comment claimed the bound was
-        // "implicitly handled by steering angle and heading angle constraints".
-        // It was not: θ and δ were related to `vy` by nothing at all, and the
-        // only lateral limit in the encoder was the ratio `|vy| <= 0.5*v`,
-        // which at v = 16 m/s admits vy = 8.0 m/s — 28.8 km/h sideways.
-        //
-        // The comment is now true as well as the bound: `encode_bicycle_
-        // constraints` caps |θ| at atan(0.15) and `encode_heading_coupling`
-        // asserts `vy == v̄*θ`, so the heading really does bound the lateral
-        // speed, to `0.1489 * v̄`. What follows is the second, absolute cap —
-        // the same 2.0 m/s `cartesian.rs::encode_lateral_velocity_bounds`
-        // applies, and for the same reason: a 3.5 m lane change over 3 s needs
-        // about 1.17 m/s, so 2.0 leaves room for a smooth profile and nothing
-        // more.
+        // The lateral speed is genuinely bounded by the heading constraints:
+        // `encode_bicycle_constraints` caps |θ| at atan(0.15) and
+        // `encode_heading_coupling` asserts `vy == v̄*θ`, so the heading really
+        // does bound the lateral speed, to `0.1489 * v̄`. What follows is the
+        // second, absolute cap — the same 2.0 m/s
+        // `cartesian.rs::encode_lateral_velocity_bounds` applies, and for the
+        // same reason: a 3.5 m lane change over 3 s needs about 1.17 m/s, so
+        // 2.0 leaves room for a smooth profile and nothing more.
         let max_vy = real_from_f64(MAX_LATERAL_SPEED);
         let neg_max_vy = real_from_f64(-MAX_LATERAL_SPEED);
 
@@ -1717,10 +1684,10 @@ mod tests {
             );
 
             // px[1] = px[0] + v[0]*dt + 0.5*a[0]*dt^2 (direction = 1).
-            // This test previously asserted the forward-Euler `px0 + v0*dt` at
-            // a 0.1 tolerance, which is what the encoder used to assert
-            // (SW-08/H1); the two differ by 0.5*a*dt^2, 1.0 m per step here at
-            // a = -8, dt = 0.5, so the old form is not merely imprecise.
+            // This is the trapezoidal form, not the forward-Euler
+            // `px0 + v0*dt`: the two differ by 0.5*a*dt^2, 1.0 m per step here
+            // at a = -8, dt = 0.5, so the difference is not merely a matter of
+            // tolerance.
             let expected_px1 = px0 + v0 * dt + 0.5 * a0 * dt * dt;
             assert!(
                 approx_eq(px1, expected_px1, 1e-9),
@@ -1762,12 +1729,11 @@ mod tests {
 
     /// The acceleration band is the whole of the longitudinal envelope.
     ///
-    /// This test used to assert `a[0] == a[1]`, the forced constant
-    /// acceleration SW-11 removed. It is not weakened to make the removal pass:
-    /// it now asserts the bound that is actually claimed (every `a[t]` inside
-    /// the declared range) *and* that the profile is free to vary, which is the
-    /// property whose absence made an actor with `acceleration: [-8.0, 3.0]`
-    /// unable to accelerate at all next to the `speed.max()` ceiling.
+    /// This asserts the bound that is actually claimed (every `a[t]` inside
+    /// the declared range) *and* that the profile is free to vary, which is
+    /// the property an actor with `acceleration: [-8.0, 3.0]` needs to be
+    /// able to accelerate at all rather than being pinned to a single value
+    /// for the whole run.
     #[test]
     fn test_acceleration_constraints() {
         let cfg = Config::new();
@@ -1817,13 +1783,12 @@ mod tests {
         encoder.encode_lateral_velocity_bounds();
     }
 
-    /// SW-11/H4: `actor.speed` is an initial condition, not a ceiling.
+    /// `actor.speed` is an initial condition, not a ceiling.
     ///
-    /// The ego declares `speed: 15.0` and `acceleration: [-8.0, 3.0]`. Before
-    /// the fix `v[t] <= actor.speed.max() = 15.0` was asserted at every step,
-    /// so no positive acceleration was consistent with the kinematics and the
-    /// actor could only coast or brake; the audit records one coasting to a
-    /// complete stop at t = 10 s in the middle of a highway cut-in.
+    /// The ego declares `speed: 15.0` and `acceleration: [-8.0, 3.0]`.
+    /// Asserting `v[t] <= actor.speed.max() = 15.0` at every step instead
+    /// would make no positive acceleration consistent with the kinematics,
+    /// leaving the actor able only to coast or brake.
     #[test]
     fn test_actor_can_accelerate_past_its_initial_speed() {
         let cfg = Config::new();
@@ -1874,11 +1839,8 @@ mod tests {
         });
     }
 
-    /// SW-11/H5: the lateral velocity is bounded comparably to Cartesian.
-    ///
-    /// The old encoding's only lateral limit was `|vy| <= 0.5*v`, so at
-    /// v = 16 m/s a lateral velocity of 8.0 m/s — 28.8 km/h of pure sideways
-    /// motion — was a legal solution. Cartesian's equivalent is a hard 2.0 m/s.
+    /// The lateral velocity is bounded comparably to Cartesian, whose
+    /// equivalent is a hard 2.0 m/s.
     #[test]
     fn test_lateral_velocity_is_bounded_like_cartesian() {
         let cfg = Config::new();
@@ -1908,12 +1870,12 @@ mod tests {
         });
     }
 
-    /// SW-11/H6: θ is asserted against `vy`, and drives it.
+    /// θ is asserted against `vy`, and drives it.
     ///
-    /// Two properties, both of which failed before: `vy == v̄ * θ` holds at
-    /// every step (θ is no longer decorative), and θ is genuinely non-zero
-    /// during a lane change (the coupling is not satisfied vacuously by
-    /// everything being pinned to zero).
+    /// Two properties: `vy == v̄ * θ` holds at every step (θ is not
+    /// decorative), and θ is genuinely non-zero during a lane change (the
+    /// coupling is not satisfied vacuously by everything being pinned to
+    /// zero).
     #[test]
     fn test_theta_drives_vy() {
         let cfg = Config::new();
