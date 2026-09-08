@@ -138,15 +138,20 @@ cargo doc --open
 
 ## Documentation
 
-| Document                                                         | Contents                                                   |
-| ---------------------------------------------------------------- | ---------------------------------------------------------- |
-| [docs/output-formats.md](docs/output-formats.md)                 | JSON schema, XOSC/XODR/SVG/GIF/OpenLabel details, Rust API |
-| [docs/adversarial-generation.md](docs/adversarial-generation.md) | Constraint modes, YAML config, use cases                   |
-| [docs/coordinate-systems.md](docs/coordinate-systems.md)         | Cartesian vs Bicycle model, dynamics, configuration        |
-| [docs/scenario-types.md](docs/scenario-types.md)                 | Adding new scenario types in Rust (step-by-step)           |
-| [docs/architecture.md](docs/architecture.md)                     | Pipeline, encoder architecture, module map                 |
-| [docs/z3_constraints.md](docs/z3_constraints.md)                 | Z3 constraint reference for both encoders                  |
-| [CREATING_SCENARIOS.md](docs/CREATING_SCENARIOS.md)              | YAML specification guide and scenario authoring            |
+Start at the [documentation index](docs/README.md). Individual guides:
+
+| Document                                                             | Contents                                                          |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| [docs/user-guide.md](docs/user-guide.md)                             | Install, build, quick start, and the full CLI reference          |
+| [docs/authoring-scenarios.md](docs/authoring-scenarios.md)           | Step-by-step: build a cut-in scenario from scratch               |
+| [docs/yaml-reference.md](docs/yaml-reference.md)                     | The complete YAML schema, field by field                         |
+| [docs/adversarial-generation.md](docs/adversarial-generation.md)     | Enforce / violate / ignore constraint modes and `--adversarial`  |
+| [docs/optimizer.md](docs/optimizer.md)                               | Optimization targets (TTC, distance, severity)                   |
+| [docs/coordinate-systems.md](docs/coordinate-systems.md)             | Cartesian vs bicycle motion models, and the pedestrian sub-model |
+| [docs/output-formats.md](docs/output-formats.md)                     | The six output files, and the programmatic Rust API              |
+| [docs/architecture.md](docs/architecture.md)                         | Pipeline, encoder plugin system, and how the solver works        |
+| [docs/creating-scenario-types.md](docs/creating-scenario-types.md)   | Adding a new scenario type in Rust                               |
+| [docs/z3_constraints.md](docs/z3_constraints.md)                     | Advanced contributor reference: the SMT constraint encoding      |
 
 ## License
 

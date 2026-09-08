@@ -1,79 +1,128 @@
 # Z3 Constraint Reference: Cartesian and Bicycle Encoders
 
-This document walks through every Z3 assertion added during scenario generation,
-organized by pipeline stage, for both the Cartesian and Bicycle coordinate systems.
-It explains what type of arithmetic each constraint uses and why that matters for
-solver performance.
+> **Advanced / contributor reference.** This document walks through the Z3
+> assertions each encoder emits, at the level of individual formulas and their
+> arithmetic theory. It is written for someone about to modify
+> `src/solver/encoders/*.rs` or debug a solver timeout, not for someone
+> writing a scenario YAML. If you are authoring scenarios, start with
+> [`architecture.md`](architecture.md) and [`coordinate-systems.md`](coordinate-systems.md)
+> instead – this document assumes both as background and does not repeat
+> their concept-level explanations. New scenario types are covered in
+> [`creating-scenario-types.md`](creating-scenario-types.md).
+
+Both encoders share one property that is easy to lose sight of while reading
+formula-by-formula: every constraint in the standard pipeline is linear.
+There is no non-linear arithmetic anywhere in a generated scenario's
+encoding: not in the kinematics, not in the lane coupling, not in the TTC
+proposition. That was not always true, and section 11 covers what changed and
+why; sections 3-7 describe the encoding as it exists today.
 
 ---
 
 ## 1. Z3 Theory Primer
 
-Z3 is an SMT (Satisfiability Modulo Theories) solver. It dispatches constraints to
-specialized sub-solvers depending on which *theory* the constraints belong to:
+Z3 is an SMT (Satisfiability Modulo Theories) solver. It dispatches
+constraints to specialized decision procedures depending on which *theory*
+the constraints belong to:
 
 | Theory | Full Name | What it covers | Solver used | Speed |
-|--------|-----------|----------------|-------------|-------|
-| **LRA** | Linear Real Arithmetic | Addition, subtraction, scalar multiplication, comparisons of Real variables | Simplex | Very fast — polynomial time |
-| **LIA** | Linear Integer Arithmetic | Same as LRA but for Int variables | Omega test / branch-and-bound | Fast |
-| **NRA** | Non-linear Real Arithmetic | Any multiplication of two *symbolic* Real variables | NLSAT / CAD | Slow — can be exponential |
-| **Mixed LIA+LRA** | Combined | `to_real(int_var) * real_const` | Combined DPLL(T) | Moderate |
+|--------|-----------|-----------------|-------------|-------|
+| **QF_LRA** | Quantifier-Free Linear Real Arithmetic | Addition, subtraction, scalar multiplication, comparisons of Real variables | Simplex | Fast, polynomial time |
+| **QF_LIA** | Quantifier-Free Linear Integer Arithmetic | Same as LRA but for Int variables | Branch-and-bound / Omega test | Fast |
+| **QF_LIRA** | Mixed linear Int + Real | Linear combinations where an Int variable is coerced to Real (`to_real(n)`) and then only multiplied by constants | Combined Simplex + branch-and-bound | Fast, decidable |
+| **QF_NRA** | Quantifier-Free Non-linear Real Arithmetic | Multiplication of two *symbolic* Real variables | NLSAT / CAD | Slow, can be exponential |
+| **QF_NIRA** | Non-linear, with an Int variable in the same problem | Any of the above plus a genuinely non-linear term | No complete decision procedure; Z3 may answer `unknown` | N/A |
 
-**Key rule:** `constant × symbolic_var` is **LRA**. `symbolic_var × symbolic_var` is **NRA**.
+**Key rule:** `constant × symbolic_var` is linear, regardless of theory.
+`symbolic_var × symbolic_var` is non-linear.
 
-Example:
 ```
-15.0 * theta[t]          -- LRA  (15.0 is a constant rational)
-v[t] * theta[t]          -- NRA  (both are free symbolic variables)
-0.5 * v[t]               -- LRA  (0.5 is a constant rational)
+15.0 * theta[t]          -- linear  (15.0 is a constant rational)
+min_ttc * rel_vel[t]     -- linear  (min_ttc is a YAML-supplied f64, fixed at encode time)
+v[t] * theta[t]          -- non-linear  (both are free symbolic variables)
 ```
 
-If Z3 sees *any* NRA term in the formula, it hands the whole problem to NLSAT,
-which can hang for problems that would be trivial under Simplex.
+`QF_NIRA` is the trap this codebase is built to avoid. The lane index is a
+symbolic `Int` in every scenario (there is no coordinate system without
+lanes), so as soon as *any* constraint anywhere in the problem contains a
+non-linear Real term, the combined problem is `QF_NIRA`, which has no
+complete decision procedure – Z3 can and does answer `unknown` on it, and
+`Optimize` has essentially no support for it at all. `QF_LIRA` alone (an Int
+coerced to Real and then only scaled by a constant, as the Cartesian
+encoder's lane-position coupling does) stays fully decidable. The distinction
+the encoders care about at every step is therefore not "is this Real or
+Int" but "does this term multiply two things Z3 doesn't already know the
+value of."
+
+Every technique in sections 3 and 4 (trapezoidal integration, the
+lane-position bracket, the bicycle model's speed buckets) exists to keep
+every asserted formula on the linear side of that line while still
+expressing something that looks, and drives, like a real vehicle.
 
 ---
 
 ## 2. Encoding Pipeline
 
-Both encoders follow the same call sequence (from `src/solver/multi_solve.rs`
-and `src/lib.rs`):
+Both encoders are driven through the same call sequence from `src/lib.rs`
+(the single-scenario and multi-scenario entry points call it identically):
 
 ```
 Step 1  encoder.create_variables()
-        → allocate all Z3 variables for t = 0 … horizon
+        -> allocate all Z3 variables for t = 0 .. horizon
 
 Step 2  encoder.encode_initial_conditions()
-        → fix starting state at t = 0
+        -> fix starting state at t = 0
 
 Step 3  encoder.encode_kinematics()
-        → add motion equations linking each t to t+1
-          [bicycle only: also calls encode_lane_coupling_with_lane_changes()
-           and encode_bicycle_constraints() here]
+        -> add motion equations linking each t to t+1
+           [bicycle only: also calls encode_lane_coupling_with_lane_changes(),
+            encode_bicycle_constraints(), and encode_heading_coupling() here]
 
 Step 4  encoder.encode_velocity_constraints()
-        → bound speed upper limit for all actors at all time steps
+        -> see the per-encoder notes below; not a no-op for either encoder
 
 Step 5  encoder.encode_acceleration_constraints()
-        → bound acceleration range and enforce constant-a for all actors
+        -> see the per-encoder notes below; not a no-op for either encoder
 
 Step 6  encoder.encode_lane_velocity_constraints()
-        → integer lane bounds and single-lane-jump constraint
+        -> integer lane bounds and single-lane-jump constraint
 
 Step 7  encoder.encode_lateral_velocity_bounds()
-        → [Cartesian: bound vy; Bicycle: no-op]
+        -> absolute |vy| cap, both encoders
 
 Step 8  encoder.encode_ltl(formula)
-        → expand G / F operators over [0, horizon]
+        -> expand G / F / U operators over [0, horizon]
 
 Step 9  encoder.encode_scenario_specific_constraints(model)
-        → scenario-type-specific Z3 constraints (currently no-ops for cut-in)
+        -> delegates to the ScenarioModel's own add_z3_constraints()
 
 Step 10 [blocking clauses, one per prior scenario in multi-scenario mode]
 ```
 
-Steps 4 and 5 (`encode_velocity_constraints` and `encode_acceleration_constraints`)
-are called from the pipeline *after* kinematics. The bicycle encoder also calls
-lane coupling and bicycle-specific bounds from *inside* `encode_kinematics()`.
+Steps 4 and 5 look identical from the call site, since the `CoordinateEncoder`
+trait requires both encoders to implement them, but they do different
+amounts of work per implementor, and it is worth being explicit about that
+rather than assuming symmetry:
+
+- **`encode_velocity_constraints()`** is a no-op for `CartesianEncoder`: the
+  direction sign is asserted by `encode_lane_velocity_constraints()` instead,
+  and a declared `max_velocity` is enforced coordinate-system-agnostically as
+  a `VelocityLT` LTL proposition. For `BicycleEncoder` this method asserts
+  that same `max_velocity` ceiling directly on the speed variable, the
+  encoder's only *unconditional* enforcement of it, since not every spec
+  reaches a `VelocityLT` atom.
+- **`encode_acceleration_constraints()`** is a no-op for `CartesianEncoder`,
+  which asserts its acceleration band inline inside `encode_kinematics()`.
+  For `BicycleEncoder` this is where the acceleration band is asserted;
+  `encode_kinematics()` does not do it there. Neither encoder forces a
+  constant acceleration across the whole horizon any more (see §3.3 and
+  §4.7 for why that constraint was removed).
+
+The bicycle encoder additionally calls lane coupling, bicycle-specific bounds
+(steering, heading, speed sign), and the heading-to-lateral-velocity coupling
+from *inside* `encode_kinematics()`, in that order, because each stage
+depends on state the previous one pins down (phase classification first,
+then the coupling that reads it).
 
 ---
 
@@ -83,72 +132,125 @@ lane coupling and bicycle-specific bounds from *inside* `encode_kinematics()`.
 
 Source: `src/solver/encoders/cartesian.rs`
 
-Per actor, per time step `t ∈ [0, horizon]` (horizon+1 values each):
+Per actor, per time step `t ∈ [0, horizon]`:
 
 ```
 px[a][t]   : Real   longitudinal position (m)
 py[a][t]   : Real   lateral position (m)
-vx[a][t]   : Real   longitudinal velocity (m/s)
+vx[a][t]   : Real   longitudinal velocity (m/s), signed
 vy[a][t]   : Real   lateral velocity (m/s)
-ax[a][t]   : Real   longitudinal acceleration (m/s²)
-ay[a][t]   : Real   lateral acceleration (m/s²)
+ax[a][t]   : Real   longitudinal acceleration (m/s^2)
+ay[a][t]   : Real   lateral acceleration (m/s^2)
 lane[a][t] : Int    discrete lane index
 ```
 
-**7 variables per actor per time step** (6 Real + 1 Int).
-
-For 2 actors and horizon = 50 (5 s at 0.1 s/step): **714 variables** total.
-
----
+Seven variables per actor per time step (six Real, one Int) – unchanged in
+shape from the original design, though every one of the six Real variables
+now participates in an equation (see §3.3): none of them is free-floating.
 
 ### 3.2 Initial Conditions (`encode_initial_conditions()`)
 
-Source: `src/solver/encoders/cartesian.rs`, `encode_actor_initial_state()`
+Source: `encode_actor_initial_state()`, `encoders::pedestrian::encode_pedestrian_initial_state()`
 
-For each actor at `t = 0`:
+Vehicles and pedestrians take different initial-state paths, both called
+from the same method:
 
-| Variable | Condition | Formula | Type |
-|----------|-----------|---------|------|
-| `lane[0]` | always | `lane[0] = lane_spec` | LIA |
-| `px[0]` | fixed value | `px[0] = pos` | LRA |
-| `px[0]` | range | `pos_min ≤ px[0] ≤ pos_max` | LRA |
-| `vx[0]` | fixed, forward | `vx[0] = +speed` | LRA |
-| `vx[0]` | range, forward | `speed_min ≤ vx[0] ≤ speed_max` | LRA |
-| `vx[0]` | range, backward | `-speed_max ≤ vx[0] ≤ -speed_min` | LRA |
-| `vy[0]` | always | `vy[0] = 0` | LRA |
-| `ax[0]` | fixed value | `ax[0] = accel` | LRA |
-| `ax[0]` | range | `accel_min ≤ ax[0] ≤ accel_max` | LRA |
-| `ay[0]` | always | `ay[0] = 0` | LRA |
-| `py[0]` | always (via lane coupling) | `py[0] = lane[0]·lw + lw/2` | Mixed LIA+LRA |
+| Variable | Vehicle | Pedestrian |
+|----------|---------|------------|
+| `lane[0]` | `lane[0] = lane_spec` (LIA) | `lane[0] = lane_spec` (LIA) |
+| `px[0]` | fixed or ranged from `actor.position` (LRA) | same, from `actor.position` (LRA) |
+| `vx[0]` | signed by `direction`, from `actor.speed` (LRA) | signed by `direction`, intersected with the walk/run speed cap (LRA) |
+| `vy[0]` | `= 0` (not changing lanes at t=0) | **unconstrained** – a pedestrian may already be mid-crossing |
+| `ax[0]` | fixed or ranged from `actor.acceleration` (LRA) | ranged from `actor.acceleration`, clamped to `[-1.0, 1.0]` m/s² |
+| `ay[0]` | `= 0` | **unconstrained** |
+| `py[0]` | via `encode_lane_position_coupling_at_time(0)`: `py[0] = to_real(lane[0])·lw + lw/2` (mixed LIA+LRA) | `py[0] = lane·lw + lw/2`, a constant (LRA) |
 
-**~11 assertions per actor.**
-
----
+The pedestrian path leaving `vy[0]`/`ay[0]` free is deliberate, not an
+oversight: a pedestrian crossing spec often wants the pedestrian already in
+motion laterally at `t=0`, and pinning them to zero the way a vehicle is
+pinned would make that unreachable.
 
 ### 3.3 Kinematics (`encode_kinematics()`)
 
-Source: `src/solver/encoders/cartesian.rs`
+Source: `src/solver/encoders/cartesian.rs`, delegating per-step arithmetic to
+`encoders::pedestrian::encode_pedestrian_kinematics_step()`
 
-For each actor, for each `t ∈ [0, horizon)`:
+The Cartesian encoder treats every actor, vehicle or pedestrian alike, as a 2D
+point mass, and both use the *same* integration step, asserted once per axis
+per time step:
 
-| Assertion | Formula | Type | Notes |
-|-----------|---------|------|-------|
-| vx update | `vx[t+1] = vx[t] + ax[t]·dt` | **LRA** | dt is a constant rational |
-| px update | `px[t+1] = px[t] + vx[t]·dt` | **LRA** | dt is a constant rational |
-| py update | `py[t+1] = py[t] + vy[t]·dt` | **LRA** | |
-| Lane-position coupling | `py[t] = to_real(lane[t])·lw + lw/2` | **Mixed LIA+LRA** | lane is Int → to_real() → multiply by constant lw |
-| Ego lateral velocity | `vy[t] = 0` | **LRA** | Ego stays in lane |
+```
+vx[t+1] = vx[t] + ax[t]*dt                          LRA
+vy[t+1] = vy[t] + ay[t]*dt                           LRA
+px[t+1] = px[t] + (vx[t] + vx[t+1]) * dt/2           LRA  (trapezoidal)
+py[t+1] = py[t] + (vy[t] + vy[t+1]) * dt/2           LRA  (trapezoidal)
+```
 
-For pedestrians, additional `vy` and `ay` update equations apply (also LRA).
+The trapezoidal form is algebraically identical to the exact
+constant-acceleration update `px + v*dt + 0.5*a*dt²` given the velocity
+update asserted alongside it, and it is the cheaper of the two for Z3
+because it couples position only to the velocity chain rather than to both
+velocity and acceleration directly. It also closes a null space the older
+forward-Euler position update left open: with `py` unconstrained between
+updates, a stationary vehicle could satisfy `py[t+1] = py[t]` by picking any
+`vy[t+1] = -vy[t]`, which let Z3 sawtooth a parked vehicle's lateral velocity
+between its bounds at zero cost. Chaining `vy` to a *bounded* `ay` removes
+that freedom.
 
-**Lane-position coupling** is the only place an integer variable appears in an
-arithmetic expression with reals. `to_real(lane[t]) * lw` is linear (lw is
-constant), so this stays in the combined LRA+LIA theory rather than NRA.
+`ax`/`ay` bounds are asserted alongside the integration step, in the same
+loop, for every time step up to and including the horizon (not
+`horizon - 1`) – the trapezoidal update reads `v[t+1]`, so `a[horizon]`
+reaches into the encoding through the velocity chain and must not be left
+free:
 
-**No `vy[t] = ...` or `ay[t] = ...` kinematics for NPC vehicles without lane changes** —
-lateral velocity is only non-zero during transitions.
+```
+ax_min ≤ ax[t] ≤ ax_max     LRA   (vehicles: actor.acceleration range)
+ay_min ≤ ay[t] ≤ ay_max     LRA   (max_lateral_acceleration, both signs)
+```
 
----
+There is no forced `ax[t+1] = ax[t]` constant-acceleration chain in either
+encoder any more. It used to exist to prevent Z3 from oscillating
+acceleration freely across the horizon; combined with a speed ceiling
+computed from the wrong quantity, it instead made positive acceleration
+mathematically unreachable for an entire scenario. The acceleration *range*
+from the YAML spec is now the whole of the longitudinal envelope.
+
+Pedestrians additionally get, at every step:
+
+```
+|vx| ≤ v_max_ped,  |vy| ≤ v_max_ped,  |vx|+|vy| ≤ sqrt(2)*v_max_ped      LRA (octagon)
+-SIDEWALK_WIDTH ≤ py ≤ road_width + SIDEWALK_WIDTH                       LRA
+```
+
+The speed octagon (four linear half-planes cutting the corners off the
+`|vx| ≤ v, |vy| ≤ v` box) approximates the physically-correct speed disk
+`vx² + vy² ≤ v²` without the product of two symbolic variables the disk
+would require. A plain box would let a pedestrian move at `sqrt(2)*v` on the
+diagonal; the octagon instead admits that at most on the exact 45° line and
+keeps every other heading, including straight-across-the-road, within `v`.
+`v_max_ped` is `PEDESTRIAN_WALK_MAX_SPEED` (2.0 m/s) or
+`PEDESTRIAN_RUN_MAX_SPEED` (5.0 m/s), selected from the `walking_mode`
+behavior field. The lateral containment bound uses `SIDEWALK_WIDTH = 2.0` m
+and is asserted unconditionally at every step, not only where an
+`OnSidewalk` proposition happens to pin one instant – otherwise a pedestrian
+is free to drift arbitrarily far past the sidewalk strip everywhere the LTL
+formula doesn't literally say otherwise.
+
+Lane-position coupling for non-pedestrian actors is handled separately, in
+two forms:
+
+```
+Stable step:      py[t] = to_real(lane[t])·lw + lw/2      Mixed LIA+LRA, equality
+Transition step:  |py[t] - (lane[t]·lw + lw/2)| ≤ lw/2     Mixed LIA+LRA, bracket
+```
+
+During a lane change `py` is between two lane centers and cannot equal
+either exactly, so the equality form cannot be asserted there – but `lane`
+must still name whichever lane's strip physically contains `py`. The bracket
+form says exactly that, and unlike a schedule that pins `lane` to the source
+value for the whole window and flips it only at the last step, it lets `py`
+and `lane` disagree for at most the width of one lane, never a whole
+manoeuvre's worth of it.
 
 ### 3.4 Lane Change Transition (`encode_smooth_lane_transition()`)
 
@@ -156,676 +258,651 @@ Source: `src/solver/encoders/cartesian.rs`
 
 During the lane change window `[start_step, end_step]`:
 
-| Assertion | Formula | Type | Notes |
-|-----------|---------|------|-------|
-| Source position (soft) | `py[start] ≈ src_center ± 0.5m` | LRA | 2 bounds |
-| Target position (soft) | `py[end] ≈ tgt_center ± 0.5m` | LRA | 2 bounds |
-| Lane assignment pre-change | `lane[t] = src_lane` for `t < end_step` | LIA | |
-| Lane assignment at end | `lane[end_step] = tgt_lane` | LIA | |
-| Lateral accel bounds | `-2.0 ≤ ay[t] ≤ 2.0` | LRA | per step in window |
-| **Velocity ratio constraint** | `|vy[t]| ≤ 0.15 · |vx[t]|` | **LRA** | k=0.15, constant × variable |
-
-The velocity ratio constraint uses `k = 0.15` (corresponding to ~8.5° max heading).
-`0.15 * vx[t]` is LRA because 0.15 is a constant. For forward lanes, `abs_vx = vx`
-(already positive); for backward lanes, `abs_vx = -vx`.
-
----
-
-### 3.5 Velocity Constraints (`encode_velocity_constraints()`)
-
-Source: `src/solver/encoders/cartesian.rs`
-
-For each actor, all time steps:
-
 | Assertion | Formula | Type |
 |-----------|---------|------|
-| Speed upper bound | `vx[t] ≤ speed_max` | LRA |
+| Source position (soft) | `py[start] ∈ [src_center - 0.5, src_center + 0.5]` m | LRA |
+| Target position (soft) | `py[end] ∈ [tgt_center - 0.5, tgt_center + 0.5]` m | LRA |
+| Lane bracket, every step in the window | `\|py[t] - lane[t]·lw - lw/2\| ≤ lw/2` | Mixed LIA+LRA |
+| Velocity ratio | `\|vy[t]\| ≤ k · \|vx[t]\|`, `k = 0.15` | LRA |
 
-(Lower bound is handled by lane direction constraints.)
+The velocity ratio is bounded from `start_step - 1`, not `start_step`: `py`
+is pinned to the source lane center for every `t < start_step`, so
+`py[start_step] = py[start_step - 1] + vy[start_step - 1]*dt` makes
+`vy[start_step - 1]` the first lateral velocity actually free to move – bounding the ratio only from `start_step` onward left that one step covered
+by nothing tighter than the flat `|vy| ≤ 2.0` cap (§3.8), and Z3 has been
+observed to use exactly that slack. `k = 0.15` corresponds to a heading of
+`atan(0.15) ≈ 8.5°`; for a backward-direction actor the sign of `vx` is
+flipped before comparison so the ratio still reads as a positive magnitude
+bound.
 
----
+### 3.5–3.6 Velocity and Acceleration Constraint Methods
 
-### 3.6 Acceleration Constraints (`encode_acceleration_constraints()`)
-
-Source: `src/solver/encoders/cartesian.rs`
-
-For each actor, all time steps:
-
-| Assertion | Formula | Type |
-|-----------|---------|------|
-| Accel lower bound | `ax[t] ≥ accel_min` | LRA |
-| Accel upper bound | `ax[t] ≤ accel_max` | LRA |
-| Constant acceleration | `ax[t+1] = ax[t]` | LRA |
-
-The constant-acceleration chain forces Z3 to pick a single acceleration value for
-the entire horizon. Combined with `vx[t+1] = vx[t] + ax[t]·dt`, the speed profile
-becomes monotonically linear. This prevents the solver from oscillating `a[t]`
-freely (which caused jagged speed profiles).
-
----
+Both are no-ops for `CartesianEncoder` – see §2 for why, and where the
+equivalent enforcement actually lives (`encode_lane_velocity_constraints()`
+for direction, inline in `encode_kinematics()` for the acceleration band).
 
 ### 3.7 Lane and Velocity Direction Constraints (`encode_lane_velocity_constraints()`)
 
 Source: `src/solver/encoders/cartesian.rs`
 
-For each actor, all time steps:
+For every non-pedestrian actor, all time steps:
 
 | Assertion | Formula | Type |
 |-----------|---------|------|
-| Forward lane direction | `vx[t] ≥ 0` | LRA |
-| Backward lane direction | `vx[t] ≤ 0` | LRA |
+| Direction | `vx[t] ≥ 0` (forward) or `vx[t] ≤ 0` (backward) | LRA |
 | Lane lower bound | `lane[t] ≥ 0` | LIA |
 | Lane upper bound | `lane[t] ≤ num_lanes - 1` | LIA |
 
-For non-pedestrian actors, single-lane-jump:
+Single-lane-jump, applied to every NPC and to the ego whenever it has a
+declared lane change:
 
-| Assertion | Formula | Type |
-|-----------|---------|------|
-| Jump constraint | `-1 ≤ lane[t+1] - lane[t] ≤ 1` | LIA |
+```
+-1 ≤ lane[t+1] - lane[t] ≤ 1     LIA
+```
 
----
+An ego with no `lane_changes` declared is exempt from the jump constraint – it never needs it, since lane coupling already pins it to one lane for the
+whole run.
 
 ### 3.8 Lateral Velocity Bounds (`encode_lateral_velocity_bounds()`)
 
-For non-ego actors, all time steps:
+Applied to every NPC and to an ego with declared lane changes:
+
 ```
--2.0 ≤ vy[t] ≤ 2.0       LRA
+-2.0 ≤ vy[t] ≤ 2.0     LRA
 ```
 
----
+2.0 m/s is a hand-picked ceiling: a 3.5 m lane change completed smoothly over
+3 s needs roughly 1.17 m/s of average lateral speed, so 2.0 leaves headroom
+for a non-uniform profile without being loose enough to make the ratio bound
+in §3.4 the only thing doing work.
 
-### 3.9 Cartesian Constraint Count (cut_in_left, 2 actors, 50 steps)
+### 3.9 Cartesian Constraint Count – Order of Magnitude
 
-| Stage | Count | Type |
+The exact count depends on the number of actors, the horizon, and how many
+steps fall inside a lane-change window, and it is not worth pinning to a
+specific number that the next kinematics change will falsify. As orders of
+magnitude, for `A` actors and `H` steps:
+
+| Stage | Order | Type |
 |-------|-------|------|
-| Variables | 714 total | — |
-| Initial conditions | ~22 | LRA/LIA/Mixed |
-| Kinematics (px, py, vx per step) | 3 × 50 × 2 = 300 | LRA |
-| Lane coupling per step | 51 × 2 = 102 | Mixed LIA+LRA |
-| Velocity upper bounds | 51 × 2 = 102 | LRA |
-| Acceleration bounds + constant-a | (2 + 1) × 51 × 2 = 306 | LRA |
-| Velocity direction | 51 × 2 = 102 | LRA |
-| Lane bounds | 51 × 2 × 2 = 204 | LIA |
-| Single-lane-jump | 50 × 2 = 100 | LIA |
-| Lateral velocity bounds (NPC) | 51 = 51 | LRA |
-| Lane change ratio (window only) | ~30 × 2 = 60 | LRA |
-| LTL safety (G TTC, 51 steps) | 51 | NRA (via TTCGT) |
-| LTL safety (G Distance, 51 steps) | 51 | LRA |
-| **Total** | **~1,450** | ~96% LRA/LIA, ~4% NRA |
+| Initial conditions | `O(A)` | LRA/LIA/Mixed |
+| Kinematics (4 equations/actor/step) | `O(A·H)` | LRA |
+| Lane coupling (one bracket or equality per actor per step) | `O(A·H)` | Mixed LIA+LRA |
+| Lane and direction bounds | `O(A·H)` | LRA/LIA |
+| Lateral velocity bounds | `O(A·H)` | LRA |
+| Lane-change ratio (only inside transition windows) | `O(A·W)`, `W` = window width | LRA |
+| LTL safety, `G` over `[0,H]` | `O(A²·H)` for pairwise propositions | LRA (see §5) |
 
-Z3 handles Cartesian scenarios in < 2 seconds because NRA is limited to
-TTC propositions (which use `distance > ttc · rel_vel`).
+For a typical two-actor, 50-step cut-in the total is on the order of a
+thousand assertions, and there is no non-linear term among them – every row
+above is LRA, LIA, or their linear mix. Z3 solves scenarios like this in
+well under two seconds.
 
 ---
 
 ## 4. Bicycle Encoder (Hybrid LRA)
 
-The bicycle encoder uses a **hybrid LRA approach** that retains the bicycle model's
-value (heading tracking, steering constraints, turn radius limits) while keeping
-all kinematic constraints in LRA for efficient solving.
+The bicycle encoder gives vehicles a heading and a steering angle, the
+whole reason to pick this coordinate system over Cartesian, while keeping
+every assertion linear. The mechanism for that has changed since this
+document last described it: the current encoder does not treat `vy` as an
+independent variable bounded by a fixed ratio to `v`. It derives `vy` from
+the heading, `vy = v̄ · θ`, where `v̄` is a constant standing in for the
+symbolic speed `v`. Getting from "the exact bicycle model is non-linear" to
+"this coupling is a constant times a variable" is the load-bearing idea in
+this section, so it is worth stating precisely before the per-method detail.
 
-### Design Principle
+### 4.1 The exact model, and the two approximations that linearize it
 
-The original bicycle encoder encoded the kinematic bicycle model directly:
+The exact kinematic bicycle model is:
+
 ```
-vy[t] = v[t] · θ[t]                    NRA — product of two symbolic variables
-θ[t+1] = θ[t] + (v[t]·δ[t]/L)·dt      NRA — product of two symbolic variables
+dy/dt = v * sin(theta)                NRA (product of two symbolic variables)
+dtheta/dt = (v / L) * tan(delta)      NRA (product of two symbolic variables)
 ```
 
-These NRA terms caused Z3 to hang even on 10-step problems.
+With the `Int` lane variable present in every scenario, asserting either of
+these as written puts the whole problem in `QF_NIRA` – no decision
+procedure, and no `Optimize` support at all (§1). Two approximations buy
+linearity back:
 
-The hybrid approach eliminates NRA by:
-1. Making `vy` an **independent variable** (not derived from `v·θ`)
-2. Bounding `vy` with a **linear ratio constraint**: `|vy| ≤ k · v`
-3. Using **linear rate bounds** for heading instead of NRA dynamics
-4. Enforcing **phase-specific constraints**: `vy=0, θ=0, δ=0` during straight driving
+1. **Small angle.** `sin(θ) ≈ θ` and `tan(δ) ≈ δ`. The relative error on the
+   first is `θ²/6`; the heading bound (§4.4) keeps `|θ| ≤ atan(0.15) ≈ 8.5°`,
+   so the error is under 0.4% on `vy`. `δ` stays smaller still in practice: a highway lane change at 16 m/s uses `|δ| < 0.02` rad, where the tangent
+   error is under 0.02%.
+2. **Reference speed.** `v` in both products is replaced by the midpoint
+   `v̄` of a *bucket* that `v[t]` is asserted to lie in, a constant fixed at
+   encode time, not the symbolic `v[t]` itself. The relative error is then at
+   most half a bucket width over `v̄`: under 8% at 16 m/s with the default
+   5 m/s buckets, and exactly zero when the actor's whole reachable speed
+   range fits inside one bucket. A disjunction over finitely many buckets,
+   each holding a linear constraint, is still QF_LRA: the disjunction
+   itself costs nothing extra because the buckets are asserted as a guarded
+   implication, not a Z3-chosen case split (§4.3.3 covers why that
+   distinction was worth 10x on solve time).
 
-This preserves the physical realism of the bicycle model (vehicles have heading,
-steering angle limits, turn radius constraints) while staying entirely in LRA.
+Both approximations affect the *dynamics* the encoder assumes, not whether
+the exported trajectory is internally consistent: `px`, `py`, `vx`, `vy`,
+`ax`, `ay` remain mutually consistent to machine precision, because `py` is
+integrated from the very `vy` the coupling defines, using exact rational
+arithmetic throughout.
 
----
-
-### 4.1 Variables (`create_variables()`)
+### 4.2 Variables (`create_variables()`)
 
 Source: `src/solver/encoders/bicycle.rs`
 
-Per actor, per time step `t ∈ [0, horizon]`:
+Per actor, per time step:
 
 ```
 px[a][t]    : Real   longitudinal position (m)
 py[a][t]    : Real   lateral position (m)
-theta[a][t] : Real   heading angle (rad) — deviation from nominal direction
-v[a][t]     : Real   scalar speed (m/s, always ≥ 0)
+theta[a][t] : Real   heading angle (rad), deviation from nominal direction
+v[a][t]     : Real   scalar speed (m/s), always >= 0
 delta[a][t] : Real   front-wheel steering angle (rad)
-a[a][t]     : Real   longitudinal acceleration (m/s²)
+a[a][t]     : Real   longitudinal acceleration (m/s^2)
 lane[a][t]  : Int    discrete lane index
-vy[a][t]    : Real   lateral velocity (m/s) — independent variable
+vy[a][t]    : Real   lateral velocity (m/s), derived: vy = v-bar * theta
+ay[a][t]    : Real   lateral acceleration (m/s^2), chained to vy
 ```
 
-**8 variables per actor per time step** (7 Real + 1 Int).
+Eight Real variables plus one Int, one more Real than the May-era design
+(`ay` is now a genuine variable rather than a hard-coded zero at extraction, see §4.9). There is no separate signed `vx`: longitudinal velocity is the
+magnitude `v` (always non-negative), and direction lives in the sign chosen
+for the `px` update (§4.3.1). A `direction: -1` actor additionally gets a
+`vx_signed[t] = direction * v[t]` variable (`direction` a Rust constant, so
+still constant × variable) so that `get_longitudinal_vel()` returns a signed
+quantity comparable with the Cartesian encoder's `vx`: every relative-
+velocity and closing-speed computation in the shared LTL/objective code
+subtracts two actors' longitudinal velocities and needs the sign to mean the
+same thing on both sides of that subtraction.
 
-For 2 actors and horizon = 50: **816 variables** total (vs 714 for Cartesian).
-
-Note: `theta` represents deviation from the actor's nominal direction (0 for both
-forward and backward vehicles). There is no separate `vx` variable — longitudinal
-velocity is `v` (always positive). Direction is encoded in the `px` kinematics.
-
----
-
-### 4.2 Initial Conditions (`encode_initial_conditions()`)
-
-Source: `src/solver/encoders/bicycle.rs`, `encode_actor_initial_state()`
-
-For each actor at `t = 0`:
-
-| Variable | Condition | Formula | Type |
-|----------|-----------|---------|------|
-| `lane[0]` | always | `lane[0] = lane_spec` | LIA |
-| `px[0]` | fixed value | `px[0] = pos` | LRA |
-| `px[0]` | range | `pos_min ≤ px[0] ≤ pos_max` | LRA |
-| `py[0]` | always | `py[0] = lane·lw + lw/2` | **LRA** (constant, not mixed) |
-| `v[0]` | fixed value | `v[0] = speed` | LRA |
-| `v[0]` | range | `speed_min ≤ v[0] ≤ speed_max` | LRA |
-| `theta[0]` | always | `theta[0] = 0` | LRA |
-| `delta[0]` | always | `delta[0] = 0` (straight) | LRA |
-| `a[0]` | fixed value | `a[0] = accel` | LRA |
-| `a[0]` | range | `accel_min ≤ a[0] ≤ accel_max` | LRA |
-
-**~10 assertions per actor.**
-
-Key differences from Cartesian:
-- `py[0]` uses a **constant** computed from `lane_spec` (a Rust `usize`), not from
-  the symbolic `lane[0]` variable. Pure LRA, no integer conversion.
-- `theta[0] = 0` for all actors regardless of direction. Backward direction is
-  handled in the `px` kinematics (`px[t+1] = px[t] - v[t]·dt`), keeping `θ`
-  near zero so the small-angle approximation remains valid.
-
----
-
-### 4.3 Kinematics — All LRA (`encode_kinematics()`)
+### 4.3 Kinematics – All Linear (`encode_kinematics()`)
 
 Source: `src/solver/encoders/bicycle.rs`
-
-This is the critical stage. The hybrid approach ensures **zero NRA terms** in
-the kinematic equations.
 
 #### 4.3.1 Motion Equations
 
-For each non-pedestrian actor, for each `t ∈ [0, horizon)`:
+For every non-pedestrian actor, `t ∈ [0, horizon)`:
 
-| Assertion | Formula | Type | Notes |
-|-----------|---------|------|-------|
-| px update (forward) | `px[t+1] = px[t] + v[t]·dt` | **LRA** | dt is constant |
-| px update (backward) | `px[t+1] = px[t] - v[t]·dt` | **LRA** | direction is a Rust constant |
-| py update | `py[t+1] = py[t] + vy[t]·dt` | **LRA** | vy is independent |
-| v update | `v[t+1] = v[t] + a[t]·dt` | **LRA** | dt is constant |
+```
+px[t+1] = px[t] + (v[t] + v[t+1]) * dt/2     LRA (forward, direction = 1)
+px[t+1] = px[t] - (v[t] + v[t+1]) * dt/2     LRA (backward, direction = -1)
+vy[t+1] = vy[t] + ay[t]*dt                   LRA
+py[t+1] = py[t] + (vy[t] + vy[t+1]) * dt/2   LRA
+v[t+1]  = v[t]  + a[t]*dt                    LRA
+```
 
-**3 LRA assertions per actor per step.** No NRA anywhere.
+Same trapezoidal form as the Cartesian encoder (§3.3) and the same
+rationale: it is exact for piecewise-constant acceleration given the
+velocity update beside it, and chaining `vy` to a bounded `ay` closes the
+same sawtooth null space a free `vy` would otherwise leave open.
 
-Note: `vy` is an independent variable, NOT derived from `v·θ`. This is the key
-design decision that eliminates NRA.
+Pedestrians in bicycle-coordinate scenarios go through the identical
+point-mass helper the Cartesian encoder uses (`encoders::pedestrian`) – `speed_v` stands in for `vx`, `velocities_y` for `vy`. They have no heading
+or steering and are excluded from every constraint in the rest of this
+section.
 
 #### 4.3.2 Phase-Specific Constraints
 
-The encoder computes lane change schedules from the YAML spec and classifies
-each time step as either **stable** (straight driving) or **lane change**.
+Every step is classified as **stable** (no lane change in progress) or
+**lane-change** (inside a declared transition window), from the schedule
+computed at encode time. For every non-pedestrian actor, all
+`t ∈ [0, horizon]`:
 
-For each non-pedestrian actor, for all `t ∈ [0, horizon]`:
+```
+Stable:  vy[t] = 0,  theta[t] = 0,  delta[t] = 0     LRA
+```
 
-**Stable phase** (not in any lane change):
-
-| Assertion | Formula | Type | Reason |
-|-----------|---------|------|--------|
-| No lateral motion | `vy[t] = 0` | LRA | Vehicle drives straight |
-| No heading deviation | `theta[t] = 0` | LRA | Aligned with road |
-| No steering | `delta[t] = 0` | LRA | Wheels straight |
-
-**Lane change phase** — ratio bounds are set in `encode_smooth_lane_transition_bicycle()`.
+No lateral motion, no heading deviation, no steering while driving straight.
+Lane-change steps get the heading coupling instead (§4.3.3–4.3.4).
 
 #### 4.3.3 Heading Rate Constraint
 
-For steps where `t` or `t+1` is in a lane change:
+For steps where `t` or `t+1` falls in a lane change:
 
-| Assertion | Formula | Type | Notes |
-|-----------|---------|------|-------|
-| Heading rate bound | `-R·dt ≤ θ[t+1] - θ[t] ≤ R·dt` | **LRA** | R is a Rust constant |
+```
+-R*dt ≤ theta[t+1] - theta[t] ≤ R*dt     LRA
+```
 
-Where `R = v_max · δ_max / L`:
-- `v_max` = actor's speed upper bound (from YAML)
-- `δ_max` = max steering angle (from bicycle config)
-- `L` = wheelbase (from bicycle config)
+`R = v_ceiling / R_min`, where `v_ceiling` is the actor's reachable speed
+span's upper end (the initial speed range widened by the acceleration band
+over the whole horizon, clipped to `max_velocity` when declared – not the
+initial `speed.max()` alone, which would understate how fast a still-
+accelerating vehicle can turn) and `R_min = wheelbase / tan(delta_max)` is
+the exact minimum turn radius. Both are Rust `f64` constants computed once
+per actor before any Z3 term is built, so the bound stays linear.
 
-This is the **linearized heading dynamics**. The original NRA equation was
-`θ[t+1] = θ[t] + (v[t]·δ[t]/L)·dt` — a product of two symbolic variables.
-The linearized bound uses a constant `R` computed at the Rust level, keeping
-the constraint in LRA.
+#### 4.3.4 Heading Coupling (`encode_heading_coupling()`)
 
-The bound is conservative: it uses `v_max` (worst case) rather than `v[t]`
-(symbolic). At lower speeds, the actual heading rate would be smaller, so
-the bound allows more freedom than the exact model.
+This is the constraint that actually ties `θ` and `δ` to the vehicle's
+motion – the reason to have a bicycle model at all. For every step where the
+heading is allowed to be non-zero (the lane-change windows identified in
+§4.3.2) and for each reference-speed bucket `[lo, hi)` with midpoint `v̄`:
 
----
+```
+lo ≤ v[t] < hi   =>   vy[t] = v̄ * theta[t]                    LRA (guarded)
+                 =>   theta[t+1] = theta[t] + (v̄/L) * delta[t] * dt   LRA (guarded)
+```
+
+Buckets are built by `speed_buckets()`: the actor's reachable speed span
+(§4.3.3) is tiled into spans of width `SPEED_BUCKET_WIDTH = 5.0` m/s, capped
+at `MAX_SPEED_BUCKETS = 8` buckets total (an actor with a wide acceleration
+range gets wider buckets instead of more of them, trading fidelity for
+solver time past that cap). The buckets are half-open and partition the
+whole real line (the outermost two are left open at their far edges), so
+exactly one guard holds at every step and the four-way antecedent above
+never needs to be asserted as a disjunction. That distinction is between
+**propagation** (Simplex derives the one bucket that already holds from the
+asserted bounds on `v[t]`, a single deterministic pass) and **search** (Z3
+must try candidate buckets, backtracking on failure, because nothing in the
+formula picks one for it), and it is not academic: an earlier draft let Z3
+choose the bucket via a free Bool selector per bucket per step, turning 36
+lane-change steps into an `8^36` search that took 12.6 s on
+`bicycle_lane_change.yaml`, against 1.2 s for the guarded (propagated) form
+here.
+
+One step is handled specially: the step immediately before a lane-change
+window opens has `theta[t]` and `delta[t]` both pinned to zero by the stable
+phase, so `theta[t+1] = theta[t]` holds trivially there for any reference
+speed, and the encoder asserts it directly without touching the bucket
+machinery. This is what forces every lane change to begin from zero heading.
+
+At extraction time (§4.8), `reference_speed_at()` re-evaluates the same
+guard predicates against the solved model to recover which bucket Z3
+selected, so the exported `vy` is read back from the same rationals the
+solver reasoned over rather than recomputed from a rounded `f64` speed – avoiding disagreement right at a bucket boundary.
 
 ### 4.4 Bicycle-Specific Constraints (`encode_bicycle_constraints()`)
 
-Source: `src/solver/encoders/bicycle.rs`
+Source: `src/solver/encoders/bicycle.rs`, called from inside
+`encode_kinematics()`
 
-Called from inside `encode_kinematics()` after the motion equations.
-
-For each non-pedestrian actor, for all `t ∈ [0, horizon]`:
-
-| Assertion | Formula | Type | Reason |
-|-----------|---------|------|--------|
-| Steering lower | `δ[t] ≥ -δ_max` | LRA | Physical steering limit |
-| Steering upper | `δ[t] ≤ +δ_max` | LRA | Physical steering limit |
-| Heading lower | `θ[t] ≥ -π/6` | LRA | Small-angle validity (30°) |
-| Heading upper | `θ[t] ≤ +π/6` | LRA | Small-angle validity (30°) |
-| Speed non-negative | `v[t] ≥ 0` | LRA | Speed is a magnitude |
-
-For each `t ∈ [0, horizon)`:
+For every non-pedestrian actor, all `t ∈ [0, horizon]`:
 
 | Assertion | Formula | Type | Reason |
 |-----------|---------|------|--------|
-| Steering rate lower | `δ[t+1] - δ[t] ≥ -max_rate·dt` | LRA | Smooth steering |
-| Steering rate upper | `δ[t+1] - δ[t] ≤ +max_rate·dt` | LRA | Smooth steering |
+| Steering bound | `\|δ[t]\| ≤ δ_max`, `δ_max = atan(wheelbase / R_min)` | LRA | Written through the turn radius so `R_min` is a real quantity in the encoding, not a method with no caller; algebraically identical to `\|δ\| ≤ max_steering_angle` |
+| Heading bound | `\|θ[t]\| ≤ atan(0.15) ≈ 8.5°` | LRA | Matches the Cartesian encoder's `\|vy\| ≤ 0.15·\|vx\|` envelope exactly, rather than a separately-chosen angle |
+| Speed non-negative | `v[t] ≥ 0` | LRA | `v` is a magnitude |
 
-Default values from YAML (`bicycle_config`):
-- `δ_max = 0.6 rad` (~34°)
-- `max_steering_rate = 0.5 rad/s` → max change per step = `0.5 × dt`
-- Heading bound: `±π/6 ≈ ±0.524 rad` (±30°)
+For `t ∈ [0, horizon)`:
 
-**All LRA.** 5 + 2 assertions per actor per step.
+```
+-max_steering_rate*dt ≤ delta[t+1] - delta[t] ≤ max_steering_rate*dt     LRA
+```
 
----
+Default bicycle parameters (from `BicycleConfig`, used when an actor has no
+per-actor `bicycle_params`): wheelbase 2.7 m, `max_steering_angle` 0.6 rad
+(~34°), `max_steering_rate` 0.5 rad/s. The heading bound is derived from the
+lateral-velocity ratio (`atan(0.15)`, ≈0.149 rad), not from
+`max_steering_angle` directly – the two used to be different numbers
+(±30°, `sin(π/6) = 0.5`) picked to match a lateral-velocity ratio the
+bicycle encoder no longer uses; keeping one number shared between the two
+coordinate systems means the same YAML now produces the same lateral speed
+envelope under either.
 
 ### 4.5 Lane Coupling (`encode_lane_coupling_with_lane_changes()`)
 
 Source: `src/solver/encoders/bicycle.rs`
 
-Called from inside `encode_kinematics()`. Uses **concrete lane indices** computed
-from the YAML spec at encode time — no symbolic Int variables appear in arithmetic.
+Uses **concrete** lane indices computed from the YAML lane-change schedule
+at encode time, never a symbolic `Int` inside an arithmetic expression – the
+bicycle encoder's lane coupling is pure LRA/LIA with no mixed coercion at
+all, unlike the Cartesian encoder's `to_real(lane)·lw`.
 
-#### For actors without lane changes:
-
-For all `t ∈ [0, horizon]`, where `L = initial_lane` (a Rust `usize`):
+For a stable stretch at lane `L` (a Rust `usize`):
 
 ```
-py[t] ≥ L · lw              LRA  (constant lower bound)
-py[t] ≤ (L+1) · lw          LRA  (constant upper bound)
-lane[t] = L                  LIA  (discrete lane variable tied to position)
-```
-
-#### For actors with lane changes (3 phases):
-
-**Phase 1 — before lane change** (`t ∈ [0, start_step)`):
-```
-py[t] ≥ L · lw              LRA
-py[t] ≤ (L+1) · lw          LRA
+py[t] >= L * lw            LRA
+py[t] <= (L+1) * lw         LRA
 lane[t] = L                  LIA
 ```
 
-**Phase 2 — during transition** (`t ∈ [start_step, end_step]`),
-handled by `encode_smooth_lane_transition_bicycle()`:
-```
-py[start] ≈ src_center ± 0.5m       LRA  (soft start constraint)
-py[end] ≈ tgt_center ± 0.5m         LRA  (soft end constraint)
-lane[t] = src_lane  (for t < end)    LIA  (discrete lane during transition)
-lane[end] = tgt_lane                  LIA  (discrete lane at end)
-|vy[t]| ≤ 0.5 · v[t]                LRA  (velocity ratio bound)
-py[t] ≥ 0                            LRA  (road boundary)
-py[t] ≤ num_lanes · lw               LRA  (road boundary)
-```
-
-The velocity ratio uses `k = 0.5`, corresponding to the `±30°` heading bound
-(`sin(π/6) = 0.5`). This is more permissive than the Cartesian encoder's `k = 0.15`
-because the bicycle model uses heading/steering constraints for realism rather
-than a tight `vy` ratio. `0.5 · v[t]` is LRA (constant times variable).
-
-**Phase 3 — after lane change** (`t ∈ [end_step+1, horizon]`), where `L' = L ± 1`:
-```
-py[t] ≥ L' · lw              LRA
-py[t] ≤ (L'+1) · lw          LRA
-lane[t] = L'                  LIA
-```
-
-All phase boundaries and lane indices are Rust constants computed before any
-Z3 assertions are made. **This entire stage is pure LRA/LIA — no mixed
-Int×Real multiplication.**
-
----
-
-### 4.6 Velocity Constraints (`encode_velocity_constraints()`)
-
-Source: `src/solver/encoders/bicycle.rs`
-
-For each actor, all time steps:
-
-| Assertion | Formula | Type |
-|-----------|---------|------|
-| Speed upper bound | `v[t] ≤ speed_max` | LRA |
-
-Where `speed_max = actor.speed.max()` from the YAML specification.
-
----
-
-### 4.7 Acceleration Constraints (`encode_acceleration_constraints()`)
-
-Source: `src/solver/encoders/bicycle.rs`
-
-For each actor, for all `t ∈ [0, horizon]`:
+During a transition window (`encode_smooth_lane_transition_bicycle()`):
 
 ```
-a[t] ≥ a_min    LRA
-a[t] ≤ a_max    LRA
+py[start] in [src_center - 0.5, src_center + 0.5]     LRA (soft)
+py[end]   in [tgt_center - 0.5, tgt_center + 0.5]      LRA (soft)
 ```
 
-For each `t ∈ [0, horizon)` — **constant acceleration enforcement**:
+Rather than pinning `lane` to `source` for the whole window and `target`
+only at the last step (which let `py` reach the target lane's center
+seconds before `lane` acknowledged it), the encoder asserts a two-way case
+split at every step of the window:
 
 ```
-a[t+1] = a[t]   LRA
+lane[t] = source OR lane[t] = target                                LIA
+lane[t] = source  =>  |py[t] - source_center| <= lw/2                LRA
+lane[t] = target  =>  |py[t] - target_center| <= lw/2                LRA
 ```
 
-This chain forces Z3 to pick a single acceleration value for the entire horizon.
-Combined with `v[t+1] = v[t] + a[t]·dt`, the speed profile becomes monotonically
-linear. This prevents the solver from oscillating `a[t]` freely.
+Because only two lanes are reachable in one window, this is expressed as a
+disjunction over exactly those two rather than the general
+`|py - lane·lw - lw/2| <= lw/2` bracket the Cartesian encoder uses (which
+needs a symbolic `lane` and the mixed coercion that comes with it); it is
+strictly stronger, since it also rules out a third lane index the schedule
+never intended. Alongside it:
 
----
+```
+|vy[t]| <= k * v[t],  k = 0.15     LRA
+0 <= py[t] <= num_lanes * lw       LRA (road bounds)
+```
+
+`k` is the same `LATERAL_VELOCITY_RATIO` constant the heading bound in §4.4
+derives from – one number shared with the Cartesian encoder, not two
+independently chosen ones.
+
+### 4.6–4.7 Velocity and Acceleration Constraint Methods
+
+`encode_velocity_constraints()` asserts `v[t] ≤ max_velocity` for every
+non-pedestrian actor at every step, when `spec.max_velocity` is declared (see §2 for why this is the one place that bound is unconditionally
+enforced). `encode_acceleration_constraints()` asserts the acceleration range
+bound (`a_min ≤ a[t] ≤ a_max`) for every actor at every step and nothing
+else: there is no forced `a[t+1] = a[t]` here either (§3.3 explains the
+Cartesian-side removal; the bicycle-side removal fixed the same defect,
+combined with a speed ceiling read from the wrong field, which made positive
+acceleration unreachable for the whole run regardless of the declared
+range).
 
 ### 4.8 Lane and Velocity Constraints (`encode_lane_velocity_constraints()`)
 
-Source: `src/solver/encoders/bicycle.rs`
-
-For each actor, all `t`:
-
-| Assertion | Formula | Type | Notes |
-|-----------|---------|------|-------|
-| Lane lower | `lane[t] ≥ 0` | LIA | |
-| Lane upper | `lane[t] ≤ num_lanes - 1` | LIA | |
-
-For all non-pedestrian actors, each `t ∈ [0, horizon)`:
-
-| Assertion | Formula | Type | Notes |
-|-----------|---------|------|-------|
-| Jump constraint | `-1 ≤ lane[t+1] - lane[t] ≤ 1` | LIA | No multi-lane jumps |
-
-Note: This applies to **all** non-pedestrian actors including ego, unlike
-the Cartesian encoder which only applies it to non-ego actors.
-
-**No direction-based velocity constraint** (`vx ≥ 0` etc.) exists in the bicycle
-encoder. Direction is encoded via the sign in `px` kinematics:
-- Forward (`direction = 1`): `px[t+1] = px[t] + v[t]·dt`
-- Backward (`direction = -1`): `px[t+1] = px[t] - v[t]·dt`
-
-The speed `v[t]` is always non-negative (enforced in `encode_bicycle_constraints()`).
-
----
+Lane bounds (`0 ≤ lane[t] ≤ num_lanes - 1`, LIA) apply to every actor.
+Single-lane-jump (`-1 ≤ lane[t+1] - lane[t] ≤ 1`, LIA) applies to every
+non-pedestrian actor **including ego** – unlike the Cartesian encoder, which
+exempts an ego with no declared lane changes. There is no direction-based
+velocity assertion here (`v ≥ 0` etc.); direction is encoded entirely in the
+sign chosen for the `px` update in §4.3.1, and `v ≥ 0` itself is asserted in
+§4.4.
 
 ### 4.9 Lateral Velocity Bounds (`encode_lateral_velocity_bounds()`)
 
-Currently a no-op for the bicycle encoder. Lateral velocity bounds are handled
-by the phase-specific constraints:
-- Stable phase: `vy[t] = 0`
-- Lane change: `|vy[t]| ≤ 0.5 · v[t]`
+The absolute cap here is the same `|vy| ≤ 2.0` m/s the Cartesian encoder
+applies (§3.8), for the same reason. It is a genuine *second* bound, tighter
+in practice than the heading-derived one at low speed and looser at high
+speed: the heading coupling already limits `vy` to `0.1489 * v̄` through
+`|θ| ≤ atan(0.15)`, so the two together give `vy` the smaller of a
+speed-proportional bound and a flat 2.0 m/s ceiling. Both bounds are real
+and both are asserted here: this method used to be an empty body, with a
+comment attributing the bound to the heading constraints alone, from before
+the heading was wired to `vy` at all (§4.3.4) and so could not have bounded
+anything.
 
----
+### 4.10 Bicycle Constraint Count – Order of Magnitude
 
-### 4.10 Bicycle Constraint Count
+As with the Cartesian encoder (§3.9), pinning an exact total invites drift.
+The structural difference from Cartesian worth keeping in mind:
 
-#### `bicycle_minimal.yaml` (10 steps, 2 actors, dt=0.5s)
+- Kinematics, phase pinning, and bicycle-specific bounds are `O(A·H)`, same
+  as Cartesian's equivalent stages.
+- Heading coupling is `O(A·W·N)`, where `W` is the total number of steps
+  across all of an actor's lane-change windows (zero contribution outside
+  them: no buckets, no guards) and `N` is that actor's bucket count
+  (`≤ MAX_SPEED_BUCKETS = 8`). A scenario with short or no lane changes pays
+  almost nothing here; one with wide speed ranges and long transitions pays
+  proportionally more.
+- Every term in every stage remains linear. There is no NRA contribution
+  from the bicycle model itself, at any horizon or bucket count: the whole
+  point of §4.1's two approximations.
 
-| Stage | Count | Type |
-|-------|-------|------|
-| Variables | 176 total | — |
-| Initial conditions | ~20 | LRA/LIA |
-| Kinematics (px, py, v) | 3 × 10 × 2 = 60 | LRA |
-| Phase constraints (stable: vy=0, θ=0, δ=0) | ~50 | LRA |
-| Heading rate (lane change steps only) | ~10 | LRA |
-| Bicycle bounds (steering, heading, speed) | 5 × 11 × 2 = 110 | LRA |
-| Steering rate | 2 × 10 × 2 = 40 | LRA |
-| Lane coupling (py bounds + lane var) | ~66 | LRA/LIA |
-| Lane change transition (ratio + road bounds) | ~20 | LRA/LIA |
-| Velocity upper bounds | 11 × 2 = 22 | LRA |
-| Acceleration bounds + constant-a | (2 + 1) × 11 × 2 = 66 | LRA |
-| Lane bounds + jump constraints | ~42 | LIA |
-| LTL (min_ttc/min_distance: ignore) | 0 | — |
-| **Total** | **~506** | **100% LRA/LIA** |
-
-#### `cut_in_left_bicycle.yaml` (100 steps, 2 actors, dt=0.1s)
-
-| Stage | Count | Type |
-|-------|-------|------|
-| Variables | 1,616 total | — |
-| Kinematics (px, py, v) | 3 × 100 × 2 = 600 | LRA |
-| Phase constraints | ~400 | LRA |
-| Heading rate | ~120 | LRA |
-| Bicycle bounds + steering rate | ~1,400 | LRA |
-| Lane coupling + transitions | ~400 | LRA/LIA |
-| Velocity + acceleration bounds | ~700 | LRA |
-| Lane constraints | ~400 | LIA |
-| LTL safety (G TTC, 101 steps) | 101 | NRA (via TTCGT) |
-| LTL safety (G Distance, 101 steps) | 101 | LRA |
-| **Total** | **~4,200** | ~97.5% LRA/LIA, ~2.5% NRA |
-
-The only NRA in the bicycle encoder comes from `TTCGT` propositions in the
-LTL formula (`distance > ttc · rel_vel`). Setting `min_ttc: ignore` removes
-all NRA entirely.
+In practice, scenarios of the size this project's example corpus uses (tens
+of steps, one or two lane changes, two to four actors) solve in well under a
+second; see §10 for what actually drives solve time now that neither
+encoder contributes non-linear terms.
 
 ---
 
 ## 5. LTL Expansion (shared by both encoders)
 
-Source: `src/solver/encoder.rs`, `encode_ltl_bounded()`
+Source: `src/ltl/encode.rs` (`encode_ltl_bounded()`, `encode_proposition()`)
 
 ### 5.1 Temporal Operators
 
 ```
-G(φ)  [Always]     →  φ[0] ∧ φ[1] ∧ … ∧ φ[horizon]   (51 assertions for 50 steps)
-F(φ)  [Eventually] →  φ[0] ∨ φ[1] ∨ … ∨ φ[horizon]   (1 disjunction, 51 clauses)
-φ U ψ [Until]      →  ψ[t] ∨ (φ[t] ∧ φU ψ at t+1)     (recursive expansion)
+G(phi)  [Always]     ->  phi[0] AND phi[1] AND ... AND phi[horizon]
+F(phi)  [Eventually] ->  phi[0] OR  phi[1] OR  ... OR  phi[horizon]
+phi U psi [Until]    ->  psi[t] OR (phi[t] AND (phi U psi at t+1))     (recursive)
 ```
 
-The `Always` (G) operator is the most common — it's how `Enforce` mode works.
-For a 50-step horizon, one `G(φ)` produces 51 individual assertions.
+`G` is the most common – it is how `enforce` mode works, and it produces
+`horizon + 1` copies of whatever proposition it wraps.
 
-### 5.2 Proposition Types
+### 5.2 Proposition Catalog
 
-Source: `src/solver/encoder.rs`, `encode_proposition()`
+Source: `src/ltl/formula.rs` (the `Proposition` enum), `src/ltl/encode.rs`
+(`encode_proposition()`)
 
-| Proposition | Formula | Type | When used |
-|-------------|---------|------|-----------|
-| `InLane(a, L)` | `lane[a][t] = L` | LIA | Behavior formulas |
-| `Ahead(a1, a2)` | `px[a1][t] > px[a2][t]` | LRA | Behavior formulas |
-| `DistanceGT(a1,a2,d)` | `|px1-px2| > d` | LRA | Safety (min_distance) |
-| `TTCGT(a1,a2,ttc)` | `dist > ttc · rel_vel` (with implication) | **NRA** | Safety (min_ttc) |
-| `VelocityGT(a,v)` | `|vx[a][t]| > v` | LRA | Speed limits |
-| `VelocityLT(a,v)` | `|vx[a][t]| < v` | LRA | Speed limits |
-| `LateralDistanceGT(a1,a2,d)` | `|py1-py2| > d` | LRA | Side clearance |
-| `RelativeVelocityGT(a1,a2,v)` | `|vx1-vx2| > v` | LRA | Following distance |
-| `OnLeftOf(a1,a2)` | `py[a1][t] > py[a2][t]` | LRA | Lateral ordering |
-| `OnRightOf(a1,a2)` | `py[a1][t] < py[a2][t]` | LRA | Lateral ordering |
-| `Distance2DGT(a1,a2,d)` | `(dx)² + (dy)² > d²` | **NRA** | Pedestrian safety |
-| `ManhattanDistanceGT(a1,a2,d)` | `|dx| + |dy| > d` | LRA | Pedestrian safety |
-| `RectangularDistanceGT(...)` | `|dx| > tx OR |dy| > ty` | LRA | Pedestrian safety |
-| `PedestrianTTCGT(...)` | `ped_px - ego_px > ttc · ego_vx` | **NRA** | Pedestrian crossing |
+| Proposition | Formula | Type |
+|-------------|---------|------|
+| `InLane(a, L)` | `lane[a][t] = L` | LIA |
+| `Ahead(a1, a2)` | `px[a1][t] > px[a2][t]` (or `<`, chosen by shared travel direction – see below) | LRA |
+| `DistanceGT(a1,a2,d)` | `same_lane ⟹ \|px1-px2\| ≥ d` | LRA |
+| `TTCGT(a1,a2,ttc)` | guarded TTC bound, `ttc` a YAML constant | LRA |
+| `Approaching(follower,leader)` | `px_lead > px_follow ∧ (vx_follow - vx_lead) > ε` | LRA |
+| `OnSidewalk(a, side)` | `py` inside the sidewalk strip on the named side | LRA |
+| `CrossingRoad(a)` | `0 ≤ py[a][t] ≤ road_width` | LRA |
+| `RectangularDistanceGT(a1,a2,tx,ty)` | `\|dx\| ≥ tx ∨ \|dy\| ≥ ty` | LRA |
+| `PedestrianTTCGT(ego,ped,ttc)` | guarded TTC bound for perpendicular crossing | LRA |
+| `PedestrianTTCGuard(ego,ped)` | the antecedent of `PedestrianTTCGT`, named standalone | LRA |
+| `VelocityGT(a,v)` / `VelocityLT(a,v)` | `\|vx[a][t]\| ≥ v` / `≤ v` | LRA |
+| `LateralDistanceGT(a1,a2,d)` | `\|py1-py2\| ≥ d` | LRA |
+| `RelativeVelocityGT(a1,a2,v)` | `\|vx1-vx2\| > v` | LRA |
 
-**NRA propositions**: `TTCGT`, `Distance2DGT`, `PedestrianTTCGT`.
-All others are LRA or LIA.
+**Every proposition in the current catalog is linear.** This is a change
+from the encoding this document previously described: `TTCGT` and
+`PedestrianTTCGT` look like they multiply two symbolic quantities
+(`ttc * relative_velocity`), but `ttc` is a scalar the scenario spec fixes
+before encoding starts: it becomes a Z3 rational constant the moment
+`encode_ttc_constraint()` builds `real_from_f64(min_ttc)`, not a free
+variable. `min_ttc_val * rel_vel` is therefore constant × variable, exactly
+like every other bound in this document. Four propositions this document
+used to list (`Distance2DGT`, `ManhattanDistanceGT`, `OnLeftOf`, `OnRightOf`)
+have since been removed from the enum entirely, since they were never emitted by
+any scenario type, so they cost real-arithmetic decisions in the compiler
+and reviewer attention for zero encoding effect.
 
-`TTCGT` is the most impactful because it is used in default safety constraints
-and gets expanded to `horizon + 1` assertions by `G(TTCGT(...))`.
+`Approaching` and `PedestrianTTCGuard` exist because a guarded implication
+like `G(TTCGT(...))` is satisfied vacuously by two actors that never
+converge – an `enforce`d `min_ttc` then constrains nothing at all unless
+something else forces the guard true somewhere. Each scenario type that
+relies on a TTC bound also asserts `G(condition ⟹ Guard(...))` with a
+condition the scenario already forces true (e.g., a lane match, or
+`F(CrossingRoad(pedestrian))`), so the TTC bound cannot be satisfied by
+never triggering it.
+
+`Ahead(a1, a2)` reads its comparison direction from the *pair*, not from
+`a1` alone: for two actors travelling the same direction it is that shared
+direction; for a pair travelling opposite directions (as `head_on` and
+`overtake_left` both construct) it falls back to the fixed road frame
+(`+x`). Reading the frame off `a1` alone would make `Ahead(a,b)` and
+`Ahead(b,a)` both satisfiable at once for a mixed-direction pair, which
+breaks the antisymmetry these scenario types depend on.
 
 ### 5.3 Constraint Modes
 
-For each safety constraint (TTC, distance, etc.), three modes are available:
+```
+enforce (default)   G(atom)              -- must hold at every step
+violate              F(NOT atom)          -- must fail at some step
+ignore                (nothing asserted)
+```
 
-| Mode | Behavior | LTL formula |
-|------|----------|-------------|
-| `enforce` (default) | Must hold at all times | `G(constraint)` |
-| `violate` | Must be violated at some point | `F(NOT constraint)` |
-| `ignore` | No constraint added | (nothing) |
-
-Setting `min_ttc: ignore` removes all TTCGT assertions, potentially eliminating
-all NRA from the entire problem.
+`push_constraint()` (`src/scenarios/mod.rs`) additionally tracks each atom's
+polarity (`Positive`/`Negated`) so that, e.g., a `min_velocity` bound, whose
+*safe* condition is "speed at or above the floor", negates correctly under
+`violate` even though the atom itself is phrased as the safe condition
+rather than the unsafe one. `ignore` returns without pushing anything.
 
 ---
 
 ## 6. Multi-Scenario Blocking Clauses
 
-Source: `src/solver/multi_solve.rs`, `create_blocking_clause()`
+Source: `src/solver/multi_solve.rs` (`create_blocking_clause()`)
 
-Between scenarios (for `num_scenarios > 1`), a blocking clause prevents re-generating
-the same scenario. For each non-ego actor, it defines a "same solution" region:
-
-```
-px_same[i] = (prev_px[i] - 0.5 ≤ px[i][0] ≤ prev_px[i] + 0.5)   LRA
-vx_same[i] = (prev_vx[i] - 0.2 ≤ vx[i][0] ≤ prev_vx[i] + 0.2)   LRA
-```
-
-The blocking clause asserts that at least one actor must be *outside* its region:
+Between scenarios in `num_scenarios > 1` mode, a blocking clause rules out
+regenerating a near-duplicate of a prior scenario. For every non-ego actor:
 
 ```
-¬(px_same[0] ∧ vx_same[0]) ∨ ¬(px_same[1] ∧ vx_same[1]) ∨ …     Boolean/LRA
+px_close = |px[a][0] - prev_px[a][0]| <= 0.5     LRA
+vx_close = |vx[a][0] - prev_vx[a][0]| <= 0.2     LRA
 ```
 
-All LRA. Adds ~4–6 assertions per prior scenario.
+For a pedestrian, the lateral pair is checked too:
+
+```
+py_close = |py[a][0] - prev_py[a][0]| <= 0.5     LRA
+vy_close = |vy[a][0] - prev_vy[a][0]| <= 0.2     LRA
+```
+
+and the actor counts as "close to the prior solution" only if all of
+`px_close, vx_close, py_close, vy_close` hold; a vehicle actor uses only the
+longitudinal pair. The overall blocking clause is the disjunction of
+`NOT(all axes close)` across every non-ego actor – at least one actor must
+differ from the previous scenario on the axes checked for its role. All
+LRA; adds a handful of assertions per prior scenario.
 
 ---
 
 ## 7. TTC and Distance Constraints (Y-Proximity Encoding)
 
-Source: `src/solver/encoder.rs` (`encode_ttc_constraint()`),
-`src/solver/encoders/cartesian.rs`, and `src/solver/encoders/bicycle.rs`
+Source: `src/solver/encoder.rs` (`encode_ttc_constraint()`,
+`encode_approaching()`), `src/solver/encoder_utils.rs`
+(`encode_same_lane_constraint()`)
 
-The TTC and distance constraints use a "same lane" condition to determine when
-the constraint applies. The condition varies by context:
+TTC and longitudinal-distance propositions gate on a shared "same lane"
+predicate rather than a bare discrete lane match:
 
-**Same-direction actor pairs** (both actors have same `direction` value):
 ```
-same_lane = lane[a1][t] == lane[a2][t]           LIA (discrete match only)
-```
-
-**Opposite-direction actor pairs** (actors have different `direction` values):
-```
-same_lane = lane[a1][t] == lane[a2][t]           LIA (discrete match)
-         OR (|py[a1] - py[a2]| < lane_width)     LRA (y-proximity)
+same_lane = (lane[a1][t] = lane[a2][t])                    LIA
+            OR (|py[a1][t] - py[a2][t]| < lane_width)       LRA
 ```
 
-The y-proximity check is needed for opposite-direction actors because during a
-lane change transition, an oncoming vehicle may be laterally close enough to
-collide even before the discrete lane variable flips. This check is applied in
-both the GenericEncoder (for LTL-based TTC) and the Cartesian/Bicycle encoders
-(for direct safety assertions).
+The lateral-proximity disjunct matters specifically during a lane-change
+transition: `lane` is derived from `py` (§3.3, §4.5) and can lag `py` by up
+to one lane width inside a transition window, so a discrete-only match would
+let two vehicles pass within a lane width of each other, mid-manoeuvre,
+without either safety proposition ever engaging. The same predicate backs
+`DistanceGT`, `TTCGT`, and the optimizer's `directed_conflict()` – one
+definition, not three that could silently diverge.
 
-The y-proximity condition uses AND to correctly encode absolute value:
 ```
-(py1 - py2 < lw) AND (py2 - py1 < lw)           LRA
+TTC constraint (both directions of "who's ahead"):
+  same_lane AND actor1_ahead AND actor2_faster
+    => (px1 - px2) >= min_ttc * (vx2 - vx1)      LRA (min_ttc is a constant)
+  same_lane AND actor2_ahead AND actor1_faster
+    => (px2 - px1) >= min_ttc * (vx1 - vx2)      LRA
+
+Distance constraint:
+  same_lane => (px1 - px2 >= min_dist) OR (px2 - px1 >= min_dist)     LRA
 ```
 
-**TTC constraint** (NRA due to `distance > ttc · relative_velocity`):
-```
-If same_lane AND actor1_ahead AND actor2_faster:
-    (px1 - px2) > min_ttc · (v2 - v1)            NRA
-If same_lane AND actor2_ahead AND actor1_faster:
-    (px2 - px1) > min_ttc · (v1 - v2)            NRA
-```
-
-**Distance constraint** (LRA):
-```
-If same_lane:
-    (px1 - px2 ≥ min_dist) OR (px2 - px1 ≥ min_dist)    LRA
-```
+`Approaching(follower, leader)` (§5.2) is deliberately lane-free: it is used
+as the *antecedent* of a guarded implication, and hoisting the (disjunctive)
+lane test into the hypothesis rather than the consequent turned a measured
+103-second solve into 14 seconds on a `cut_in_left` corpus – a disjunction Z3
+must satisfy inside a consequent is search, the same disjunction as a
+hypothesis is propagation.
 
 ---
 
 ## 8. Trajectory Extraction
 
-Source: `src/solver/encoders/bicycle.rs`, `extract_actor_trajectory()`
+Source: `extract_actor_trajectory()` in both `cartesian.rs` and
+`bicycle.rs`
 
-After Z3 finds a satisfying model, the bicycle encoder extracts trajectories
-and converts to the common Cartesian output format:
+The Cartesian encoder's extraction is the identity map: `px, py, vx, vy, ax,
+ay, lane` are read straight out of the solved model.
 
-| Extracted variable | Source | Output field |
-|--------------------|--------|-------------|
-| `px` | `positions_x[actor][t]` | `position.x` |
-| `py` | `positions_y[actor][t]` | `position.y` |
-| `vy` | `velocities_y[actor][t]` | `velocity.vy` |
-| `v` | `speed_v[actor][t]` | `velocity.vx` (vx ≈ v, small angle) |
-| `a` | `accelerations[actor][t]` | `acceleration.ax` |
-| `lane` | `lanes[actor][t]` | `lane` |
-| `theta` | `heading_theta[actor][t]` | (extracted but not in output) |
+The bicycle encoder's extraction reconstructs the Cartesian output fields
+from the bicycle state:
 
-Note: `vy` is extracted directly from the `velocities_y` variable (the independent
-lateral velocity), not computed from `v · theta`. Lateral acceleration `ay` is
-set to 0 in the output (could be computed from steering if needed).
+| Output field | Source |
+|---------------|--------|
+| `position.x`, `position.y` | `px[t]`, `py[t]`, read directly |
+| `velocity.vx` | `longitudinal_vel[t]`, i.e. `direction * v[t]` for a vehicle, so it agrees in sign with the `px` update in §4.3.1 |
+| `velocity.vy` | `v̄ * theta[t]`, where `v̄` is the reference speed `reference_speed_at()` recovers for that step (§4.3.4); falls back to the raw `v[t]` where the heading is pinned to zero and no bucket was asserted, which gives the same answer either way since `theta = 0` there |
+| `acceleration.ax` | `a[t] * direction_sign`, direction-signed to match the signed `vx` above; `d(vx)/dt` is `direction * dv/dt`, not `dv/dt` alone, once `vx` itself carries the sign |
+| `acceleration.ay` | `ay[t]`, read directly, a real solver variable and not a hard-coded zero |
+| `theta[t]` | extracted internally, not part of the exported `State` |
+
+`vx ≈ v` (not `v * cos(theta)`) is a small-angle choice made to match the
+`px` integration in §4.3.1, which itself uses `v`, not `v * cos(theta)`; at
+`|θ| ≤ atan(0.15)` the omitted `cos(θ)` factor is within 1.1% of 1, and
+using it in extraction without also using it in the kinematics would put the
+exported velocity out of step with the exported position.
 
 ---
 
-## 9. Cartesian vs Bicycle — Side-by-Side
+## 9. Cartesian vs Bicycle – Side by Side
 
 | Property | Cartesian | Bicycle (Hybrid LRA) |
-|----------|-----------|----------------------|
-| Variables per actor per step | 7 (6R + 1I) | 8 (7R + 1I) |
-| Total variables (2 actors, 50 steps) | 714 | 816 |
-| Kinematic NRA terms per step | 0 | **0** |
-| NRA during lane change | 0 (vy ratio is LRA) | **0** (vy ratio is LRA) |
-| NRA from TTCGT (G, 51 steps) | 51 | 51 |
-| Lane coupling method | `to_real(lane) * lw` (Mixed LIA+LRA) | Concrete `L * lw` (pure LRA) |
-| Lateral velocity constraint | `|vy| ≤ 0.15·|vx|` (k=0.15, ~8.5°) | `|vy| ≤ 0.5·v` (k=0.5, ~30°) |
-| Acceleration profile | Constant (`a[t+1] = a[t]`) | Constant (`a[t+1] = a[t]`) |
-| Direction encoding | `vx ≥ 0` or `vx ≤ 0` | `px ± v·dt` (sign in kinematics) |
-| Heading tracking | No (implicit via vy/vx ratio) | Yes (θ, δ variables with bounds) |
-| Steering constraints | No | Yes (angle + rate limits) |
-| Phase-specific constraints | No | Yes (stable: vy=θ=δ=0) |
-| Typical solve time (10 steps) | < 1 s | < 0.1 s |
-| Typical solve time (100 steps) | < 2 s | < 1 s |
+|----------|-----------|-----------------------|
+| Variables per actor per step | 7 (6 Real + 1 Int) | 8 Real + 1 Int (9 for a `direction: -1` vehicle) |
+| Non-linear terms, anywhere | 0 | 0 |
+| Lane coupling | `to_real(lane) * lw` (mixed LIA+LRA) | Concrete `L * lw` (pure LRA/LIA, no coercion) |
+| Lateral velocity | Independent `vy`, ratio-bounded by `vx` | Derived: `vy = v̄ * θ`, plus the same ratio and a flat cap |
+| Heading tracking | None (implicit, via the `vy`/`vx` ratio) | Explicit `θ`, `δ` variables, driving `vy` |
+| Steering constraints | None | Angle and rate limits, both linear |
+| Acceleration profile | Range bound only, no forced constant-`a` | Same |
+| Direction encoding | `vx ≥ 0` / `vx ≤ 0` | Sign baked into the `px` update |
+| Phase-specific pinning | Implicit (lane coupling holds `py`/`vy` still) | Explicit: `vy = θ = δ = 0` outside lane changes |
 
 ---
 
 ## 10. Performance Guide
 
-### When bicycle scenarios solve quickly
+With no non-linear term anywhere in the standard pipeline, "avoid NRA" is no
+longer the operative piece of advice it once was. What now drives solve time:
 
-| Condition | Why it helps |
-|-----------|-------------|
-| `constraint_modes: {min_ttc: ignore}` | Removes all TTCGT NRA assertions |
-| Short horizon (`duration: 5.0`, `time_step: 0.5`) | Fewer variables and constraints |
-| Fixed speed (`speed: 15.0`) with zero accel | More constrained = smaller search space |
-| All three conditions combined | Problem is fully LRA — Simplex only |
-
-### When bicycle scenarios may be slow
-
-| Condition | Why it hurts |
-|-----------|-------------|
-| `min_ttc: enforce` with many actors | TTCGT is NRA, expanded for each actor pair × time step |
-| Very long horizon (200+ steps) | Linear growth in constraint count |
-| Very tight lane change (duration < lane_width / (k · v_min)) | May be UNSAT if vehicle can't traverse lane width fast enough |
+| Factor | Effect |
+|--------|--------|
+| Number of actor pairs | Pairwise safety propositions are `O(A²)` per time step |
+| Horizon length | Every stage in §3.9/§4.10 is at least linear in `H` |
+| Lane-change window width and bucket count (bicycle only) | Heading coupling cost is `O(A·W·N)` – long transitions on wide-speed-range actors cost more, not more than that |
+| Guarded vs. Z3-chosen disjunctions | A hypothesis-side disjunction is propagation; the same disjunction in a consequent, or as a free Bool selector, is search (§4.3.4, §7) |
+| `min_ttc: ignore` / `min_distance: ignore` | Removes those propositions' `O(A²·H)` contribution outright |
 
 ### UNSAT diagnostics
 
-If Z3 returns UNSAT for a bicycle scenario, common causes:
-1. **Lane change too short**: At speed `v`, max lateral velocity is `0.5·v`. A 3.5m lane change requires at least `3.5 / (0.5·v)` seconds. At 15 m/s: min duration ≈ 0.47s.
-2. **Conflicting safety constraints**: TTC and distance constraints may conflict with the lane change schedule.
-3. **Speed range too narrow with acceleration**: Constant acceleration + velocity upper bound can create impossible trajectories.
+If Z3 returns UNSAT, common causes remain kinematic rather than theoretic:
+
+1. **Lane change too short.** With a `0.15` lateral ratio and a `2.0` m/s
+   absolute cap, the achievable lateral speed at low `v` is `0.15*v`; a 3.5 m
+   lane change then needs at least `3.5 / (0.15*v)` seconds – at 15 m/s,
+   about 1.6 s, not the sub-second figure the old, more permissive ratio
+   would have implied.
+2. **Conflicting safety constraints.** A tight `min_ttc`/`min_distance` can
+   conflict with a lane-change schedule that necessarily brings two actors
+   laterally close for a window.
+3. **A speed range too narrow given the acceleration band and horizon**, so
+   no trajectory satisfies both the range and the kinematics.
 
 ---
 
-## 11. Historical Note: NRA Elimination
+## 11. Historical Note: Two Rounds of Linearization
 
-The original bicycle encoder (pre-fix) used the exact kinematic bicycle model:
+The bicycle encoder has gone through two designs, not one, and it is worth
+naming both so a change to the current one isn't mistaken for reintroducing
+the first.
 
-```
-vy[t] = v[t] · θ[t]                        NRA — caused Z3 to invoke NLSAT
-θ[t+1] = θ[t] + (v[t]·δ[t]/L)·dt          NRA — caused Z3 to invoke NLSAT
-```
+**Round 1 – the exact model.** The original encoder asserted `vy = v*θ` and
+`θ[t+1] = θ[t] + (v*δ/L)*dt` directly, both products of two symbolic
+variables. With the lane `Int` in every problem this was `QF_NIRA`, which
+has no decision procedure; Z3 could not reliably solve even ten-step
+scenarios.
 
-This produced **202 NRA assertions** for a 2-actor, 50-step scenario (vs 0 now).
-Combined with TTCGT propositions, the total NRA count exceeded 300 assertions,
-making Z3 unable to solve even 10-step problems within 60 seconds.
+**Round 2: an independent lateral velocity.** The fix at the time made `vy` an
+independent variable bounded by a fixed ratio to `v` (`|vy| ≤ k*v`, `k =
+0.5`), used a linear rate bound for `θ`, and pinned `θ = δ = 0` outside lane
+changes. This eliminated the non-linear terms, but `θ` and `δ` were now
+related to the vehicle's actual lateral motion by nothing at all: deleting
+every `θ`/`δ` constraint would not have changed a single exported number,
+and the `k = 0.5` ratio (a ±30° heading) admitted lateral speeds, 8 m/s at
+16 m/s forward speed, that the Cartesian encoder would never have allowed on the
+same YAML.
 
-The fix replaced these with:
-- Independent `vy` variable + linear ratio bound `|vy| ≤ 0.5·v` (LRA)
-- Linear heading rate bound `|Δθ| ≤ R·dt` where R is a Rust constant (LRA)
-- Phase-specific constraints that anchor stable phases to `vy=θ=δ=0` (LRA)
-
-Result: Bicycle scenarios now solve in < 1 second for typical configurations,
-comparable to or faster than the Cartesian encoder.
+**Round 3: the current design (§4).** The reference-speed-bucket coupling
+in §4.3.4 makes `θ` and `δ` load-bearing: `vy` is now *derived* from `θ`
+rather than bounded independently of it, and `k` was brought down to `0.15`
+to match the Cartesian encoder exactly. The linearization technique that
+makes this possible, a disjunction of guarded linear constraints, one per
+speed bucket, standing in for one non-linear one, is the piece this
+document did not previously describe, because it did not exist yet.

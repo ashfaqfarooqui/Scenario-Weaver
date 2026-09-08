@@ -1,131 +1,102 @@
 # Coordinate Systems
 
-← [Back to README](../README.md)
+← [Back to docs](./README.md)
 
-ScenarioWeaver supports two coordinate systems for modelling vehicle dynamics. Select one via the `coordinate_system` field in your YAML.
+Every actor in a scenario moves according to one of two motion models: a
+**Cartesian** point mass or a **kinematic bicycle** model. The choice is
+scenario-wide and is made with a single YAML field, `coordinate_system`. This
+document explains what each model can and cannot express, how to configure them,
+and the one place where the bicycle model trades exact dynamics for a linear
+encoding the solver can decide.
+
+Pedestrians are a special case that sits underneath both models. They are covered
+in [Pedestrians](#pedestrians) below.
+
+For where the encoders fit in the generation pipeline, see
+[architecture.md](./architecture.md); for the full YAML field list, see
+[yaml-reference.md](./yaml-reference.md).
 
 ---
 
-## Cartesian (x, y) — Default
+## The two models at a glance
 
-Point-mass model with independent x and y velocities. Best for general use and backward compatibility.
+| | Cartesian (default) | Bicycle |
+|---|---|---|
+| Internal state per actor per step | `x`, `y`, `vx`, `vy`, `ax`, `ay`, `lane` | the Cartesian state **plus** a real heading `θ` and a steering angle `δ` |
+| Motion model | 2D point mass, with longitudinal and lateral motion independent | kinematic bicycle, where lateral motion is driven by heading and heading by steering |
+| Steering / turn radius | none: no steering angle, no curvature, no turn-radius limit | a real steering angle `δ`, a steering-rate limit, and a genuine minimum turn radius from wheelbase and maximum steering angle |
+| Heading | not modeled; the actor is a point with a velocity vector | tracked explicitly as `θ` and coupled to lateral motion |
+| Extra configuration | none | requires `bicycle_config` or per-actor `bicycle_params` |
+| Solver cost | lower | higher, since the heading/steering coupling adds variables and a case split on speed |
+| Exported trajectory fields | `x`, `y`, `vx`, `vy`, `ax`, `ay`, `lane` | **the same** `x`, `y`, `vx`, `vy`, `ax`, `ay`, `lane` |
+
+The final row is the important one. Both models export the identical set of
+fields. The heading `θ` and steering angle `δ` are internal to the bicycle
+encoder and are **not** part of the output; there is no heading column. Their
+effect appears instead in the exported fields: a bicycle-model actor's `x`, `y`,
+`vx`, and `vy` are the trajectory that a bounded heading and a limited steering
+rate produce. The output format is documented in
+[output-formats.md](./output-formats.md).
+
+In practice, Cartesian can express *where* an actor is and *how fast* it moves in
+each axis, but nothing about *how* a vehicle would have to steer to get there. A
+Cartesian lane change is a lateral velocity that respects a lateral-speed cap; it
+carries no notion of a turning circle. The bicycle model adds exactly that notion.
+If a maneuver would require a passenger car to turn inside its own minimum radius,
+the bicycle model rejects it and the Cartesian model does not.
+
+---
+
+## Choosing a model
+
+Use **Cartesian** unless you have a specific reason not to. It is the default, it
+needs no extra parameters, and it solves faster. For common scenarios such as
+cut-ins, overtakes, following, and pedestrian crossings, a point mass with a
+lateral-speed cap is an adequate model of where the vehicles are and how they
+interact.
+
+Use the **bicycle** model when the plausibility of the *maneuver itself* matters:
+when you want steering realism, when a scenario hinges on whether a vehicle can
+physically make a turn at a given speed, or when you are exercising a system under
+test that is sensitive to turn-radius-feasible trajectories. The cost is real but
+modest, a little extra YAML and more solver work, and in return the trajectories
+are ones a real vehicle with the declared wheelbase and steering lock could drive.
+
+The two models are close but not identical for the same YAML. Both route a lane
+change through the same lateral-speed envelope, so neither one permits gross
+motion the other forbids. The difference is that the bicycle model additionally
+ties that lateral motion to a bounded heading and a limited steering rate, so its
+lane changes are smoother and its turns respect a minimum radius.
+
+---
+
+## Selecting a model in YAML
+
+The model is chosen once, at the top level of the scenario:
 
 ```yaml
-coordinate_system: cartesian  # or omit entirely
+coordinate_system: cartesian   # the default; may be omitted entirely
 ```
 
-**Variables per actor per time step:** `x`, `y`, `vx`, `vy`, `lane`
-
-**Lane coupling:** lateral position is tied to lane centre:
-```
-py = lane * lane_width + lane_width / 2
+```yaml
+coordinate_system: bicycle
 ```
 
-**Lane change physics:** During a lane change the lateral position linearly interpolates between lane centres. A velocity-ratio constraint prevents physically impossible sideways-only motion:
+Cartesian needs nothing more. The bicycle model needs vehicle geometry, supplied
+in one of two ways.
 
-```
-|vy| ≤ 0.15 * |vx|
-```
-
-This corresponds to a maximum heading angle of ~8.5°. At 15 m/s forward speed the maximum lateral velocity is 2.25 m/s, so a 3.5 m lane change takes at least ~1.6 s.
-
-> If a scenario specifies a very short lane-change duration at low speed, Z3 may return UNSAT. Increase the duration or the actor's minimum speed.
-
----
-
-## Bicycle Model (x, y, θ, v)
-
-Kinematic bicycle model with heading tracking and steering constraints. Provides realistic vehicle dynamics with turn-radius enforcement.
+**Scenario-level defaults** apply to every vehicle that does not override them:
 
 ```yaml
 coordinate_system: bicycle
 
-# Scenario-level defaults (required when using bicycle model)
 bicycle_config:
-  default_wheelbase: 2.7              # metres (typical sedan)
-  default_max_steering_angle: 0.6     # radians (~34°)
-  default_max_steering_rate: 0.5      # rad/s
+  default_wheelbase: 2.7            # meters, front-to-rear axle (typical sedan)
+  default_max_steering_angle: 0.6   # radians (~34°)
+  default_max_steering_rate: 0.5    # radians per second
 ```
 
-**Variables per actor per time step:** `x`, `y`, `θ` (heading), `v` (speed), `δ` (steering angle), `a` (acceleration), `lane`
-
-### Dynamics, and the linearisation
-
-The kinematic bicycle model is
-
-```
-dx/dt  = v * cos(θ)
-dy/dt  = v * sin(θ)
-dθ/dt  = (v / L) * tan(δ)
-dv/dt  = a
-```
-
-Two of those are **variable × variable** products. Z3 is asked to solve these
-constraints alongside an integer `lane` variable, and a nonlinear mixed
-integer-real problem (QF_NIRA) has no decision procedure — Z3 answers `unknown`
-— while `Optimize`, which backs `--optimize`, has essentially no support for
-nonlinear objectives. The encoder therefore stays inside linear real arithmetic
-(QF_LRA), which costs two documented approximations:
-
-**1. Small angle.** `cos(θ) ≈ 1`, `sin(θ) ≈ θ`, `tan(δ) ≈ δ`. The heading is
-bounded to `|θ| ≤ atan(0.15) ≈ 8.5°` (see below), where `sin(θ) - θ` is 0.37 %
-of `θ` and `1 - cos(θ)` is 1.1 %. A highway lane change at 16 m/s uses
-`|δ| < 0.02 rad`, where the tangent error is under 0.02 %.
-
-**2. Reference speed.** The `v` inside the two products is replaced by a
-**constant** `v̄`: the midpoint of a speed bucket that `v[t]` is asserted to lie
-inside. Buckets are 5 m/s wide by default and are derived per actor from the
-speed the actor can actually reach (initial speed range widened by the
-acceleration band over the horizon, clipped at 0 and at `max_velocity`), capped
-at 8 buckets. The relative error on `vy` and on `dθ/dt` is at most half a bucket
-over `v̄` — under 8 % at 16 m/s, and exactly zero for an actor whose reachable
-speed span fits in one bucket. A disjunction of linear regimes is still QF_LRA:
-each bucket contributes `lo ≤ v[t] < hi ⇒ (linear constraints)`, and the buckets
-partition the line, so exactly one applies at each step.
-
-So what is actually asserted is
-
-```
-px[t+1] = px[t] ± (v[t] + v[t+1]) * dt/2       (exact for piecewise-constant a)
-py[t+1] = py[t] + (vy[t] + vy[t+1]) * dt/2
-vy[t]   = v̄ * θ[t]
-θ[t+1]  = θ[t] + (v̄ / L) * δ[t] * dt
-v[t+1]  = v[t] + a[t] * dt
-vy[t+1] = vy[t] + ay[t] * dt
-```
-
-Outside a lane change the encoder pins `vy = θ = δ = 0`, so the coupling is
-inert there and no bucket machinery is emitted; a lane change is also required
-to begin at zero heading, hence at zero lateral velocity.
-
-The approximations are approximations of the *dynamics*, not of the exported
-trajectory's internal consistency: `px`, `py`, `vx`, `vy`, `ax` and `ay` agree
-with each other to machine precision, because `py` is integrated from the same
-`vy` the heading defines.
-
-### Constraints enforced
-
-| Constraint | Expression |
-|------------|------------|
-| Heading drives lateral motion | `vy[t] = v̄ * θ[t]` |
-| Steering drives heading | `θ[t+1] = θ[t] + (v̄ / L) * δ[t] * dt` |
-| Steering angle bounds | `\|δ\| ≤ atan(L / R_min) = δ_max` |
-| Heading angle bounds | `\|θ\| ≤ atan(0.15) ≈ 8.5°`, the same lateral/longitudinal ratio the Cartesian encoder uses |
-| Steering rate | `\|δ[t+1] - δ[t]\| ≤ max_steering_rate * dt` |
-| Heading rate (turn radius) | `\|θ[t+1] - θ[t]\| ≤ (v_max / R_min) * dt`, with `v_max` the actor's reachable top speed |
-| Lateral velocity | `\|vy\| ≤ 0.15 * v` and `\|vy\| ≤ 2.0 m/s` — both the same as Cartesian |
-| Lateral acceleration | `\|ay\| ≤ max_lateral_acceleration` |
-| Speed | `v ≥ 0`, and `v ≤ max_velocity` when one is declared |
-| Minimum turn radius | `R_min = L / tan(δ_max)` (e.g. 2.7 m / tan(0.6 rad) ≈ 3.95 m) |
-
-> `actor.speed` is an **initial condition**, not a ceiling: it is the value (or
-> range) the actor starts from. The velocity ceiling is the scenario-level
-> `max_velocity`. Before this was fixed, `speed.max()` was asserted as a
-> ceiling at every step, so an actor declaring `speed: 15.0` with
-> `acceleration: [-8.0, 3.0]` could not accelerate at all, and identical YAML
-> produced qualitatively different dynamics under the two coordinate systems.
-
-### Per-actor overrides
+**Per-actor parameters** override the defaults for a single vehicle:
 
 ```yaml
 actors:
@@ -133,60 +104,114 @@ actors:
     role: npc
     # ...
     bicycle_params:
-      wheelbase: 2.9              # Larger vehicle (SUV)
-      max_steering_angle: 0.5     # Less maneuverable
-      max_steering_rate: 0.4      # Slower steering
+      wheelbase: 2.9            # a larger vehicle
+      max_steering_angle: 0.5   # less maneuverable
+      max_steering_rate: 0.4    # slower steering
 ```
 
-If `coordinate_system: bicycle` is set but no `bicycle_config` defaults and no per-actor `bicycle_params` are provided, the parser will return an error.
+The wheelbase and the maximum steering angle together fix the **minimum turn
+radius**, `R = wheelbase / tan(max_steering_angle)`. With the defaults above that
+is `2.7 / tan(0.6) ≈ 3.95 m`, the tightest circle that vehicle is allowed to
+turn, at any speed.
 
-### Trajectory output
+Validation is strict and symmetric. A bicycle scenario must supply geometry: if
+`coordinate_system: bicycle` is set and an actor has neither a scenario-level
+`bicycle_config` default nor its own `bicycle_params`, the parser reports an error
+naming that actor. The reverse is rejected too. A `bicycle_config` or
+`bicycle_params` block on a scenario that is not `bicycle` is an error, rather
+than a silently ignored block. See [yaml-reference.md](./yaml-reference.md) for
+the full field list and [authoring-scenarios.md](./authoring-scenarios.md) for
+worked examples.
 
-The JSON output format is unchanged. The extractor converts bicycle-model state
-to Cartesian velocities using the same small-angle approximation the encoder
-asserts, so the exported numbers are the solver's, not a re-derivation:
+Working bicycle-model scenarios ship with the tool:
 
-```
-vx = v            (cos θ ≈ 1)
-vy = v̄ * θ        (sin θ ≈ θ, with v̄ the reference speed of the bucket
-                   Z3 selected at that step)
-ay = the ay solver variable, which drives vy
-```
-
-### Limitations
-
-- The dynamics are linearised; see the two error bounds above. They are
-  approximations of a real vehicle, not of the trajectory's internal
-  consistency.
-- Valid only while `|θ|` stays small, which the `atan(0.15)` heading bound
-  enforces; a scenario needing a sharper heading than 8.5° is out of scope for
-  this encoder.
-- May return UNSAT if the lane-change duration is too short for the lateral
-  velocity and acceleration envelopes to cover a lane width.
-- `vx` ignores the `cos θ` factor, at most 1.1 % at the heading bound. Taking it
-  into account would put the exported `vx` out of step with the longitudinal
-  integration, which uses `v`.
-
-### Examples
-
-- `examples/bicycle_lane_change.yaml` — Highway cut-in with bicycle dynamics
-- `examples/cut_in_right_bicycle.yaml` — Mirror-image cut-in on a 3-lane road
+- `examples/bicycle_lane_change.yaml` is a highway cut-in driven by bicycle dynamics
+- `examples/cut_in_right_bicycle.yaml` is the mirror-image cut-in on a three-lane road
+- `examples/head_on_near_miss_bicycle.yaml` is a head-on near miss with steering realism
 
 ---
 
-## Choosing a Coordinate System
+## The linearization and its error bounds
 
-| | Cartesian | Bicycle |
-|---|---|---|
-| Heading tracking | No | Yes — `θ` is asserted against `vy` |
-| Steering constraints | No | Yes — `δ` is asserted against `θ` |
-| Turn radius enforcement | No | Yes, via the heading-rate bound `v / R_min` |
-| Lateral velocity envelope | `\|vy\| ≤ 0.15\|vx\|`, `\|vy\| ≤ 2.0 m/s` | the same two bounds |
-| Solver speed | Faster | Slower; `bicycle_lane_change.yaml` solves in ~1.7 s against ~0.2 s |
-| Best for | General scenarios, backward compat | Realistic dynamics, steering tests |
+The bicycle model's heading and steering are real and load-bearing. The heading
+drives lateral motion, the steering drives the heading, and the steering rate and
+turn radius are enforced against them. Remove the heading and the turn-radius
+guarantee goes with it. The model is accurate up to a single, small, documented
+approximation of the dynamics, described below.
 
-Given the same YAML, the two coordinate systems now produce comparable
-dynamics. They are not identical — the bicycle model routes lateral motion
-through a bounded heading rather than through a free `vy` — but neither one
-permits motion the other forbids by an order of magnitude, which was the case
-while `θ` was decorative.
+The exact kinematic bicycle model is nonlinear. Its lateral velocity is
+`v · sin(θ)` and its turn rate is `(v / L) · tan(δ)`, each a product of a variable
+speed with a trigonometric function of a variable angle. ScenarioWeaver generates
+scenarios by handing the whole problem to a solver that works in **linear real
+arithmetic**: it decides systems of linear constraints exactly, but it has no
+decision procedure for the variable-times-variable products those two equations
+contain. To keep the model inside that linear world, the encoder makes two
+approximations, and only two.
+
+**A small-angle approximation.** For small angles, `sin(θ) ≈ θ` and
+`tan(δ) ≈ δ`, which removes the trigonometry. This holds only while the angles
+stay small, so the encoder bounds the heading to about **8.5°**. At that bound the
+approximation error on lateral velocity is at most about **0.37%**, and in a
+typical highway lane change the steering angle is far smaller still, where the
+error is smaller again. The bound is a genuine restriction: a scenario that needs
+a sharper heading than 8.5° is outside this encoder's scope. Within the bound, the
+heading is an accurate stand-in for the real thing.
+
+**A constant reference speed.** Removing the trigonometry still leaves a speed
+multiplying an angle, a variable times a variable. The encoder replaces the
+variable speed in those two couplings with a **constant** reference speed, so that
+a constant times a variable stays linear. It does this without pretending the
+actor moves at one fixed speed. Each actor's reachable speed range is partitioned
+into **buckets**, 5 m/s wide and at most eight per actor, and the solver is free
+to place the actor in whichever bucket its true speed falls into at each step,
+using that bucket's midpoint as the reference. The approximation error is
+therefore at most half a bucket's worth of speed, and it is **exactly zero** for
+any actor whose whole reachable speed span fits inside a single bucket.
+
+The result is an accurate *kinematic* bicycle model, exact up to a small, bounded,
+and documented approximation of the dynamics. The approximation is of the
+*dynamics*, not of the exported trajectory's internal consistency: within a single
+scenario the positions, velocities, and accelerations agree with each other,
+because the lateral position is integrated from the same lateral velocity the
+heading defines. The exported numbers are the solver's own, mutually consistent,
+and drivable by a vehicle with the geometry you declared.
+
+---
+
+## Pedestrians
+
+A pedestrian is **not** a third coordinate system. Pedestrians share one 2D
+point-mass sub-model that both the Cartesian and bicycle encoders delegate to for
+any actor with `role: pedestrian`. Whichever coordinate system a scenario
+declares, its pedestrians move the same way.
+
+The pedestrian model is deliberately simple. It has no heading, no steering, and
+no lane-following: a pedestrian is a point that can move in any direction across
+the road. Its speed is capped by a walking mode, selected with
+`behavior.walking_mode`, walking by default or running when set to `run`. A
+pedestrian may also begin the scenario already in motion across the road, rather
+than starting from the curb, which lets you author a crossing that is already
+underway at the first time step.
+
+The speed cap is enforced as an **octagon** rather than a disk. A true circular
+speed limit is nonlinear and would take the problem out of linear real arithmetic;
+a plain box would be too loose, letting a pedestrian move faster along a diagonal
+than straight across. The octagon is the linear compromise that keeps the cap
+close to circular in every direction, including the perpendicular-crossing
+direction typical of a pedestrian scenario.
+
+One implementation detail is useful to know, because it explains why the two
+coordinate systems agree so closely: the Cartesian encoder reuses this same
+point-mass integration for its **vehicles** as well. In the Cartesian world every
+actor, vehicle or pedestrian, is a 2D point mass integrated by one shared step.
+The bicycle encoder is the only one that adds heading and steering on top, and
+does so only for vehicles.
+
+---
+
+## See also
+
+- [architecture.md](./architecture.md) for where the encoders sit in the pipeline
+- [yaml-reference.md](./yaml-reference.md) for every YAML field, including `coordinate_system`, `bicycle_config`, and `bicycle_params`
+- [authoring-scenarios.md](./authoring-scenarios.md) for writing a scenario end to end
+- [output-formats.md](./output-formats.md) for what the exported trajectory contains
