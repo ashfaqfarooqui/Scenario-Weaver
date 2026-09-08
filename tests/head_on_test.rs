@@ -13,6 +13,90 @@ fn near_miss() -> Scenario {
     common::generate_example("head_on_near_miss.yaml")
 }
 
+/// SW-47: `HeadOnModel::generate_ltl` used to be `Ok(LTLFormula::True)` — no
+/// behavioral goal at all — so nothing required the ego to actually finish
+/// the overtake it is set up to attempt. It could dip into the oncoming lane
+/// and back without ever passing the slow vehicle, and Z3 was free to return
+/// exactly that "weave without passing" model whenever the ego is not
+/// guaranteed faster than the slow NPC it is meant to overtake.
+///
+/// This spec deliberately does not guarantee the ego is faster: both the ego
+/// and `slow_npc` share the same declared speed range and `slow_npc` starts
+/// only a short distance ahead, so a model in which the ego merely performs
+/// its two lane changes without ever getting ahead of `slow_npc` is entirely
+/// consistent with the (pre-fix) constraints. Before SW-47, Z3 returned
+/// exactly that model. After SW-47, `generate_ltl` requires the ego to end up
+/// back in its own lane *and* ahead of `slow_npc`, which forbids it.
+#[test]
+fn test_head_on_ego_forced_to_complete_overtake() {
+    let yaml = r#"
+scenario_type: head_on
+time_step: 0.5
+duration: 10.0
+road:
+  num_lanes: 2
+  lane_width: 3.5
+  lane_directions: [1, -1]
+actors:
+  - id: ego
+    role: ego
+    lane: 0
+    position: 0.0
+    speed: [8.0, 10.0]
+    direction: 1
+    acceleration: [-5.0, 3.0]
+    lane_changes:
+      - direction: right
+        start_time: [2.0, 3.0]
+        duration: [2.0, 3.0]
+      - direction: left
+        start_time: [6.0, 7.0]
+        duration: [2.0, 3.0]
+  - id: slow_npc
+    role: npc
+    lane: 0
+    position: [20.0, 30.0]
+    speed: [8.0, 10.0]
+    direction: 1
+    acceleration: [-5.0, 3.0]
+  - id: oncoming_npc
+    role: npc
+    lane: 1
+    position: [150.0, 180.0]
+    speed: [10.0, 12.0]
+    direction: -1
+    acceleration: [-2.0, 1.0]
+min_ttc: 0.5
+min_distance: 1.0
+num_scenarios: 1
+constraint_modes:
+  min_ttc: ignore
+  min_distance: ignore
+"#;
+
+    let scenario = common::generate_or_fail(yaml);
+
+    let ego = scenario.get_actor("ego").expect("ego");
+    let slow_npc = scenario.get_actor("slow_npc").expect("slow_npc");
+
+    let ego_final = ego.states.last().expect("ego has states");
+    let slow_final = slow_npc.states.last().expect("slow_npc has states");
+
+    assert_eq!(
+        ego_final.lane(),
+        0,
+        "ego should be back in its own lane (0) at the end, was {}",
+        ego_final.lane()
+    );
+    assert!(
+        ego_final.position().x > slow_final.position().x,
+        "ego should have completed the overtake and be ahead of slow_npc by the end: \
+         ego.x={:.3}, slow_npc.x={:.3}",
+        ego_final.position().x,
+        slow_final.position().x
+    );
+}
+
 /// A *near miss* is by definition a scenario in which the safety constraints
 /// hold. The solver still returns one in which they do not, but SW-10
 /// re-diagnosed why. It is not the lane lag: `lane` now tracks `py` exactly,

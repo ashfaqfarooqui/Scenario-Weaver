@@ -112,9 +112,55 @@ impl ScenarioModel for HeadOnModel {
         Ok(())
     }
 
-    fn generate_ltl(&self, _spec: &ScenarioSpec) -> Result<LTLFormula> {
-        // No behavioral LTL needed — kinematics encoder handles everything from YAML config.
-        Ok(LTLFormula::True)
+    /// Require the ego to actually complete the overtake it is set up to
+    /// attempt: end up back in its own lane, ahead of the slow NPC it is
+    /// passing. Without this, only the timed lane changes and the pairwise
+    /// TTC/distance modes constrain the scene, and nothing stops Z3 from
+    /// returning a model where the ego dips into the oncoming lane and back
+    /// without ever passing the slow vehicle — the same loose-goal class as
+    /// SW-22/SW-23/SW-43. Mirrors `OvertakeLeftModel::overtake_behavior`
+    /// (`src/scenarios/overtake_left.rs:147-183`), mirrored for the ego
+    /// overtaking into the oncoming lane instead of an NPC overtaking the ego.
+    fn generate_ltl(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
+        let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
+        let npcs = spec.npcs();
+
+        // Same lookup `generate_safety` uses for the vehicle being overtaken.
+        // If a future head-on spec has no such NPC, there is nothing to
+        // require an overtake of; `generate_safety` is where the "must have
+        // a slow NPC" invariant is enforced, not here.
+        let Some(slow_npc) = npcs
+            .iter()
+            .find(|n| n.lane == ego.lane && n.direction == ego.direction)
+        else {
+            return Ok(LTLFormula::True);
+        };
+
+        let ego_id = ego.id.as_str();
+        let slow_id = slow_npc.id.as_str();
+
+        let in_original = LTLFormula::Atom(Proposition::InLane {
+            actor: ego_id.to_string(),
+            lane: ego.lane,
+        });
+        let ego_ahead = LTLFormula::Atom(Proposition::Ahead {
+            actor1: ego_id.to_string(),
+            actor2: slow_id.to_string(),
+        });
+
+        // Eventually be back in the original lane AND ahead of the slow NPC
+        // — this alone forbids weaving without completing the pass. The
+        // mirror of `overtake_left`'s phase-1 conjunct ("stay in the original
+        // lane until entering the passing lane") was tried and dropped: it is
+        // already implied by `validate`'s exactly-two-lane-changes,
+        // right-then-left requirement, and asserting it again in the LTL
+        // changed which SAT model Z3 returns for both shipped examples (their
+        // ego trajectories stopped being byte-identical before/after this
+        // fix) for no behavioural gain. The return-and-ahead conjunct below
+        // is the load-bearing one and is a pure tightening on its own.
+        let return_ahead = in_original.and(ego_ahead).eventually();
+
+        Ok(return_ahead)
     }
 
     /// Custom safety generation for head-on scenario.
@@ -124,17 +170,14 @@ impl ScenarioModel for HeadOnModel {
     /// overrides `generate_safety` only to check that an oncoming actor is
     /// present at all.
     ///
-    /// SW-12, inherited from SW-10. This used to constrain the ego ↔ oncoming
-    /// pair alone, under the comment "Other pairs are left unconstrained — the
-    /// kinematics are already set by the encoder from the YAML config". They
-    /// are not: `compute_validation_metrics` measures *every* pair, so the
-    /// distance and TTC breaches `head_on_near_miss` reported were all on the
-    /// ego ↔ slow_npc pair — a pair the encoder had never asserted anything
-    /// about. The tool enforced one thing and reported another, which is the
-    /// same encoder/validator disagreement as H7 one level up, in the scenario
-    /// model rather than in the lowering. It is why the example carried an
-    /// entry in `MIN_DISTANCE_NOT_ASSERTED` that no change inside the encoder
-    /// could have cleared.
+    /// Constraining the ego ↔ oncoming pair alone is not enough, even though the
+    /// kinematics for other pairs are already set by the encoder from the YAML
+    /// config: `compute_validation_metrics` measures *every* pair, so distance and
+    /// TTC breaches on, say, an ego ↔ slow_npc pair would be reported even though
+    /// the encoder never asserted anything about that pair. Enforcing one thing and
+    /// reporting on another is an encoder/validator disagreement in the scenario
+    /// model rather than in the lowering, and it can leave an example with an entry
+    /// in `MIN_DISTANCE_NOT_ASSERTED` that no change inside the encoder could clear.
     fn generate_safety(&self, spec: &ScenarioSpec) -> Result<LTLFormula> {
         let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
         let npcs = spec.npcs();
@@ -448,8 +491,10 @@ mod tests {
         let formula = model.generate_ltl(&spec);
         assert!(formula.is_ok());
 
-        // LTL is a tautology (kinematics handle everything); just verify it generates
+        // The overtake must now be enforced: the ego is required to return to
+        // its own lane ahead of the slow NPC.
         let formula_str = format!("{}", formula.unwrap());
-        assert_eq!(formula_str, "⊤");
+        assert!(formula_str.contains("InLane"));
+        assert!(formula_str.contains("Ahead"));
     }
 }
