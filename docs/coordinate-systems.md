@@ -187,11 +187,19 @@ declares, its pedestrians move the same way.
 
 The pedestrian model is deliberately simple. It has no heading, no steering, and
 no lane-following: a pedestrian is a point that can move in any direction across
-the road. Its speed is capped by a walking mode, selected with
-`behavior.walking_mode`, walking by default or running when set to `run`. A
-pedestrian may also begin the scenario already in motion across the road, rather
-than starting from the curb, which lets you author a crossing that is already
-underway at the first time step.
+the road. It has no lane either, so its start is a kerb rather than a lane centre.
+The pedestrian begins on the sidewalk it crosses *from* — the near kerb, on the
+side opposite the one it is heading for — and the crossing carries it across the
+road surface to settle on the far kerb; `behavior.direction` (`left_to_right` or
+`right_to_left`) chooses which pair of kerbs those are.
+
+Because the road runs along the longitudinal axis, a crossing is lateral motion,
+and it is the lateral velocity that the authored `speed:` governs: the pedestrian
+crosses at its walking speed, not drifting along the road. The speed is capped by
+a walking mode, selected with `behavior.walking_mode`, walking by default or
+running when set to `run`. A pedestrian may begin the scenario already in motion
+across the road at that walking speed, rather than from a standstill at the kerb,
+which lets you author a crossing that is already underway at the first time step.
 
 The speed cap is enforced as an **octagon** rather than a disk. A true circular
 speed limit is nonlinear and would take the problem out of linear real arithmetic;
