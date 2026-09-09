@@ -57,10 +57,13 @@ done
 #
 #   cargo fmt --check
 #   # ratchet (baseline LIB_BINS_BASELINE below); count it exactly this way --
-#   # a plain `grep -c '^warning'` also matches the "generated N warnings"
-#   # summary lines and reads 2 high:
+#   # `openscenario-rs` is a local path dependency (D1), so an unscoped
+#   # `grep -c '^warning'` also counts ITS warnings on a cold cache, and a
+#   # plain `grep -c '^warning'` additionally matches the "generated N
+#   # warnings" summary lines and reads high on top of that. Sum the number(s)
+#   # off the `scenario-weaver` (lib)/(bin ...) summary line(s) instead:
 #   cargo clean -p scenario-weaver >/dev/null 2>&1
-#   cargo clippy --lib --bins 2>&1 | grep -E '^warning: ' | grep -vc 'generated .* warning'
+#   cargo clippy --lib --bins 2>&1 | grep -oE '^warning: `scenario-weaver` \((lib|bin)[^)]*\) generated [0-9]+ warning' | grep -oE '[0-9]+' | awk '{s+=$1} END{print s+0}'
 #   cargo nextest run -E 'test(<the test you changed>)'
 #   cargo nextest run -E 'test(test_kinematic_consistency_across_the_corpus)'
 #
@@ -147,8 +150,23 @@ if [[ "$FAST" -eq 0 ]]; then
   echo "==> cargo clippy --lib --bins (ratchet, baseline ${LIB_BINS_BASELINE})"
   lib_bins_output="$(cargo clippy --lib --bins 2>&1)"
   echo "$lib_bins_output"
-  # count findings, dropping the trailing "... generated N warnings" summary lines
-  lib_bins_count="$(grep -E '^warning: ' <<<"$lib_bins_output" | grep -vc 'generated .* warning' || true)"
+  # `openscenario-rs` is a local path dependency (D1): on a cold dependency
+  # clippy cache it emits its own "warning: ..." lines and its own per-crate
+  # summary line in this same output, and a crate-unscoped count picks those
+  # up too. Read the count off the `scenario-weaver` (lib)/(bin ...) summary
+  # line(s) instead of counting individual `^warning:` lines. `--lib --bins`
+  # can produce a summary line per target (a lib one and a bin one), so sum
+  # them rather than taking the first match. The summary line can also carry
+  # a trailing parenthetical ("(2 duplicates)", "(run cargo clippy --fix
+  # ...)"), so extract the number by pattern, not by fixed field position.
+  lib_bins_summary_lines="$(grep -E '^warning: `scenario-weaver` \((lib|bin)' <<<"$lib_bins_output" || true)"
+  lib_bins_count=0
+  if [[ -n "$lib_bins_summary_lines" ]]; then
+    while IFS= read -r summary_line; do
+      finding_n="$(grep -oE 'generated [0-9]+ warning' <<<"$summary_line" | grep -oE '[0-9]+')"
+      lib_bins_count=$((lib_bins_count + finding_n))
+    done <<<"$lib_bins_summary_lines"
+  fi
 
   # A zero count means clippy re-emitted nothing, not that the lib became clean:
   # the crate has never been at zero. Treat it as a broken measurement and fail,
@@ -171,8 +189,18 @@ if [[ "$FAST" -eq 0 ]]; then
   cargo clean -p scenario-weaver >/dev/null 2>&1 || true
   all_targets_output="$(cargo clippy --all-targets 2>&1)"
   echo "$all_targets_output"
-  all_targets_warn_count="$(grep -c '^warning:' <<<"$all_targets_output" || true)"
-  RESULTS+=("cargo clippy --all-targets|report|0|${all_targets_warn_count} warning(s) — not gating, see TODO(SW-02)")
+  # Reporting-only (see TODO(SW-02) above), but scope it the same way as the
+  # --lib --bins ratchet above: `openscenario-rs` is a local path dependency
+  # (D1) and its warnings otherwise inflate this count on a cold cache too.
+  all_targets_summary_lines="$(grep -E '^warning: `scenario-weaver` \((lib|bin|test)' <<<"$all_targets_output" || true)"
+  all_targets_warn_count=0
+  if [[ -n "$all_targets_summary_lines" ]]; then
+    while IFS= read -r summary_line; do
+      finding_n="$(grep -oE 'generated [0-9]+ warning' <<<"$summary_line" | grep -oE '[0-9]+')"
+      all_targets_warn_count=$((all_targets_warn_count + finding_n))
+    done <<<"$all_targets_summary_lines"
+  fi
+  RESULTS+=("cargo clippy --all-targets|report|0|${all_targets_warn_count} warning(s) (scenario-weaver only) — not gating, see TODO(SW-02)")
 else
   RESULTS+=("cargo clippy --lib --bins|skipped|1|--fast")
   RESULTS+=("cargo clippy --all-targets|skipped|0|--fast")
