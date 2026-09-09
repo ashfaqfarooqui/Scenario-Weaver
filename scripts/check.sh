@@ -8,9 +8,16 @@
 # resolve the build. This script is the substitute — run it before committing.
 #
 # TODO(SW-02):
-#   (a) Once the `cargo clippy --all-targets` warning count (currently ~446,
+#   (a) Once the `cargo clippy --all-targets` warning count (currently 693,
 #       concentrated in tests/) is burned down, add `-D warnings` to that step
 #       below so it gates like the --lib --bins step already does.
+#       That figure is NOT comparable to the ~446 and 564 this comment and the
+#       summary line reported before SW-56: those counted printed `^warning: `
+#       lines across every crate, dependency included. It now sums clippy's own
+#       per-target totals for `scenario-weaver` alone, which include the
+#       duplicates clippy suppresses from its printed output (e.g. the lib-test
+#       target's "308 warnings (58 duplicates)"). The count went up because the
+#       measure changed, not because the tree got worse.
 #   (a2) Drive LIB_BINS_BASELINE below to 0 and switch that step back to a plain
 #       `-D warnings` gate. Deferred to wave 5 deliberately: 23 of the 60 are
 #       wrap-around cast lints in solver code that SW-08 (exact f64->Real
