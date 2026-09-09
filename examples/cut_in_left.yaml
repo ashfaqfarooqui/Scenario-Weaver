@@ -15,7 +15,7 @@
 #     over a 3-4s duration, but the solver collapses both ranges to their midpoint
 #     (start 2.4s, duration 3.5s) before solving, so every generated scenario
 #     performs the same lane change at the same simulated time regardless of -n.
-#     Tracked as SW-55; until it lands, do not read the ranges below as live.
+#     Until that changes, do not read the timing ranges below as live.
 #   - -n 5 stratifies each actor's declared position/speed range (ego included)
 #     and spreads the batch across it; a blocking clause still rules out exact
 #     duplicates. Manoeuvre timing is not part of that spread (see above).

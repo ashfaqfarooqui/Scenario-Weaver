@@ -227,7 +227,7 @@ where
 /// A cell of the Latin hypercube can be genuinely empty — `cut_in_left` requires the NPC
 /// ahead of the ego, so some ego/NPC stratum pairs have no solution at all. Rung `k`
 /// drops the `k` narrowest dimensions' strata; the last rung drops all of them, leaving
-/// exactly the pre-SW-53 constraint set (blocking clauses only). Only an `Unsat` from
+/// exactly the pre-stratification constraint set (blocking clauses only). Only an `Unsat` from
 /// that last rung is returned as `Unsat`, which is what keeps `-n 5` returning 5.
 ///
 /// `Unknown` is returned immediately and never relaxed: it is a timeout/incompleteness
@@ -288,7 +288,7 @@ fn assert_strata<B: Z3Backend + 'static>(encoder: &mut GenericEncoder<B>, strata
 
 /// The `Config` every solve attempt runs under.
 ///
-/// Deliberately bare. SW-53 planned to seed Z3 itself per solve
+/// Deliberately bare. Seeding Z3 itself per solve
 /// (`smt.random_seed = seed + scenario_index`) alongside the stratification, but
 /// `Z3_set_param_value` on a *config* accepts only Z3's small fixed set (`model`,
 /// `proof`, `timeout`, `auto_config`, ...): both `smt.random_seed` and the unqualified

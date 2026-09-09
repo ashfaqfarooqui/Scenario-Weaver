@@ -28,8 +28,9 @@
 //!   crossing pedestrian. Stratifying it here would assert a band the encoder has
 //!   already contradicted and drive every solve down the fallback ladder. Pedestrian
 //!   `position:` *is* stratified: it binds to `px[0]` exactly as it does for a vehicle.
-//! - **Accelerations, lane-change timing, and any state at `t > 0`.** Manoeuvre timing
-//!   is SW-55's scope.
+//! - **Accelerations, lane-change timing, and any state at `t > 0`.** Manoeuvre timing is
+//!   out of scope here: it is fixed before the solver runs (see
+//!   `collect_lane_change_data`), so there is nothing to stratify over yet.
 //!
 //! # Infeasible cells
 //!
@@ -189,7 +190,7 @@ impl DiversityPlan {
 
     /// Highest relaxation level. Level `0` asserts every stratum; level `k` drops the
     /// `k` narrowest dimensions' strata; level `max_relaxation()` asserts none at all,
-    /// leaving only the blocking clauses — the pre-SW-53 behaviour.
+    /// leaving only the blocking clauses — the behaviour before stratification existed.
     #[must_use]
     pub fn max_relaxation(&self) -> usize {
         self.dimensions.len()
@@ -367,7 +368,7 @@ mod tests {
         }
     }
 
-    /// The ego is stratified like anybody else — the defect SW-53 exists to fix was
+    /// The ego is stratified like anybody else — the defect this fixes was
     /// the ego being bit-identical across every scenario of a batch.
     #[test]
     fn ego_ranges_become_dimensions() {

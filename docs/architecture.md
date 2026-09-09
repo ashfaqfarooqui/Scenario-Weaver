@@ -269,7 +269,7 @@ run is `1/5` before and after: every scenario still performs the same lane chang
 the same simulated time, because `collect_lane_change_data`
 (`src/solver/encoder_utils.rs:248`) collapses a declared timing range to its midpoint
 before the solver ever sees it. Widening the initial-condition spread does not widen
-that; it is tracked separately as SW-55.
+that: making the timing a solver variable is separate, still-pending work.
 
 A stratum cell can be genuinely infeasible – `cut_in_left` requires the NPC ahead of
 the ego, so the ego-high/NPC-low corner has no solution. On that outcome the solver

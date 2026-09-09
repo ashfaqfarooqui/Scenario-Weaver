@@ -630,19 +630,19 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
 }
 
 // ---------------------------------------------------------------------------
-// Cross-scenario diversity (SW-52)
+// Cross-scenario diversity
 // ---------------------------------------------------------------------------
 //
 // `-n N` is documented (`docs/architecture.md:249`, `docs/authoring-scenarios.md:209`)
 // as producing scenarios that "spread across the feasible region", but nothing
 // measured that claim: the one test that looked like it did
-// (`tests/integration_test.rs`, pre-SW-52) asserted two exported XOSC strings were
+// (`tests/integration_test.rs`, before this metric existed) asserted two exported XOSC strings were
 // `!=`, which can never fail — every `Scenario` embeds a fresh random UUID
 // (`Scenario::new`) regardless of whether the underlying trajectories differ at all.
 //
 // This is the ruler, not the fix: it reports how diverse a batch actually is, at
-// whatever value that turns out to be today. Raising the number is SW-53's job
-// (the blocking-clause strategy in `solver::multi_solve`); nothing here may assume,
+// whatever value that turns out to be today. Raising the number is the job of the
+// sampling strategy in `solver::multi_solve`; nothing here may assume,
 // or be tuned to expect, any particular value.
 
 use crate::dsl::types::{ScenarioSpec, ValueOrRange};
@@ -697,7 +697,7 @@ impl std::fmt::Display for DiversityReport {
 /// differences.
 ///
 /// Reported as one composite signature per *scenario* rather than decomposed per
-/// actor: SW-52 asks for "the count of distinct lane sequences" as a single
+/// actor: the count of distinct lane sequences is wanted as a single
 /// batch-level number, and a composite is the natural reading of "distinct" applied
 /// to a whole scenario.
 fn lane_signature(scenario: &crate::scenario::model::Scenario) -> Vec<Vec<usize>> {
@@ -769,7 +769,8 @@ fn continuous_features(
 /// Measure how diverse a batch of scenarios generated from the same `spec` actually
 /// is — see [`DiversityReport`]. Deliberately additive and read-only: this computes a
 /// number, it does not change what the solver generates. See the module-level note
-/// above for why that split matters (SW-52 vs. SW-53).
+/// above for why that split matters: measuring diversity and producing it are
+/// deliberately separate concerns.
 #[must_use]
 pub fn scenario_diversity(
     spec: &ScenarioSpec,

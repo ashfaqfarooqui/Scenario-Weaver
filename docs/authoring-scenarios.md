@@ -219,7 +219,7 @@ matter what `num_scenarios` says, because there is nothing left to sample.
 This spreads *where each scenario starts*, not *what each scenario does*.
 `cut_in_left`'s lane change still happens at the same simulated time in all
 five scenarios, because the timing range in the spec is collapsed to its
-midpoint before the solver runs (tracked separately as SW-55) – so do not
+midpoint before the solver runs – so do not
 expect `-n` alone to vary manoeuvre structure. Sampling is seeded (`--seed`,
 default a fixed constant): the same seed reproduces the same batch, a
 different seed a different one, and there is no separate YAML field for it:
