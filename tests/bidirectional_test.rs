@@ -310,10 +310,25 @@ num_scenarios: 3
         );
     }
 
-    // Verify scenarios are diverse (different initial conditions)
-    // Note: with the current blocking clause strategy and narrow ranges,
-    // scenarios may have similar initial conditions. This is acceptable
-    // as the main goal is testing bidirectional road support, not diversity.
+    // Verify the scenarios actually differ, using the SW-52 diversity metric rather
+    // than an unsubstantiated comment. This used to say "scenarios may have similar
+    // initial conditions, this is acceptable, the main goal is testing bidirectional
+    // road support" and check nothing at all. It is still true this test's main goal
+    // is bidirectional road support, not diversity — hence a loose bound (> 0.0, not
+    // a specific target) — but "nothing measures it" and "acceptable" are different
+    // claims, and only the metric can tell them apart.
+    let spec = scenario_weaver::dsl::parser::parse_yaml(yaml)
+        .unwrap_or_else(|e| panic!("cannot parse scenario YAML: {e}"));
+    let diversity = scenario_weaver::scenario::scenario_diversity(&spec, &scenarios);
+    let min_dist = diversity
+        .min_pairwise_distance
+        .expect("3 scenarios must yield a min pairwise distance");
+    assert!(
+        min_dist > 0.0,
+        "the 3 generated scenarios should not be trajectory-identical (min pairwise \
+         L∞ distance was {min_dist})"
+    );
+    println!("{diversity}");
 }
 
 #[test]

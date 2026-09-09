@@ -365,18 +365,37 @@ fn test_xosc_export_multiple() {
         println!("Scenario {} XOSC export: {} bytes", i, xosc_xml.len());
     }
 
-    // Verify XOSC outputs are different (if we have multiple scenarios)
+    // Verify the scenarios actually differ (if we have multiple scenarios).
+    //
+    // This used to be `assert_ne!(xosc0, xosc1, ...)` — a check that can never fail,
+    // since every `Scenario::new` embeds a fresh random UUID (`scenario_id`) that
+    // gets exported straight into the XOSC, so two scenarios with byte-identical
+    // trajectories still produce different XML strings. SW-52 replaces it with an
+    // assertion on `scenario_diversity`'s min pairwise L∞ distance over the
+    // scenarios' own extracted trajectories (position/speed, normalized by the
+    // spec's declared ranges) — a metric that is genuinely 0.0 for identical
+    // trajectories, unlike the UUID-poisoned string comparison it replaces.
+    //
+    // Measured at this HEAD for this exact spec/count (see SW-52-diversity-is-
+    // unmeasured.md): min pairwise L∞ is on the order of 0.01, not the aspirational
+    // "spread across the feasible region" the docs claim — SW-52 is the ruler, not
+    // the fix. The threshold below is set low enough to pass at today's poor
+    // diversity and is expected to be raised once SW-53 improves it.
     if scenarios.len() >= 2 {
-        let xosc0 = scenario_weaver::export_scenario_to_xosc(&scenarios[0])
-            .expect("Should export scenario 0");
-        let xosc1 = scenario_weaver::export_scenario_to_xosc(&scenarios[1])
-            .expect("Should export scenario 1");
+        let spec = common::parse_example_yaml("cut_in_left.yaml");
+        let diversity = scenario_weaver::scenario::scenario_diversity(&spec, &scenarios);
 
-        assert_ne!(
-            xosc0, xosc1,
-            "Different scenarios should produce different XOSC outputs"
+        let min_dist = diversity
+            .min_pairwise_distance
+            .expect("scenarios.len() >= 2 must yield a min pairwise distance");
+        assert!(
+            min_dist > 0.0,
+            "generated scenarios should not be trajectory-identical (min pairwise L∞ \
+             distance was {min_dist}); this is the property the old assert_ne! on XOSC \
+             strings could never actually check"
         );
-        println!("Verified XOSC outputs are unique");
+
+        println!("{diversity}");
     }
 
     println!("Multiple XOSC export test passed");

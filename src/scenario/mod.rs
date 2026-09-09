@@ -15,6 +15,7 @@ pub mod xodr_exporter;
 pub mod xosc_exporter;
 
 pub use gif_animator::{export_to_gif, export_to_gif_with_resolution, Resolution};
+pub use metrics::{scenario_diversity, DiversityReport};
 pub use model::{ActorTrajectory, Position, Scenario, State, ValidationInfo, Velocity};
 pub use openlabel_exporter::export_to_openlabel;
 pub use svg_visualizer::export_to_svg;

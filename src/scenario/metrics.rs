@@ -629,6 +629,198 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Cross-scenario diversity (SW-52)
+// ---------------------------------------------------------------------------
+//
+// `-n N` is documented (`docs/architecture.md:249`, `docs/authoring-scenarios.md:209`)
+// as producing scenarios that "spread across the feasible region", but nothing
+// measured that claim: the one test that looked like it did
+// (`tests/integration_test.rs`, pre-SW-52) asserted two exported XOSC strings were
+// `!=`, which can never fail — every `Scenario` embeds a fresh random UUID
+// (`Scenario::new`) regardless of whether the underlying trajectories differ at all.
+//
+// This is the ruler, not the fix: it reports how diverse a batch actually is, at
+// whatever value that turns out to be today. Raising the number is SW-53's job
+// (the blocking-clause strategy in `solver::multi_solve`); nothing here may assume,
+// or be tuned to expect, any particular value.
+
+use crate::dsl::types::{ScenarioSpec, ValueOrRange};
+
+/// Cross-scenario diversity, computed over a batch of scenarios generated from the
+/// same [`ScenarioSpec`] (so every scenario has the same actors, in the same order,
+/// over the same horizon).
+#[derive(Debug, Clone)]
+pub struct DiversityReport {
+    /// Number of scenarios the report was computed over.
+    pub scenario_count: usize,
+    /// Smallest pairwise L∞ distance between any two scenarios' normalized continuous
+    /// feature vectors. `None` when `scenario_count < 2` — a batch of one has no pair
+    /// to compare, and reporting `0.0` would read as "identical", not "unmeasured".
+    pub min_pairwise_distance: Option<f64>,
+    /// Mean pairwise L∞ distance over all pairs. Same `None` rule as above.
+    pub mean_pairwise_distance: Option<f64>,
+    /// Number of distinct per-scenario lane-sequence signatures in the batch (see
+    /// [`lane_signature`]) — a discrete companion to the continuous distance above,
+    /// since e.g. two scenarios that both cut in at a slightly different time but
+    /// into the same lane on the same sampled step read as "different" continuously
+    /// but identical here.
+    pub distinct_lane_sequences: usize,
+}
+
+impl std::fmt::Display for DiversityReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.scenario_count < 2 {
+            write!(
+                f,
+                "scenario diversity: n/a ({} scenario in the batch, need >= 2 to compare)",
+                self.scenario_count
+            )
+        } else {
+            write!(
+                f,
+                "scenario diversity over {} scenarios: min pairwise L∞={:.4}, mean pairwise \
+                 L∞={:.4}, distinct lane-sequence signatures={}/{}",
+                self.scenario_count,
+                self.min_pairwise_distance.unwrap_or(0.0),
+                self.mean_pairwise_distance.unwrap_or(0.0),
+                self.distinct_lane_sequences,
+                self.scenario_count
+            )
+        }
+    }
+}
+
+/// One scenario's discrete lane-change fingerprint: each actor's `lane()` at every
+/// state (`t = 0..=H`), in spec actor order. Two scenarios with equal signatures took
+/// structurally the same lane sequence for every actor, whatever their continuous
+/// differences.
+///
+/// Reported as one composite signature per *scenario* rather than decomposed per
+/// actor: SW-52 asks for "the count of distinct lane sequences" as a single
+/// batch-level number, and a composite is the natural reading of "distinct" applied
+/// to a whole scenario.
+fn lane_signature(scenario: &crate::scenario::model::Scenario) -> Vec<Vec<usize>> {
+    scenario
+        .actors
+        .iter()
+        .map(|actor| {
+            actor
+                .states
+                .iter()
+                .map(crate::scenario::model::State::lane)
+                .collect()
+        })
+        .collect()
+}
+
+/// This scenario's normalized continuous feature vector: for every actor whose
+/// `position` or `speed` is a declared [`ValueOrRange::Range`] in `spec`, the actor's
+/// x-position and `|vx|` at t=0 and at four points sampled across the trajectory
+/// (`H/4, H/2, 3H/4, H`, with `H` the last state index — the same four indices for
+/// every scenario in the batch, since they share `spec` and therefore a horizon).
+///
+/// An actor whose `position`/`speed` is a pinned [`ValueOrRange::Value`] contributes
+/// nothing for that dimension: there is no declared spread to normalize against, and
+/// an unnormalized difference would arbitrarily dominate (or be swamped by) the
+/// normalized ones. This is the issue's own instruction — leave pinned fields out of
+/// the continuous distance entirely, not folded in as a fixed 0.
+fn continuous_features(
+    spec: &ScenarioSpec,
+    scenario: &crate::scenario::model::Scenario,
+) -> Vec<f64> {
+    let mut features = Vec::new();
+
+    for actor_spec in &spec.actors {
+        let Some(traj) = scenario.get_actor(&actor_spec.id) else {
+            continue;
+        };
+        let n = traj.states.len();
+        if n == 0 {
+            continue;
+        }
+        let last = n - 1;
+        // Same four fractions of the horizon for every scenario in the batch: they
+        // all share `spec`, and therefore `n`.
+        let sample_indices = [0, last / 4, last / 2, (3 * last) / 4, last];
+
+        if let ValueOrRange::Range([lo, hi]) = actor_spec.position {
+            let range = hi - lo;
+            if range > 0.0 {
+                for idx in sample_indices {
+                    features.push(traj.states[idx].position().x / range);
+                }
+            }
+        }
+
+        if let ValueOrRange::Range([lo, hi]) = actor_spec.speed {
+            let range = hi - lo;
+            if range > 0.0 {
+                for idx in sample_indices {
+                    features.push(traj.states[idx].velocity().vx.abs() / range);
+                }
+            }
+        }
+    }
+
+    features
+}
+
+/// Measure how diverse a batch of scenarios generated from the same `spec` actually
+/// is — see [`DiversityReport`]. Deliberately additive and read-only: this computes a
+/// number, it does not change what the solver generates. See the module-level note
+/// above for why that split matters (SW-52 vs. SW-53).
+#[must_use]
+pub fn scenario_diversity(
+    spec: &ScenarioSpec,
+    scenarios: &[crate::scenario::model::Scenario],
+) -> DiversityReport {
+    let scenario_count = scenarios.len();
+
+    let feature_vectors: Vec<Vec<f64>> = scenarios
+        .iter()
+        .map(|s| continuous_features(spec, s))
+        .collect();
+
+    let (min_pairwise_distance, mean_pairwise_distance) = if scenario_count < 2 {
+        (None, None)
+    } else {
+        let mut min_dist = f64::INFINITY;
+        let mut sum_dist = 0.0;
+        let mut pair_count: usize = 0;
+
+        for (i, a) in feature_vectors.iter().enumerate() {
+            for b in feature_vectors.iter().skip(i + 1) {
+                let l_inf = a
+                    .iter()
+                    .zip(b.iter())
+                    .map(|(x, y)| (x - y).abs())
+                    .fold(0.0_f64, f64::max);
+                min_dist = min_dist.min(l_inf);
+                sum_dist += l_inf;
+                pair_count += 1;
+            }
+        }
+
+        // `pair_count` is `scenario_count choose 2`, always > 0 here since
+        // `scenario_count >= 2`.
+        (Some(min_dist), Some(sum_dist / pair_count as f64))
+    };
+
+    let distinct_lane_sequences = scenarios
+        .iter()
+        .map(lane_signature)
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+
+    DiversityReport {
+        scenario_count,
+        min_pairwise_distance,
+        mean_pairwise_distance,
+        distinct_lane_sequences,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::dsl::types::{

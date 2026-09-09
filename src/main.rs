@@ -112,7 +112,25 @@ fn main() -> Result<()> {
             write_scenario(scenario, &output_dir, i, num_scenarios)
                 .map_err(|e| scenario_weaver::error::ScenarioGenError::OutputWrite(e.to_string()))
         };
-        scenario_weaver::generate_multiple_scenarios_from_spec(spec, num_scenarios, Some(callback))?
+        // Cloned rather than moved: `spec` is needed again below (SW-52's
+        // diversity report is computed against the declared position/speed
+        // ranges), and the generator only needs a `&ScenarioSpec` internally
+        // despite taking one by value here.
+        let diversity_spec = spec.clone();
+        let scenarios = scenario_weaver::generate_multiple_scenarios_from_spec(
+            spec,
+            num_scenarios,
+            Some(callback),
+        )?;
+
+        // A batch of one scenario has no pairwise distance to report; see
+        // `DiversityReport`'s own `Display` for why that prints "n/a" rather than a
+        // misleading 0.0. Reported here (not in `solver::multi_solve`, which SW-53
+        // owns) since it needs the CLI-level `spec` this binary already holds.
+        let diversity = scenario_weaver::scenario::scenario_diversity(&diversity_spec, &scenarios);
+        tracing::info!("{diversity}");
+
+        scenarios
     };
 
     tracing::info!("Successfully generated {} scenario(s)", scenarios.len());
