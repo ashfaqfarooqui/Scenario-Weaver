@@ -442,8 +442,17 @@ fn test_enforce_mode_respects_constraint() {
         .validation
         .min_ttc
         .expect("min_ttc must be a measured value, not left unevaluated");
+    // The `- 1e-6` is the tolerance documented in `src/scenario/metrics.rs`
+    // (search 1e-6 there) and already carried by `tests/integration_test.rs`.
+    // The encoder asserts these bounds non-strictly, Z3 answers exactly on the
+    // boundary in rationals, and recovering the value through two rounded
+    // `f64`s lands a ULP either side of it -- 1.9999999999999998 here against a
+    // threshold of 2. Which side it lands on is not stable: before the
+    // speed-retention band this same example measured 2.0000000000000004.
+    // Comparing without the slack tests the rational->double recovery, not the
+    // constraint.
     assert!(
-        min_ttc >= min_ttc_threshold,
+        min_ttc >= min_ttc_threshold - 1e-6,
         "enforced min_ttc should be >= {min_ttc_threshold:.1}, got {min_ttc:.4}"
     );
 
@@ -452,7 +461,7 @@ fn test_enforce_mode_respects_constraint() {
         .min_distance
         .expect("min_distance must be a measured value, not left unevaluated");
     assert!(
-        min_distance >= min_dist_threshold,
+        min_distance >= min_dist_threshold - 1e-6,
         "enforced min_distance should be >= {min_dist_threshold:.1}, got {min_distance:.4}"
     );
 }
