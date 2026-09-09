@@ -6,6 +6,7 @@
 
 pub mod backend;
 pub mod coordinate_encoder;
+pub mod diversity;
 pub mod encoder;
 pub mod encoder_utils;
 pub mod encoders;
@@ -15,6 +16,7 @@ pub mod objectives;
 pub use backend::OptimizationTarget as BackendOptimizationTarget;
 pub use backend::{OptimizerBackend, SolverBackend, Z3Backend};
 pub use coordinate_encoder::CoordinateEncoder;
+pub use diversity::{DiversityPlan, DEFAULT_DIVERSITY_SEED};
 pub use encoder::EncoderAccessor;
 pub use encoder::GenericEncoder;
 pub use encoder::Z3Encoder;

@@ -51,6 +51,15 @@ struct Cli {
     /// Optimization target: find optimal scenarios instead of any satisfying solution
     #[arg(long, value_enum)]
     optimize: Option<OptimizeTarget>,
+
+    /// Seed for multi-scenario diversity (`-n` > 1).
+    ///
+    /// Drives the Latin-hypercube strata that spread a batch across the spec's declared
+    /// ranges. The same seed reproduces the same batch;
+    /// a different seed gives a different, equally valid one. Defaults to a fixed
+    /// constant, so a plain re-run is still byte-identical.
+    #[arg(long, default_value_t = scenario_weaver::solver::DEFAULT_DIVERSITY_SEED)]
+    seed: u64,
 }
 
 fn main() -> Result<()> {
@@ -117,9 +126,11 @@ fn main() -> Result<()> {
         // ranges), and the generator only needs a `&ScenarioSpec` internally
         // despite taking one by value here.
         let diversity_spec = spec.clone();
-        let scenarios = scenario_weaver::generate_multiple_scenarios_from_spec(
+        tracing::info!("Diversity seed: {}", cli.seed);
+        let scenarios = scenario_weaver::generate_multiple_scenarios_from_spec_seeded(
             spec,
             num_scenarios,
+            cli.seed,
             Some(callback),
         )?;
 

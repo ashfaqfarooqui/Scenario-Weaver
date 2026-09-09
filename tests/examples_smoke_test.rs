@@ -606,3 +606,81 @@ fn test_every_scenario_satisfies_every_invariant() {
         common::assert_all_scenario_invariants(&scenario, &spec);
     }
 }
+
+/// `-n 5` must return five scenarios on every solvable example.
+///
+/// SW-53's fallback-ladder regression guard. Diversity now comes from stratified
+/// sampling: each scenario is confined to its own cell of the declared
+/// initial-condition ranges. A cell can be genuinely empty — `cut_in_left` requires the
+/// NPC ahead of the ego, so pairing the ego's top position stratum with the NPC's
+/// bottom one has no model — and the raw `Unsat` that comes back means "this cell is
+/// empty", never "no more scenarios exist". `solve_with_ladder` relaxes one dimension's
+/// stratum at a time, and finally all of them, before reporting `Unsat` upward. Get that
+/// wrong and `-n 5` silently returns 1 with nothing but a `warn!` to show for it, which
+/// is exactly what this checks.
+///
+/// Five, not two: cells only start colliding once the batch is large enough to fill
+/// them, so a smaller `N` never reaches the ladder.
+///
+/// Sharded because of the nextest budget, not for taste: the full sweep is ~110 s of
+/// solving in a debug build, over `.config/nextest.toml`'s 120 s `terminate-after`.
+/// Four shards by position in the (directory-derived, so still not hand-maintained)
+/// example list put the two most expensive specs in different shards and bring the
+/// slowest one to ~42 s. `cut_in_left_optimize_min_ttc` alone is 40 s of that, so no
+/// finer split helps.
+fn assert_full_batch_over_shard(shard: usize, shards: usize) {
+    let mut shortfalls: Vec<String> = Vec::new();
+
+    for (name, spec) in common::solvable_examples()
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| i % shards == shard)
+        .map(|(_, e)| e)
+    {
+        let started = std::time::Instant::now();
+        let scenarios = scenario_weaver::generate_multiple_scenarios_from_spec(
+            spec.clone(),
+            5,
+            None::<
+                fn(
+                    usize,
+                    &scenario_weaver::scenario::model::Scenario,
+                ) -> scenario_weaver::error::Result<()>,
+            >,
+        );
+        println!("{name}: -n 5 in {:?}", started.elapsed());
+
+        match scenarios {
+            Ok(s) if s.len() == 5 => {}
+            Ok(s) => shortfalls.push(format!("{name}: returned {} of 5", s.len())),
+            Err(e) => shortfalls.push(format!("{name}: failed outright: {e}")),
+        }
+    }
+
+    assert!(
+        shortfalls.is_empty(),
+        "`-n 5` must yield 5 scenarios on every solvable example; the fallback ladder \
+         did not recover for:\n  {}",
+        shortfalls.join("\n  ")
+    );
+}
+
+#[test]
+fn test_five_scenarios_are_returned_for_every_solvable_example_shard_0() {
+    assert_full_batch_over_shard(0, 4);
+}
+
+#[test]
+fn test_five_scenarios_are_returned_for_every_solvable_example_shard_1() {
+    assert_full_batch_over_shard(1, 4);
+}
+
+#[test]
+fn test_five_scenarios_are_returned_for_every_solvable_example_shard_2() {
+    assert_full_batch_over_shard(2, 4);
+}
+
+#[test]
+fn test_five_scenarios_are_returned_for_every_solvable_example_shard_3() {
+    assert_full_batch_over_shard(3, 4);
+}

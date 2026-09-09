@@ -376,11 +376,16 @@ fn test_xosc_export_multiple() {
     // spec's declared ranges) — a metric that is genuinely 0.0 for identical
     // trajectories, unlike the UUID-poisoned string comparison it replaces.
     //
-    // Measured at this HEAD for this exact spec/count (see SW-52-diversity-is-
-    // unmeasured.md): min pairwise L∞ is on the order of 0.01, not the aspirational
-    // "spread across the feasible region" the docs claim — SW-52 is the ruler, not
-    // the fix. The threshold below is set low enough to pass at today's poor
-    // diversity and is expected to be raised once SW-53 improves it.
+    // SW-52 measured 0.0108 here and set the threshold to `> 0.0`, noting it should be
+    // raised once SW-53 landed. SW-53 replaced "not a duplicate" with stratified
+    // sampling over the declared ranges, and this batch (`cut_in_left.yaml`, n = 3,
+    // default seed) now measures min pairwise L∞ = 0.6667, mean 0.9686.
+    //
+    // The threshold is 0.25, not 0.6667: the strata guarantee roughly `1/N` of
+    // normalized separation on each stratified dimension, so a quarter of a range is a
+    // floor the design cannot fall below without something being wrong, while leaving
+    // room for the fallback ladder to drop a stratum on a spec whose cells cannot all
+    // be filled. It is ~23x the pre-SW-53 value, which is the point.
     if scenarios.len() >= 2 {
         let spec = common::parse_example_yaml("cut_in_left.yaml");
         let diversity = scenario_weaver::scenario::scenario_diversity(&spec, &scenarios);
@@ -389,10 +394,10 @@ fn test_xosc_export_multiple() {
             .min_pairwise_distance
             .expect("scenarios.len() >= 2 must yield a min pairwise distance");
         assert!(
-            min_dist > 0.0,
-            "generated scenarios should not be trajectory-identical (min pairwise L∞ \
-             distance was {min_dist}); this is the property the old assert_ne! on XOSC \
-             strings could never actually check"
+            min_dist >= 0.25,
+            "stratified sampling should spread this batch across a substantial fraction \
+             of its declared ranges, but min pairwise L∞ distance was {min_dist} \
+             (pre-SW-53 it was 0.0108; at this HEAD it measures 0.6667)"
         );
 
         println!("{diversity}");

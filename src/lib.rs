@@ -209,6 +209,9 @@ where
 ///
 /// Use this when you have already parsed and possibly modified the spec,
 /// to avoid a fragile YAML round-trip.
+///
+/// Uses [`solver::DEFAULT_DIVERSITY_SEED`]; call
+/// [`generate_multiple_scenarios_from_spec_seeded`] to choose the seed.
 pub fn generate_multiple_scenarios_from_spec<F>(
     spec: dsl::types::ScenarioSpec,
     num_scenarios: usize,
@@ -217,8 +220,35 @@ pub fn generate_multiple_scenarios_from_spec<F>(
 where
     F: FnMut(usize, &Scenario) -> Result<()>,
 {
+    generate_multiple_scenarios_from_spec_seeded(
+        spec,
+        num_scenarios,
+        solver::DEFAULT_DIVERSITY_SEED,
+        callback,
+    )
+}
+
+/// Generate multiple diverse scenarios from a pre-parsed specification, with an explicit
+/// diversity seed.
+///
+/// `seed` drives the Latin-hypercube stratum permutations that spread the batch across
+/// the spec's declared ranges (see [`solver::diversity`]). The same seed and spec reproduce the same batch; a different seed gives a different,
+/// equally valid one. This is the only control surface for diversity — there is no YAML
+/// schema for it.
+///
+/// # Errors
+/// Returns error if specification validation or solving fails.
+pub fn generate_multiple_scenarios_from_spec_seeded<F>(
+    spec: dsl::types::ScenarioSpec,
+    num_scenarios: usize,
+    seed: u64,
+    callback: Option<F>,
+) -> Result<Vec<Scenario>>
+where
+    F: FnMut(usize, &Scenario) -> Result<()>,
+{
     let ltl_formula = ltl::generator::LTLGenerator::generate(&spec)?;
-    solver::multi_solve::generate_scenarios(&spec, &ltl_formula, num_scenarios, callback)
+    solver::multi_solve::generate_scenarios(&spec, &ltl_formula, num_scenarios, seed, callback)
 }
 
 /// Export a scenario to OpenSCENARIO XML format

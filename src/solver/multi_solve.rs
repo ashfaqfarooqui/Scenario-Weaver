@@ -1,8 +1,14 @@
 //! Multiple scenario generation with blocking clauses
 //!
-//! Generates multiple diverse scenarios from the same specification by using
-//! blocking clauses to prevent duplicate solutions. Diversity is enforced on
-//! NPC initial position and velocity.
+//! Generates multiple diverse scenarios from the same specification.
+//!
+//! Diversity is produced by *construction*, not by exclusion: a
+//! [`DiversityPlan`] cuts every free initial-condition range — every actor's,
+//! the ego's included — into `N` strata and confines scenario `i` to one
+//! stratum per dimension (see [`crate::solver::diversity`]). The blocking
+//! clauses below are retained underneath as a safety net: they still guarantee
+//! non-duplication on the rungs of the fallback ladder where the strata have
+//! been given up.
 
 use crate::dsl::types::{ActorRole, OptimizationTarget as DslOptimizationTarget, ScenarioSpec};
 use crate::error::{Result, ScenarioGenError};
@@ -12,6 +18,7 @@ use crate::scenarios::ScenarioModel;
 use crate::solver::backend::{
     OptimizationTarget as BackendOptimizationTarget, OptimizerBackend, Z3Backend,
 };
+use crate::solver::diversity::{DimensionKind, DiversityPlan, StratumBound};
 use crate::solver::encoder_utils::real_from_f64;
 use crate::solver::{GenericEncoder, Z3Encoder};
 use z3::ast::{Bool, Real};
@@ -54,6 +61,15 @@ fn encode_standard_pipeline<B: Z3Backend + 'static>(
 /// - `Unsat` on any iteration stops the loop — "no more unique scenarios exist" is a
 ///   legitimate, successful terminal state, so a partial result (e.g. `-n 10` yielding
 ///   3) is returned as `Ok` with only a `warn!`.
+///
+///   With stratification this contract moved *into the closure*, deliberately, rather
+///   than being weakened here. A raw `SatResult::Unsat` from a strata-constrained solve
+///   usually means "this stratum cell is empty", not "no more scenarios exist", and
+///   breaking on it would silently turn `-n 5` into `-n 1`. `solve_with_ladder` therefore
+///   walks the whole relaxation ladder — dropping one dimension's stratum at a time and
+///   finally all of them — before it ever hands an `Unsat` back to this function. An
+///   `Unsat` seen here is thus still what it always was: unsatisfiable with nothing left
+///   to relax but the blocking clauses.
 /// - `Unknown` on any iteration also stops the loop, but is NOT treated as equivalent
 ///   to `Unsat`: if it happens before anything was generated, the caller gets
 ///   `ScenarioGenError::SolverUnknown`, not `Unsatisfiable` — the two are different
@@ -125,8 +141,10 @@ where
 
 /// Generate multiple diverse scenarios from the same specification
 ///
-/// Uses blocking clauses to ensure each generated scenario is different.
-/// Specifically, we block based on NPC initial conditions (position and velocity).
+/// Spread comes from a [`DiversityPlan`]: each scenario is confined to its own
+/// stratum of every free initial-condition range, across every actor including the
+/// ego. Blocking clauses run underneath as a safety net so that non-duplication
+/// still holds on the ladder rungs where a stratum had to be given up.
 ///
 /// Honours `spec.optimization_target`: each of the N solves runs through the Z3
 /// optimizer backend when one is set, with the same blocking clauses enforcing
@@ -138,6 +156,8 @@ where
 /// * `spec` - Scenario specification
 /// * `ltl_formula` - Generated LTL formula (same for all scenarios)
 /// * `num_scenarios` - Number of scenarios to generate
+/// * `seed` - Seed for the stratum permutations; the same seed reproduces the same
+///   batch (see [`crate::solver::diversity`] and [`solve_config`])
 /// * `callback` - Optional callback invoked after each scenario is generated
 ///
 /// # Returns
@@ -150,16 +170,32 @@ pub fn generate_scenarios<F>(
     spec: &ScenarioSpec,
     ltl_formula: &LTLFormula,
     num_scenarios: usize,
+    seed: u64,
     callback: Option<F>,
 ) -> Result<Vec<Scenario>>
 where
     F: FnMut(usize, &Scenario) -> Result<()>,
 {
+    let plan = DiversityPlan::new(spec, num_scenarios, seed);
+    tracing::debug!(
+        "diversity plan: {} stratified dimension(s) over {} scenario(s), seed {}",
+        plan.dimension_count(),
+        num_scenarios,
+        seed
+    );
+
     match spec.optimization_target {
         DslOptimizationTarget::None => drive_generation(
             num_scenarios,
             callback,
-            |prev_scenarios| solve_one_sat(spec, ltl_formula, prev_scenarios),
+            |prev_scenarios| {
+                // The index of the scenario being solved *is* the number already
+                // generated: `drive_generation` pushes only on success.
+                let index = prev_scenarios.len();
+                solve_with_ladder(&plan, index, |strata| {
+                    solve_one_sat(spec, ltl_formula, prev_scenarios, strata)
+                })
+            },
             "solver",
         ),
         target => {
@@ -168,7 +204,17 @@ where
                 num_scenarios,
                 callback,
                 |prev_scenarios| {
-                    solve_one_optimized(spec, ltl_formula, backend_target, target, prev_scenarios)
+                    let index = prev_scenarios.len();
+                    solve_with_ladder(&plan, index, |strata| {
+                        solve_one_optimized(
+                            spec,
+                            ltl_formula,
+                            backend_target,
+                            target,
+                            prev_scenarios,
+                            strata,
+                        )
+                    })
                 },
                 "optimizer",
             )
@@ -176,18 +222,104 @@ where
     }
 }
 
-/// Run one SAT-backend solve attempt (blocking clauses against `prev_scenarios` already
-/// generated), classified into a [`SolveOutcome`].
+/// Run one scenario's solve, walking the stratum-relaxation ladder on `Unsat`.
+///
+/// A cell of the Latin hypercube can be genuinely empty — `cut_in_left` requires the NPC
+/// ahead of the ego, so some ego/NPC stratum pairs have no solution at all. Rung `k`
+/// drops the `k` narrowest dimensions' strata; the last rung drops all of them, leaving
+/// exactly the pre-SW-53 constraint set (blocking clauses only). Only an `Unsat` from
+/// that last rung is returned as `Unsat`, which is what keeps `-n 5` returning 5.
+///
+/// `Unknown` is returned immediately and never relaxed: it is a timeout/incompleteness
+/// signal about the query as posed, not evidence that the cell is empty, and retrying a
+/// strictly weaker query would just spend the same time again.
+fn solve_with_ladder(
+    plan: &DiversityPlan,
+    scenario_index: usize,
+    mut attempt: impl FnMut(&[StratumBound]) -> Result<SolveOutcome>,
+) -> Result<SolveOutcome> {
+    for level in 0..=plan.max_relaxation() {
+        let strata = plan.strata_for(scenario_index, level);
+        match attempt(&strata)? {
+            SolveOutcome::Unsat if level < plan.max_relaxation() => {
+                tracing::warn!(
+                    "Scenario {}: no solution inside its assigned stratum cell; \
+                     relaxing {} and retrying. The batch will be less evenly spread \
+                     than requested — the spec's declared ranges cannot fill {} cells.",
+                    scenario_index + 1,
+                    plan.dropped_at(level)
+                        .unwrap_or_else(|| "a dimension".to_string()),
+                    plan.max_relaxation()
+                );
+            }
+            outcome => return Ok(outcome),
+        }
+    }
+
+    // Unreachable: the loop always runs its last iteration, whose arm returns.
+    Ok(SolveOutcome::Unsat)
+}
+
+/// Assert one scenario's stratum cell: a closed interval on each stratified `t = 0`
+/// variable.
+///
+/// Reuses the encoder's existing coordinate-agnostic accessors rather than reaching into
+/// a backend: `get_position_x`/`get_velocity_x` map to longitudinal position/velocity in
+/// both the Cartesian and the bicycle encoder.
+fn assert_strata<B: Z3Backend + 'static>(encoder: &mut GenericEncoder<B>, strata: &[StratumBound]) {
+    for stratum in strata {
+        // Cloned out of the encoder first: the accessors borrow it immutably and
+        // `assert_constraint` needs it mutably.
+        let var = match stratum.kind {
+            DimensionKind::LongitudinalPosition => {
+                encoder.get_position_x(&stratum.actor_id, 0).clone()
+            }
+            DimensionKind::LongitudinalVelocity => {
+                encoder.get_velocity_x(&stratum.actor_id, 0).clone()
+            }
+        };
+
+        let lo = real_from_f64(stratum.lo);
+        let hi = real_from_f64(stratum.hi);
+        let cell = Bool::and(&[&var.ge(&lo), &var.le(&hi)]);
+        encoder.assert_constraint(&cell);
+    }
+}
+
+/// The `Config` every solve attempt runs under.
+///
+/// Deliberately bare. SW-53 planned to seed Z3 itself per solve
+/// (`smt.random_seed = seed + scenario_index`) alongside the stratification, but
+/// `Z3_set_param_value` on a *config* accepts only Z3's small fixed set (`model`,
+/// `proof`, `timeout`, `auto_config`, ...): both `smt.random_seed` and the unqualified
+/// `random_seed` are rejected at runtime with `WARNING: unknown parameter` on stderr and
+/// leave the seed unset — verified by running, not assumed. The seed would have to be
+/// set on the `Solver`/`Optimize` object's own `Params`, which lives in
+/// `solver::backend`, outside this change's scope.
+///
+/// Little is lost. Z3's LRA simplex answers a satisfiable query with a vertex of the
+/// feasible polytope either way; a different random seed reorders which vertex, it does
+/// not spread the batch out. **Stratification is the mechanism** — `--seed` moves the
+/// stratum permutations, and that is what the measured spread comes from.
+fn solve_config() -> Config {
+    Config::new()
+}
+
+/// Run one SAT-backend solve attempt (the scenario's stratum cell, plus blocking clauses
+/// against `prev_scenarios` already generated), classified into a [`SolveOutcome`].
 fn solve_one_sat(
     spec: &ScenarioSpec,
     ltl_formula: &LTLFormula,
     prev_scenarios: &[Scenario],
+    strata: &[StratumBound],
 ) -> Result<SolveOutcome> {
     let scenario_model = spec.scenario_type.get_model();
-    let cfg = Config::new();
+    let cfg = solve_config();
     z3::with_z3_config(&cfg, || {
         let mut encoder = Z3Encoder::new(spec.clone());
         encode_standard_pipeline(&mut encoder, ltl_formula, &*scenario_model)?;
+
+        assert_strata(&mut encoder, strata);
 
         for prev_scenario in prev_scenarios {
             let blocking_clause = create_blocking_clause(&encoder, prev_scenario)?;
@@ -208,23 +340,27 @@ fn solve_one_sat(
     })
 }
 
-/// Run one optimizer-backend solve attempt (blocking clauses against `prev_scenarios`
-/// already generated, plus the objective for `backend_target`), classified into a
-/// [`SolveOutcome`]. On `Sat`, the scenario's `optimization` field is populated exactly
-/// as the single-scenario optimizer path (`generate_with_optimizer` in `lib.rs`) does.
+/// Run one optimizer-backend solve attempt (the scenario's stratum cell, blocking clauses
+/// against `prev_scenarios` already generated, plus the objective for `backend_target`),
+/// classified into a [`SolveOutcome`]. On `Sat`, the scenario's `optimization` field is
+/// populated exactly as the single-scenario optimizer path (`generate_with_optimizer` in
+/// `lib.rs`) does.
 fn solve_one_optimized(
     spec: &ScenarioSpec,
     ltl_formula: &LTLFormula,
     backend_target: BackendOptimizationTarget,
     dsl_target: DslOptimizationTarget,
     prev_scenarios: &[Scenario],
+    strata: &[StratumBound],
 ) -> Result<SolveOutcome> {
     let scenario_model = spec.scenario_type.get_model();
-    let cfg = Config::new();
+    let cfg = solve_config();
     z3::with_z3_config(&cfg, || {
         let mut encoder =
             GenericEncoder::with_backend(spec.clone(), OptimizerBackend::new(backend_target));
         encode_standard_pipeline(&mut encoder, ltl_formula, &*scenario_model)?;
+
+        assert_strata(&mut encoder, strata);
 
         for prev_scenario in prev_scenarios {
             let blocking_clause = create_blocking_clause(&encoder, prev_scenario)?;
@@ -257,27 +393,30 @@ fn solve_one_optimized(
 
 /// Create a blocking clause to prevent generating the same scenario
 ///
-/// We block based on all non-ego actors' initial conditions (position and velocity at t=0).
-/// This ensures diversity in the generated scenarios across different actor types.
+/// We block based on **every** actor's initial conditions (position and velocity at t=0),
+/// the ego included. The ego used to be excluded, which is why its initial state came out
+/// bit-identical across a whole batch: the vehicle under test is exactly the one whose
+/// starting geometry decides what the encounter looks like, so it is diversified like any
+/// other actor.
+///
+/// This clause is the *safety net*, not the mechanism. Stratification (see
+/// [`crate::solver::diversity`]) is what spreads a batch out; what this guarantees is that
+/// no two scenarios are near-duplicates even on the ladder rungs where a stratum was
+/// dropped.
 ///
 /// Uses position_x and velocity_x for all coordinate systems (Cartesian and Bicycle both use x-axis).
 ///
 /// The blocking clause is: !(actor1_equal AND actor2_equal AND ...)
 /// Which is equivalent to: (actor1_differs OR actor2_differs OR ...)
-/// At least one non-ego actor must have different initial conditions from previous scenarios.
+/// At least one actor must have different initial conditions from previous scenarios.
 fn create_blocking_clause<B: Z3Backend + 'static>(
     encoder: &GenericEncoder<B>,
     prev_scenario: &Scenario,
 ) -> Result<Bool> {
     let mut all_blocking_clauses = Vec::new();
 
-    // Get all non-ego actors from the spec
-    for actor in encoder
-        .spec
-        .actors
-        .iter()
-        .filter(|a| a.role != ActorRole::Ego)
-    {
+    // Every actor in the spec, ego included.
+    for actor in &encoder.spec.actors {
         // Get actor trajectory from previous scenario
         let actor_traj = prev_scenario
             .get_actor(&actor.id)
@@ -529,12 +668,20 @@ mod tests {
             &spec,
             &ltl_formula,
             3,
+            crate::solver::diversity::DEFAULT_DIVERSITY_SEED,
             None::<fn(usize, &Scenario) -> Result<()>>,
         )
         .unwrap();
 
-        // Should have 3 scenarios
-        assert!(!scenarios.is_empty());
+        // Three, not merely "not empty": with stratification a `SatResult::Unsat` from
+        // one stratum cell must be recovered from by the fallback ladder, not reported
+        // upward as "no more scenarios exist". If that ever regresses this batch
+        // silently shrinks.
+        assert_eq!(
+            scenarios.len(),
+            3,
+            "the fallback ladder must still deliver the full batch"
+        );
         println!("Generated {} scenarios", scenarios.len());
 
         // Verify each scenario is different
