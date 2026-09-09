@@ -223,6 +223,99 @@ fn test_head_on_oncoming_retains_speed_through_horizon() {
     );
 }
 
+/// SW-50: the SW-39/SW-40 floors bound the *average* over the horizon and the
+/// *final* step; nothing bounded the steps in between. On the shipped
+/// `head_on_near_miss.yaml` at `2c7c8fc` the oncoming vehicle decayed
+/// monotonically from -12.0 to -4.1 m/s against a declared `[10.0, 12.0]`
+/// (riding `TERMINAL_SPEED_FRACTION` back up to exactly -5.0 at the horizon),
+/// and the "slow vehicle motivating overtake" reached 13.5 m/s against a
+/// declared `[6.0, 8.0]` — 69% over its own maximum, and faster than the ego's
+/// declared 12.0. The overtake was still enforced (SW-47); its motivation was
+/// not.
+///
+/// Both actors now carry `behavior.speed_retention: 1.0`, which asserts the
+/// declared band as a two-sided per-step bound on along-track speed. This test
+/// reads the fraction and the band out of the spec rather than restating them,
+/// so re-tuning either example cannot leave the assertion checking a stale
+/// number — and it checks **every** step, which is the whole point: the
+/// pre-SW-50 trajectory satisfied a terminal-step check and violated this one
+/// at 17 of its 21 steps.
+///
+/// The bicycle example is included because `get_longitudinal_vel` is the signed
+/// along-track velocity in both coordinate frames (Cartesian `vx`; the bicycle
+/// model's `longitudinal_vel = direction * speed_v`), so the retention bound is
+/// asserted frame-independently and both frames should honour it.
+#[test]
+fn test_head_on_speed_retention_holds_the_declared_band_at_every_step() {
+    for example in ["head_on_near_miss.yaml", "head_on_near_miss_bicycle.yaml"] {
+        let (scenario, spec) = common::generate_example_with_spec(example);
+
+        let mut actors_checked = 0;
+        for actor_spec in &spec.actors {
+            let Some(fraction) = actor_spec.speed_retention() else {
+                continue;
+            };
+            actors_checked += 1;
+
+            let floor = fraction * actor_spec.speed.min();
+            let ceiling = actor_spec.speed.max() / fraction;
+            let direction = f64::from(actor_spec.direction);
+            let actor = scenario
+                .get_actor(&actor_spec.id)
+                .unwrap_or_else(|| panic!("{example}: missing actor {}", actor_spec.id));
+
+            for (step, state) in actor.states.iter().enumerate() {
+                let along_track = direction * state.velocity().vx;
+                assert!(
+                    along_track >= floor - 1e-6 && along_track <= ceiling + 1e-6,
+                    "{example}: {} declares speed_retention {fraction} over speed \
+                     [{:.1}, {:.1}], so its along-track speed must stay within \
+                     [{floor:.3}, {ceiling:.3}] m/s at every step — step {step} is \
+                     {along_track:.3}; series: {:?}",
+                    actor_spec.id,
+                    actor_spec.speed.min(),
+                    actor_spec.speed.max(),
+                    actor
+                        .states
+                        .iter()
+                        .map(|s| direction * s.velocity().vx)
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+
+        assert_eq!(
+            actors_checked, 2,
+            "{example} should declare speed_retention on slow_npc and oncoming_npc; \
+             found {actors_checked} actor(s) with the key"
+        );
+    }
+}
+
+/// SW-50, the other half of the same property: the retention band is **opt-in
+/// per actor**, and the ego of a head-on example does not carry it. That is
+/// deliberate — the ego is the vehicle under test and must stay free to brake
+/// hard, which is exactly what `encode_forward_progress`'s doc comment refuses
+/// to forbid globally and what SW-40 had to reopen for a declared braking
+/// manoeuvre. If a future change ever seats the floor on every actor, this test
+/// is the one that should go red first.
+#[test]
+fn test_head_on_speed_retention_is_opt_in_and_leaves_the_ego_free() {
+    let (_scenario, spec) = common::generate_example_with_spec("head_on_near_miss.yaml");
+
+    let ego = spec
+        .actors
+        .iter()
+        .find(|a| a.role == ActorRole::Ego)
+        .expect("head_on_near_miss.yaml has an ego");
+
+    assert!(
+        ego.speed_retention().is_none(),
+        "the ego must not opt in to speed retention: it is the vehicle under test \
+         and has to stay free to brake"
+    );
+}
+
 #[test]
 fn test_head_on_three_actors() {
     let scenario = near_miss();

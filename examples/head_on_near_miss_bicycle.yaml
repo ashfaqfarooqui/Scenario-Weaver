@@ -85,6 +85,11 @@ actors:
     speed: [6.0, 8.0]          # Slow vehicle motivating overtake
     direction: 1                # Forward (+x)
     acceleration: [-3.0, 1.0]
+    behavior:
+      # Hold the declared band for the whole horizon, not just at t=0 --
+      # otherwise the "slow" vehicle accelerates out of its own band and the
+      # overtake loses its motivation. See head_on_near_miss.yaml.
+      speed_retention: 1.0
 
   - id: oncoming_npc
     role: npc
@@ -93,6 +98,11 @@ actors:
     speed: [10.0, 12.0]        # Oncoming speed
     direction: -1               # Backward (-x) - oncoming traffic
     acceleration: [-2.0, 1.0]
+    behavior:
+      # The closing speed is what makes this a head-on near miss; without this
+      # the oncoming car coasts down towards the terminal-speed floor and the
+      # near miss is bought by it getting out of the way.
+      speed_retention: 1.0
 
 # Safety constraints - ENFORCE to maintain safety for all pairs
 min_ttc: 2.0

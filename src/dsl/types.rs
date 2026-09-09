@@ -136,10 +136,21 @@ pub const TERMINAL_SPEED_FRACTION: f64 = 0.5;
 ///
 /// `behavior` is an untyped `HashMap<String, serde_json::Value>` — there is no
 /// per-scenario-type schema to validate against — so this whitelist is the
-/// "at minimum" option: reject any key that is not one of these two, so a
+/// "at minimum" option: reject any key that is not one of these, so a
 /// typo (`walking_moad` for `walking_mode`) is a parse-time error rather than
 /// a silently-defaulted behavior. Grep the crate before adding to this list.
-pub const ALLOWED_BEHAVIOR_KEYS: &[&str] = &["direction", "walking_mode"];
+/// Every key here is also range-checked in `ScenarioSpec::validate`, so a
+/// well-spelled key with a nonsense value is rejected too.
+pub const ALLOWED_BEHAVIOR_KEYS: &[&str] = &["direction", "walking_mode", "speed_retention"];
+
+/// The widest `behavior.speed_retention` fraction that still means anything.
+///
+/// `1.0` pins the actor inside its declared `speed:` band at every step;
+/// smaller values widen the band multiplicatively on both sides (see
+/// [`ActorSpec::speed_retention`]). Values above `1.0` would invert the band
+/// — floor above `speed.min()` *and* ceiling below `speed.max()`, so the
+/// declared initial speed itself could be illegal — and are rejected.
+pub const MAX_SPEED_RETENTION: f64 = 1.0;
 
 /// Constraint enforcement mode
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -817,6 +828,49 @@ pub struct ActorSpec {
     pub bicycle_params: Option<BicycleParams>,
 }
 
+impl ActorSpec {
+    /// The actor's opt-in speed-retention fraction, if it declared one.
+    ///
+    /// `speed:` is an **initial condition** everywhere else in this crate: it
+    /// pins `v[0]` and is never referred to again, so between step 1 and the
+    /// horizon an actor's speed is bounded only by its acceleration band and
+    /// by the two floors in `encode_forward_progress` (net displacement, and
+    /// — for actors whose dynamics can reach it — the terminal step). The
+    /// cheapest satisfying assignment rides whichever of those is closest,
+    /// which is why the oncoming vehicle in `head_on_near_miss.yaml` used to
+    /// shed speed monotonically to 4.1 m/s against a declared `[10.0, 12.0]`,
+    /// and why its slow vehicle — the one whose slowness is the whole reason
+    /// for the overtake — reached 13.5 m/s against a declared `[6.0, 8.0]`.
+    ///
+    /// `behavior.speed_retention: f` says the declared band means "hold
+    /// this", not just "start here", for **this actor only**. With
+    /// `0 < f <= 1`, at every step the along-track speed must satisfy
+    ///
+    /// ```text
+    /// f * speed.min()  <=  direction * v_long[t]  <=  speed.max() / f
+    /// ```
+    ///
+    /// `f = 1.0` is the declared band exactly; smaller `f` widens it by the
+    /// same relative factor on each side (`f = 0.8` on `[10, 12]` gives
+    /// `[8.0, 15.0]`), so one number expresses "roughly holds its speed"
+    /// without the caller having to restate the band.
+    ///
+    /// Opt-in and defaulted off, deliberately. A per-step floor is exactly
+    /// what `encode_forward_progress`'s doc comment refuses to impose on
+    /// every actor — braking hard, to a standstill, is legitimate driving and
+    /// is the point of a scenario with a pedestrian in the road. Per actor,
+    /// the author says which vehicles are background traffic holding a speed
+    /// and which one is the vehicle under test that may do anything.
+    ///
+    /// Returns `None` when the key is absent. `ScenarioSpec::validate` has
+    /// already rejected a non-numeric or out-of-range value by the time any
+    /// encoder calls this, so a malformed value cannot reach the solver as a
+    /// silent `None`.
+    pub fn speed_retention(&self) -> Option<f64> {
+        self.behavior.get("speed_retention")?.as_f64()
+    }
+}
+
 /// Root configuration parsed from a YAML scenario file.
 ///
 /// Contains all information needed to generate one or more concrete scenarios:
@@ -1255,6 +1309,42 @@ impl ScenarioSpec {
                     ));
                 }
             }
+            // `speed_retention` is a number in `(0, 1]` on a moving,
+            // non-pedestrian actor, and nothing else. The whitelist above
+            // only catches a misspelled *key*; `speed_retention: yes` or
+            // `speed_retention: 0` would pass it and then read back as
+            // `None`/an unsatisfiable bound inside the encoder, which is the
+            // silent-default failure mode that whitelist exists to remove.
+            if let Some(raw) = actor.behavior.get("speed_retention") {
+                let Some(fraction) = raw.as_f64() else {
+                    return Err(format!(
+                        "Actor {}: behavior.speed_retention must be a number in (0, {MAX_SPEED_RETENTION}], got {raw}",
+                        actor.id
+                    ));
+                };
+                if !fraction.is_finite() || fraction <= 0.0 || fraction > MAX_SPEED_RETENTION {
+                    return Err(format!(
+                        "Actor {}: behavior.speed_retention must be in (0, {MAX_SPEED_RETENTION}], got {fraction}",
+                        actor.id
+                    ));
+                }
+                if actor.role == ActorRole::Pedestrian {
+                    return Err(format!(
+                        "Actor {}: behavior.speed_retention is not supported for pedestrians. \
+                         A pedestrian's authored speed governs its lateral crossing velocity \
+                         (`vy`) and its longitudinal velocity is pinned to zero, so an \
+                         along-track speed floor is unsatisfiable by construction",
+                        actor.id
+                    ));
+                }
+                if actor.speed.min() <= 0.0 {
+                    return Err(format!(
+                        "Actor {}: behavior.speed_retention requires a positive speed.min(), got {}",
+                        actor.id,
+                        actor.speed.min()
+                    ));
+                }
+            }
             // Validate lane changes.
             //
             // All three of these used to be silent: an out-of-range
@@ -1553,6 +1643,54 @@ mod tests {
             err.contains("leaves the road") && err.contains("npc"),
             "error must name the actor and the problem, got: {err}"
         );
+    }
+
+    /// SW-50: `behavior.speed_retention` is a fraction in `(0, 1]`, and every
+    /// other shape is a parse-time error rather than a silently-ignored key.
+    /// `ALLOWED_BEHAVIOR_KEYS` only rejects a misspelled *key*; a well-spelled
+    /// key holding `yes` or `0` used to read back as `None` inside the encoder
+    /// — the exact silent-default failure mode that whitelist exists to remove.
+    #[test]
+    fn test_speed_retention_must_be_a_fraction_in_the_unit_interval() {
+        for (value, why) in [
+            (serde_json::json!(0.0), "zero retains nothing"),
+            (
+                serde_json::json!(-0.5),
+                "a negative fraction is meaningless",
+            ),
+            (
+                serde_json::json!(1.5),
+                "above 1.0 inverts the band: the floor would exceed speed.min()",
+            ),
+            (serde_json::json!("yes"), "a string is not a fraction"),
+            (serde_json::json!(true), "a bool is not a fraction"),
+        ] {
+            let mut spec = create_valid_spec();
+            spec.actors[1]
+                .behavior
+                .insert("speed_retention".to_string(), value.clone());
+
+            let err = spec.validate().expect_err(why);
+            assert!(
+                err.contains("speed_retention") && err.contains(&spec.actors[1].id),
+                "error must name the field and the actor for {value} ({why}), got: {err}"
+            );
+        }
+    }
+
+    /// The accepted shape, and the accessor that reads it back.
+    #[test]
+    fn test_speed_retention_accepts_a_fraction_and_reads_it_back() {
+        let mut spec = create_valid_spec();
+        spec.actors[1]
+            .behavior
+            .insert("speed_retention".to_string(), serde_json::json!(0.8));
+
+        spec.validate()
+            .expect("speed_retention 0.8 on a moving npc is valid");
+        assert_eq!(spec.actors[1].speed_retention(), Some(0.8));
+        // Absent on every other actor, and absent means off.
+        assert_eq!(spec.actors[0].speed_retention(), None);
     }
 
     /// A lane change scheduled past the horizon is an error.

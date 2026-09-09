@@ -171,10 +171,12 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         self.coord_encoder.encode_velocity_constraints();
     }
 
-    /// Encode lane-based velocity constraints, plus the forward-progress floor.
+    /// Encode lane-based velocity constraints, plus the forward-progress floor
+    /// and the opt-in per-actor speed-retention band.
     pub fn encode_lane_velocity_constraints(&mut self) {
         self.coord_encoder.encode_lane_velocity_constraints();
         self.encode_forward_progress();
+        self.encode_speed_retention();
     }
 
     /// Require every vehicle to actually traverse the scenario.
@@ -321,6 +323,95 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
             self.coord_encoder
                 .backend_mut()
                 .assert(&terminal_constraint);
+        }
+    }
+
+    /// Hold an actor inside its declared `speed:` band for the whole horizon,
+    /// where — and only where — the actor asked for it.
+    ///
+    /// `speed:` is an initial condition everywhere else: it pins `v[0]` and is
+    /// never mentioned again. `encode_forward_progress` above bounds the
+    /// *average* over the horizon and the *final* step, and nothing bounds the
+    /// steps in between, so the cheapest satisfying assignment rides whichever
+    /// of those bounds is closest. Measured on the shipped corpus at `2c7c8fc`,
+    /// every non-pedestrian actor in 16 of the 19 vehicle examples left its
+    /// declared band at some step: `head_on_near_miss`'s oncoming vehicle decayed
+    /// to 4.1 m/s against `[10.0, 12.0]` (riding `TERMINAL_SPEED_FRACTION`), and
+    /// its "slow vehicle motivating overtake" reached 13.5 m/s against
+    /// `[6.0, 8.0]` — the overtake was still enforced, but the reason for it had
+    /// evaporated.
+    ///
+    /// With `behavior.speed_retention: f` (`0 < f <= 1`) on an actor, every step
+    /// gets two constant-vs-variable inequalities:
+    ///
+    /// ```text
+    /// direction * v_long[t]  >=  f * speed.min()
+    /// direction * v_long[t]  <=  speed.max() / f
+    /// ```
+    ///
+    /// Both bounds are compile-time constants and `direction` is `±1`, so this
+    /// is a pair of linear bounds per actor per step — QF_LRA, exactly like the
+    /// two floors above; no products of variables are introduced.
+    ///
+    /// The ceiling is not decoration. The floor half is bounded below by a
+    /// bound that at least exists (the terminal floor); the ceiling half is
+    /// unbounded above except by the acceleration band, which is why the
+    /// slow vehicle could exceed its declared maximum by 69% and outrun the
+    /// ego's own declared speed.
+    ///
+    /// **Opt-in per actor, defaulted off.** A per-step floor asserted on every
+    /// actor is precisely what `encode_forward_progress`'s doc comment refuses:
+    /// braking to a standstill for a pedestrian in the road is legitimate
+    /// driving, and SW-40 already had to narrow the terminal floor for a
+    /// declared braking manoeuvre. Per actor, the author states which vehicles
+    /// are background traffic that holds a speed and which is the vehicle under
+    /// test that may do anything. No corpus example changes unless it opts in.
+    ///
+    /// `get_longitudinal_vel` is the *signed* along-track velocity in both
+    /// coordinate systems (Cartesian `vx`; the bicycle model's
+    /// `longitudinal_vel = direction * speed_v`), so multiplying the bound by
+    /// `direction` is frame-independent — unlike `a_along_max` above, which
+    /// has to know which frame bounds the acceleration.
+    ///
+    /// Pedestrians are excluded, and `ScenarioSpec::validate` rejects the key on
+    /// one: since SW-45 a pedestrian's authored speed governs `vy` and its `vx`
+    /// is pinned to zero, so an along-track band would be unsatisfiable.
+    fn encode_speed_retention(&mut self) {
+        use crate::dsl::types::ActorRole;
+
+        let horizon = self.horizon;
+        let bounds: Vec<(String, f64, f64)> = self
+            .spec
+            .actors
+            .iter()
+            .filter(|a| a.role != ActorRole::Pedestrian)
+            .filter_map(|a| {
+                let fraction = a.speed_retention()?;
+                let dir = f64::from(a.direction);
+                Some((
+                    a.id.clone(),
+                    fraction * a.speed.min() * dir,
+                    (a.speed.max() / fraction) * dir,
+                ))
+            })
+            .collect();
+
+        for (actor_id, floor, ceiling) in bounds {
+            // Signed bounds: for a backward actor the along-track *floor* is an
+            // upper bound on a negative `vx`, and the ceiling a lower one, so
+            // the pair swaps rather than the comparison flipping.
+            let (lower, upper) = if floor <= ceiling {
+                (real_from_f64(floor), real_from_f64(ceiling))
+            } else {
+                (real_from_f64(ceiling), real_from_f64(floor))
+            };
+            for t in 0..=horizon {
+                let vel = self.get_longitudinal_vel(&actor_id, t).clone();
+                let lower_constraint = vel.ge(&lower);
+                let upper_constraint = vel.le(&upper);
+                self.coord_encoder.backend_mut().assert(&lower_constraint);
+                self.coord_encoder.backend_mut().assert(&upper_constraint);
+            }
         }
     }
 

@@ -66,6 +66,12 @@ actors:
     speed: [6.0, 8.0]          # Slow vehicle motivating overtake
     direction: 1                # Forward (+x)
     acceleration: [-2.0, 1.0]
+    behavior:
+      # Hold the declared band for the whole horizon, not just at t=0.
+      # Without this the "slow" vehicle reached 13.5 m/s -- 69% over its own
+      # declared maximum, and faster than the ego's declared 12.0 -- so the
+      # overtake was still enforced but its motivation had evaporated.
+      speed_retention: 1.0
 
   - id: oncoming_npc
     role: npc
@@ -74,6 +80,13 @@ actors:
     speed: [10.0, 12.0]        # Oncoming speed
     direction: -1               # Backward (-x) - oncoming traffic
     acceleration: [-2.0, 1.0]
+    behavior:
+      # The closing speed is what makes this a head-on near miss, so the
+      # oncoming car must keep its declared speed for the whole encounter.
+      # Without this it coasted from 12.0 down to 4.1 m/s -- 41% of its
+      # declared minimum -- and the near miss was bought by the oncoming
+      # vehicle quietly getting out of the way.
+      speed_retention: 1.0
 
 # Lateral envelope.
 #

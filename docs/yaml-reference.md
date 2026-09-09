@@ -133,7 +133,7 @@ satisfy the scenario's constraints.
 | `speed` | ValueOrRange (m/s) | yes | n/a | Initial speed. Must be non-negative. |
 | `acceleration` | ValueOrRange (m/s²) | yes | n/a | Longitudinal acceleration bound for this actor. This is the real per-actor acceleration constraint the solver enforces. |
 | `direction` | int | yes | n/a | `+1` forward or `-1` backward. Must equal `lane_directions[lane]`; see the rule below. |
-| `behavior` | map | no | `{}` | Scenario-specific behavior parameters. Only two keys are accepted; see [Behavior keys](#behavior-keys). |
+| `behavior` | map | no | `{}` | Scenario-specific behavior parameters. Only three keys are accepted; see [Behavior keys](#behavior-keys). |
 | `lane_changes` | list of `LaneChangeConfig` | no | `[]` | Zero or more lane changes, applied in order. Presence in the list means enabled, with no separate on/off flag. |
 | `bicycle_params` | `BicycleParams` | no | none | Per-actor bicycle parameters, overriding `bicycle_config`. Only valid under `coordinate_system: bicycle`; rejected otherwise. See [`BicycleParams`](#bicycleparams). |
 
@@ -147,18 +147,56 @@ lane whose direction you want.
 ### Behavior keys
 
 The `behavior` map is untyped, so it is validated against a small allowlist
-rather than a per-scenario-type schema. Only two keys are accepted; any other
+rather than a per-scenario-type schema. Only three keys are accepted; any other
 key is a parse error, which turns a typo such as `walking_moad` into an
-immediate failure rather than a silently-defaulted behavior.
+immediate failure rather than a silently-defaulted behavior. Each accepted key
+is range-checked too, so a well-spelled key holding a nonsense value is also an
+error rather than a silent default.
 
 | Key | Values | Meaning |
 |---|---|---|
 | `walking_mode` | `walk`, `run`, `hesitate` | Pedestrian gait. `walk` caps speed at 2.0 m/s, `run` at 5.0 m/s, `hesitate` introduces pauses during the crossing. |
 | `direction` | `left_to_right`, `right_to_left` | Pedestrian crossing direction. |
+| `speed_retention` | number in `(0, 1]` | Vehicles only. Hold the declared `speed:` band for the whole horizon instead of only at `t = 0`. |
 
-Both keys are meaningful only for pedestrian actors. For vehicles, the
-behavioral pattern comes from `scenario_type` and `lane_changes`, not from
-`behavior`.
+The first two keys are meaningful only for pedestrian actors; `speed_retention`
+is rejected on a pedestrian. For vehicles, the behavioral pattern otherwise
+comes from `scenario_type` and `lane_changes`, not from `behavior`.
+
+#### `speed_retention`
+
+`speed:` is an **initial condition**: it pins the actor's speed at `t = 0` and
+nothing else refers to it again. Between the first and last step an actor's
+speed is bounded only by its own `acceleration:` band, by the net-displacement
+floor, and by the terminal-step floor (see
+[`docs/z3_constraints.md`](z3_constraints.md)), so the solver is free to return
+a vehicle that drifts far outside the band it declared — an oncoming car that
+sheds speed to 41% of its declared minimum, or a "slow" vehicle that ends up
+69% above its declared maximum.
+
+`speed_retention: f` says the band means *hold this*, for this actor only. At
+every step the actor's along-track speed must satisfy
+
+```text
+f * speed.min()  <=  direction * v_long[t]  <=  speed.max() / f
+```
+
+`f = 1.0` is the declared band exactly. Smaller values widen it by the same
+relative factor on each side: `speed_retention: 0.8` on `speed: [10.0, 12.0]`
+admits `[8.0, 15.0]`.
+
+It is **off by default and opt-in per actor**, deliberately. A speed floor on
+every actor at every step would forbid braking hard — to a standstill, briefly —
+for a pedestrian in the road, which is legitimate driving and the point of an
+entire scenario type. Per actor, you state which vehicles are background traffic
+holding a speed and which is the vehicle under test that may do anything. Both
+head-on examples set it on `slow_npc` and `oncoming_npc` and leave the ego free.
+
+Both bounds are compile-time constants against a single solver variable, so this
+stays in QF_LRA. Note that it can make a spec unsatisfiable, exactly as intended:
+if the retained band contradicts what the scenario's safety constraints require,
+the generator reports UNSAT rather than quietly returning a vehicle that ignores
+its declared speed.
 
 ## `LaneChangeConfig`
 
