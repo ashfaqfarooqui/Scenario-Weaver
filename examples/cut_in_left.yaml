@@ -11,8 +11,14 @@
 # Duration: 10.0s at 0.1s time steps
 #
 # Key Features:
-#   - NPC performs right lane change at 1.4-3.5s over 3-4s duration
-#   - Generates 5 diverse scenarios via blocking clauses
+#   - NPC performs a right lane change. The spec below declares a 1.4-3.5s window
+#     over a 3-4s duration, but the solver collapses both ranges to their midpoint
+#     (start 2.4s, duration 3.5s) before solving, so every generated scenario
+#     performs the same lane change at the same simulated time regardless of -n.
+#     Tracked as SW-55; until it lands, do not read the ranges below as live.
+#   - -n 5 stratifies each actor's declared position/speed range (ego included)
+#     and spreads the batch across it; a blocking clause still rules out exact
+#     duplicates. Manoeuvre timing is not part of that spread (see above).
 #
 # Safety Constraints:
 #   - min TTC: 3.0s (enforced)

@@ -206,11 +206,28 @@ worth seeing why that works, and what the alternative gives you.
 
 When you write `speed: [14.0, 16.0]` and ask for five scenarios, you are handing
 the solver an interval and asking for five distinct points that each satisfy
-every constraint. The blocking clauses between solutions push the solver away
-from repeating itself, so the five scenarios spread across the feasible region
-rather than clustering. The wider your ranges, the more room there is to spread;
+every constraint. Before generation starts, every such range on every actor,
+ego included, is cut into five strata, and a seeded Latin hypercube confines
+each of the five scenarios to one stratum per range; a plain blocking clause
+still runs underneath to rule out an exact repeat. On `cut_in_left.yaml` this
+takes the NPC's initial position from 1.86 m of its declared 60 m range to
+48 m, and the ego's from bit-identical to 33 m of its 55 m range (measured at
+`e851b9b`, `-n 5`). The wider your ranges, the more room there is to spread;
 a specification that fixes every value can only ever produce one scenario, no
-matter what `num_scenarios` says, because there is nothing left to vary.
+matter what `num_scenarios` says, because there is nothing left to sample.
+
+This spreads *where each scenario starts*, not *what each scenario does*.
+`cut_in_left`'s lane change still happens at the same simulated time in all
+five scenarios, because the timing range in the spec is collapsed to its
+midpoint before the solver runs (tracked separately as SW-55) – so do not
+expect `-n` alone to vary manoeuvre structure. Sampling is seeded (`--seed`,
+default a fixed constant): the same seed reproduces the same batch, a
+different seed a different one, and there is no separate YAML field for it:
+the ranges you already declare are what gets sampled. A stratum can turn out
+to have no solution at all (`cut_in_left` requires the NPC ahead of the ego,
+so the ego-high/NPC-low corner is empty); the solver relaxes it and logs a
+`warn!` rather than failing the run, so a batch can be less evenly spread than
+requested without being wrong.
 
 Diversity is one way to explore the feasible region. Optimization is the other.
 Instead of asking for several scenarios spread across what is feasible, you can

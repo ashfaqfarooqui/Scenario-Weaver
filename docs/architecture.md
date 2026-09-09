@@ -246,10 +246,37 @@ generation is simply every mode set to Violate, which the `--adversarial` flag d
 by selecting the `violate_all` shorthand; there is no separate adversarial code path.
 See [adversarial generation](adversarial-generation.md).
 
-When more than one scenario is requested, diversity comes from **blocking clauses**.
-After each solve, the encoder asserts a clause that excludes the solution just found
-(focused on NPC initial position and velocity), forcing Z3 to return a structurally
-different trajectory on the next iteration.
+When more than one scenario is requested, diversity comes primarily from **stratified
+sampling**. Before generation starts, every free initial-condition range in the spec
+(each actor's `position:` or `speed:` given as a range rather than a fixed value, the
+ego included) is cut into `N` strata, and a seeded Latin hypercube assigns scenario
+`i` one stratum per dimension (`--seed`, default `0x5745_4156_4552`; see
+[`src/solver/diversity.rs`](../src/solver/diversity.rs)). This is what actually spreads
+a batch: at `e851b9b`, `-n 5` on `cut_in_left.yaml` moved the NPC's initial `position_x`
+from 1.86 m of its declared 60 m range to 48 m, and the ego's from bit-identical
+(0 m of 55 m) to 33 m. `cargo run`'s own printed diversity report for the same batch
+shows the aggregate effect: min pairwise L∞ distance rose from 0.0108 to 0.4000, mean
+from 0.0516 to 0.6950.
+
+The pre-existing **blocking clause** stays underneath as a safety net, not the primary
+mechanism – after each solve it asserts a clause excluding the exact solution just
+found, so two scenarios can never be bit-identical even if their strata collapse under
+the fallback ladder described below. It does not by itself produce spread, and it does
+not touch anything beyond `t = 0` position and velocity.
+
+Neither mechanism reaches manoeuvre structure. `distinct_lane_sequences` on the same
+run is `1/5` before and after: every scenario still performs the same lane change at
+the same simulated time, because `collect_lane_change_data`
+(`src/solver/encoder_utils.rs:248`) collapses a declared timing range to its midpoint
+before the solver ever sees it. Widening the initial-condition spread does not widen
+that; it is tracked separately as SW-55.
+
+A stratum cell can be genuinely infeasible – `cut_in_left` requires the NPC ahead of
+the ego, so the ego-high/NPC-low corner has no solution. On that outcome the solver
+relaxes one dimension's stratum at a time (narrowest declared range first) and finally
+drops stratification for that scenario, logging each step at `warn!`. A spec that pins
+every value still produces one scenario regardless of `num_scenarios`, because there is
+nothing left to sample.
 
 ## Module map
 

@@ -63,6 +63,8 @@ Options:
   -v, --verbose               Enable verbose logging
       --adversarial           Override all constraint modes to violate
       --optimize <TARGET>     Optimization target: min-ttc | min-distance | max-severity | max-ttc
+      --seed <SEED>           Seed for multi-scenario diversity (`-n` > 1); same seed reproduces
+                               the same batch. Defaults to a fixed constant.
   -h, --help                  Print help
   -V, --version               Print version
 ```

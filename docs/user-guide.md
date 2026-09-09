@@ -113,6 +113,8 @@ Options:
       --adversarial        Override all constraint modes to violate
       --optimize <TARGET>  Find an optimal scenario instead of any satisfying one:
                             min-ttc, min-distance, max-severity, max-ttc
+      --seed <SEED>        Seed for multi-scenario diversity (`-n` > 1). Defaults to a
+                            fixed constant.
   -h, --help                Print help
   -V, --version              Print version
 ```
@@ -136,6 +138,11 @@ configuration file or environment variable behind any of these flags.
   (`minimize_ttc`) – the two are not interchangeable, and one spelling is a parse error in the
   other's slot. See [optimizer.md](optimizer.md) for what each target actually optimizes and the
   direction of its bound.
+- `--seed <SEED>` governs how a batch (`-n` > 1) is spread across its declared ranges – it seeds
+  the Latin-hypercube strata described in
+  [architecture.md](architecture.md#constraint-modes-and-multi-scenario-diversity), not Z3 itself.
+  The same seed reproduces the same batch (modulo each scenario's UUID); a different seed gives a
+  different, equally valid one. Omit it and re-runs stay byte-identical, as they always have.
 
 ---
 

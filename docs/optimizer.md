@@ -102,8 +102,12 @@ broken first-priority one does not.
 `--optimize` and `-n`/`num_scenarios` compose the way you would expect: each of the `n`
 scenarios is optimized independently against the same objective, not jointly. There is no
 notion of "the best of n" or "n scenarios spanning a range of the objective" – each solve
-extremizes the objective from scratch, so with narrow parameter ranges the `n` results may be
-close to identical.
+extremizes the objective from scratch. The same stratified sampling that spreads a plain
+multi-scenario batch (see [architecture.md](architecture.md)) constrains where each optimized
+solve starts, so with narrow parameter ranges the `n` results may still be close to identical,
+but with wide ranges the starting points (not the extremized value itself) spread across the
+declared range rather than clustering. `--seed` governs the strata here exactly as it does
+without `--optimize`.
 
 The Z3 `Optimize` backend is substantially slower than the plain `Solver` on the same encoding,
 and its cost grows quickly with the time horizon – the number of steps implied by
