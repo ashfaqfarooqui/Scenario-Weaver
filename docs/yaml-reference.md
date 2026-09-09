@@ -61,12 +61,67 @@ in the file (or, for `road`, arrive through an import – see [Imports](#imports
 | `max_lateral_acceleration` | float (m/s²) | no | `2.0` | Comfort bound on lateral acceleration during lane changes. This is a genuine solver constraint. Must be positive. |
 | `max_velocity` | float (m/s) | no | none | Optional upper speed bound. Must be positive if set. Governed by `constraint_modes.max_velocity`. |
 | `min_velocity` | float (m/s) | no | none | Optional lower speed bound. Must be non-negative if set. Governed by `constraint_modes.min_velocity`. |
-| `min_lateral_distance` | float (m) | no | none | Optional lateral separation bound. Must be positive if set. Governed by `constraint_modes.min_lateral_distance`. |
+| `min_lateral_distance` | float (m) | no | none | Optional lateral separation bound. Must be positive if set. Governed by `constraint_modes.min_lateral_distance`. **Means something different on a pedestrian crossing** — see the note below. |
 | `max_relative_velocity` | float (m/s) | no | none | Optional closing-speed bound. Must be positive if set. Governed by `constraint_modes.max_relative_velocity`. |
 | `max_acceleration` | float (m/s²) | no | none | **Report-only.** Must be positive if set. See the caveat below. |
 | `max_deceleration` | float (m/s²) | no | none | **Report-only.** Must be negative if set. See the caveat below. |
 | `bicycle_config` | `BicycleConfig` | no | none | Scenario-level default bicycle parameters. Only valid when `coordinate_system: bicycle`; rejected otherwise. See [`BicycleConfig`](#bicycleconfig). |
 | `lane_width` | float (m) | no | `3.5` | **Deprecated.** Use `road.lane_width` instead. Read only as a fallback when no `road` is given, and validation requires a road, so this field is effectively dead. |
+
+### `min_lateral_distance` on a pedestrian crossing
+
+For every scenario type except `pedestrian_crossing`, `min_lateral_distance` is
+an unguarded floor: `|py1 - py2| >= min_lateral_distance` for every pair, at
+every step. The actors are lane-following, so they never traverse each other's
+lateral position and the bound is meaningful as written.
+
+A crossing pedestrian is different. Its whole purpose is to walk *through* the
+ego's lateral position, so the unguarded reading is unsatisfiable for any
+`min_lateral_distance` larger than half the pedestrian's per-step lateral hop —
+the constraint would hold only because the trajectory is sampled, and halving
+`time_step` would turn an unchanged spec `Unsatisfiable`. Lateral separation
+from a crossing pedestrian is a safety property only *while the two are
+longitudinally close*.
+
+So on a `pedestrian_crossing` the field is guarded on longitudinal relevance:
+
+```text
+at every step:   |dx| <= W   =>   |dy| >= min_lateral_distance
+```
+
+where `dx`/`dy` are the ego-pedestrian longitudinal/lateral separations and `W`
+is the **longitudinal relevance window**
+
+```text
+W = max( min_ttc * (the ego's declared top speed),  min_distance / 2 )
+```
+
+— the distance the ego can cover inside its own stated time-to-collision
+budget, floored at the pedestrian safety box's own longitudinal half-width so
+the two constraints never disagree about what "longitudinally close" means. `W`
+is derived from fields you already set; there is no separate key for it.
+
+What this means in practice:
+
+- **A physically meaningful value now works.** `min_lateral_distance: 2.0` on
+  `examples/pedestrian_wide_road.yaml` (`W = 18.0 m`) is satisfiable: the
+  pedestrian crosses the ego's lane while the ego is still more than 18 m away,
+  or waits at the kerb until it has passed.
+- **`enforce`** requires the clearance only inside the window. Outside it the
+  pedestrian may pass straight through `py_ego`; that is the approach phase,
+  where lateral separation carries no safety meaning.
+- **`violate`** asks for the negation, `|dx| < W AND |dy| < min_lateral_distance`
+  at some step — a genuine near miss, in which the ego must actually *be* inside
+  the window. It cannot be satisfied by keeping the pedestrian on the kerb while
+  the ego is far away.
+- **Raising `min_ttc` widens the window**, even when `constraint_modes.min_ttc`
+  is `ignore`. A window wide enough to cover the whole scenario collapses the
+  guard back into the unguarded bound, and the spec becomes unsatisfiable for
+  any realistic clearance.
+
+`compute_validation_metrics` measures exactly this guarded property, so a
+generated scenario's `all_constraints_satisfied` reflects what the solver was
+asked for rather than the unguarded reading.
 
 ### Acceleration fields: report-only versus solver-enforced
 

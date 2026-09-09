@@ -26,6 +26,64 @@ use crate::solver::encoder_utils::real_from_f64;
 pub(crate) const PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR: f64 = 2.0;
 pub(crate) const PEDESTRIAN_BOX_LATERAL_DIVISOR: f64 = 1.5;
 
+/// The longitudinal window inside which lateral separation between the ego and
+/// a crossing pedestrian is a *safety* property, in metres.
+///
+/// `min_lateral_distance` used to be lowered here as an **unguarded**
+/// `LateralDistanceGT` — `|py_ego − py_ped| >= d` at every step. For a
+/// perpendicular crossing that is self-contradictory: the pedestrian's path
+/// runs through `py_ego`, so any continuous crossing has `|dy| = 0` at some
+/// instant, and the only reason the constraint was ever satisfiable is that the
+/// trajectory is *sampled*. The largest `d` that could hold was
+/// `(v_ped × time_step) / 2` — the half-hop the pedestrian takes across the
+/// forbidden band between two samples. Measured at HEAD before this changed:
+/// `pedestrian_crossing.yaml` (1.5 m/s, `time_step: 0.3`) was SAT at
+/// `d = 0.22` and UNSAT at `d = 0.25`; halving `time_step` to `0.15` made
+/// `0.22` UNSAT and only `0.11` SAT. A safety threshold whose satisfiability is
+/// a function of the discretisation is not measuring safety, and every value a
+/// user would plausibly author — `2.0`, the same order as the `min_distance:
+/// 2.0` sitting beside it in the example — was UNSAT by construction.
+///
+/// Lateral separation from a crossing pedestrian only means anything while the
+/// two are *longitudinally* close. Outside that window the pedestrian is
+/// walking across a road the ego is nowhere near, and demanding clearance there
+/// is a statement about geometry the scenario cannot honour.
+///
+/// **Where the number comes from.** `min_ttc × the ego's declared top speed` is
+/// the distance the ego can cover in its own stated time-to-collision budget,
+/// so "longitudinally close" here means exactly "less than `min_ttc` away from
+/// the pedestrian's crossing point at the fastest the spec allows". That is the
+/// same notion of relevance `PedestrianTTCGT` already uses
+/// (`distance >= ttc · vx_ego`), with the *declared* speed bound substituted
+/// for the solver's `vx` so the window is a constant: a product of two
+/// variables would leave QF_LRA and break `Optimize`.
+///
+/// **Floored at the safety box's own `threshold_x`** so the two constraints can
+/// never disagree about what "longitudinally close" means, and so a spec with
+/// `min_ttc: 0` still gets a window rather than a silently dropped constraint.
+///
+/// **Why not simply reuse `threshold_x`.** Because then the guarded constraint
+/// would be vacuous whenever the box is enforced: the box already gives
+/// `|dx| >= threshold_x ∨ |dy| >= threshold_y`, so with `W = threshold_x` every
+/// state that satisfies the box on its longitudinal branch satisfies the
+/// guarded lateral one too, and the only states left are ones the box was
+/// already policing. `W` has to be strictly wider than `threshold_x` to add
+/// anything — that is the SW-22 "live but vacuous" failure mode. On the shipped
+/// examples it is: 24.0 m against a `threshold_x` of 1.0 m for
+/// `pedestrian_crossing.yaml`, 18.0 m against 0.75 m for
+/// `pedestrian_wide_road.yaml`.
+///
+/// `compute_validation_metrics` (`scenario/metrics.rs`) calls this same
+/// function rather than re-deriving the arithmetic, for the reason the box
+/// divisors above are shared: two copies of a number are one edit from
+/// disagreeing.
+pub(crate) fn lateral_relevance_window(spec: &ScenarioSpec) -> Result<f64> {
+    let ego = spec.ego().map_err(ScenarioGenError::InvalidSpec)?;
+    let reachable_in_ttc = spec.min_ttc * ego.speed.max();
+    let box_threshold_x = spec.min_distance / PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR;
+    Ok(reachable_in_ttc.max(box_threshold_x))
+}
+
 /// How many steps at the end of the horizon the pedestrian must be
 /// *settled* on the far kerb for (the final step plus a short tail before it).
 ///
@@ -126,42 +184,71 @@ impl ScenarioModel for PedestrianCrossingModel {
             super::AtomPolarity::Positive,
         );
 
-        // `min_lateral_distance` is parsed, documented and validated, so it must
-        // not be silently dropped here: this override replaces
+        // `min_lateral_distance`, **guarded on longitudinal relevance**.
+        //
+        // The field is parsed, documented and validated, so it must not be
+        // silently dropped here: this override replaces
         // `generate_default_safety`'s per-pair loop wholesale, and if it never
         // read the field an `enforce`d `min_lateral_distance` would change
-        // nothing about the encoding. Lowered the same way
-        // `generate_default_safety` (`scenarios/mod.rs`) does for every other
-        // scenario type — `push_constraint` with `AtomPolarity::Positive` —
-        // so `Enforce`/`Violate`/`Ignore` all mean what they mean everywhere
-        // else, and `compute_validation_metrics` (which checks this field
-        // generically, for any scenario type) actually has something to
-        // measure.
+        // nothing about the encoding. It still goes through the same
+        // `push_constraint` with `AtomPolarity::Positive`, so
+        // `Enforce`/`Violate`/`Ignore` mean here what they mean everywhere
+        // else. What changed is the *atom*.
         //
-        // This is a second, independent lateral constraint alongside the
-        // box's own `threshold_y = min_distance / 1.5` above — not a
-        // replacement for it, and not in tension with it. The box asserts
-        // `|dx| > threshold_x OR |dy| > threshold_y`: an actor pair may
-        // satisfy it on the *longitudinal* branch alone, with `|dy|`
-        // arbitrarily small. `LateralDistanceGT` instead asserts `|dy| >=
-        // min_lateral_distance` unconditionally, so it closes exactly the
-        // gap the box's disjunction leaves open on the lateral axis — it
-        // does not fight the box, it tightens the one case the box does not
-        // cover. A `min_lateral_distance` looser than `threshold_y` adds
-        // nothing new (the box's own lateral branch already implies it
-        // whenever that branch is the one satisfied, and the constraint is
-        // trivially satisfiable whenever the longitudinal branch is used
-        // instead); one tighter than `threshold_y` is a real additional
-        // restriction, verified satisfiable end-to-end in
-        // `pedestrian_lateral_distance_test.rs`.
+        // It used to be an unguarded `LateralDistanceGT` — `|dy| >= d` at
+        // every step. See `lateral_relevance_window` above for why that was
+        // satisfiable only as an artifact of the sampling rate. The property
+        // the field is actually trying to express is
+        //
+        //     G( |dx| <= W  =>  |dy| >= min_lateral_distance )
+        //
+        // and that implication is, term for term, a rectangular exclusion box
+        // `W` long and `min_lateral_distance` tall:
+        //
+        //     |dx| < W  =>  |dy| >= d      ==      |dx| >= W  OR  |dy| >= d
+        //
+        // which is exactly what `RectangularDistanceGT { threshold_x: W,
+        // threshold_y: d }` lowers to (`ltl/encode.rs`). So the guard needs no
+        // new proposition variant and no new lowering — it is the box shape
+        // the very same function already asserts for `min_distance`, sized by
+        // the lateral field instead. Reusing the atom also inherits SW-33's
+        // boundary fix (both comparisons non-strict) for free.
+        //
+        // **This does not weaken `min_distance`'s box, and is not weakened by
+        // it.** The two are independent boxes over the same pair: the
+        // `min_distance` one is short and squat (`threshold_x = md/2`,
+        // `threshold_y = md/1.5`), this one is long and thin (`W` ≫
+        // `threshold_x`, `threshold_y = d`). Their conjunction is the union of
+        // the two exclusion regions, and neither implies the other as long as
+        // `W > min_distance / PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR` — which
+        // `lateral_relevance_window` guarantees by flooring at exactly that
+        // value. A state with `|dx| = threshold_x` and `|dy| = 0` satisfies
+        // the `min_distance` box and violates this one, so this constraint is
+        // not vacuous in the presence of the box.
+        //
+        // **`Violate` is `A AND NOT B`, and that is the point.** `negate()`
+        // on this atom gives `|dx| < W AND |dy| < d`: the antecedent must
+        // *actually hold*, so the solver cannot satisfy a `violate`d
+        // `min_lateral_distance` by parking the pedestrian on the kerb while
+        // the ego is 60 m away. That is a strictly stronger obligation than
+        // the unguarded form's `|dy| < d`, and it is the near-miss the field
+        // is for. Verified end-to-end (not assumed) in
+        // `tests/pedestrian_lateral_distance_test.rs`.
+        //
+        // **Still QF_LRA.** Four comparisons between existing position
+        // variables and two constant thresholds; `W` is folded to an `f64`
+        // before it reaches Z3 rather than being `min_ttc * vx_ego`, which
+        // would be a product of a variable and leave the fragment.
         if let Some(min_lat_dist) = spec.min_lateral_distance {
+            let window = lateral_relevance_window(spec)?;
             super::push_constraint(
                 &mut constraints,
                 spec.constraint_modes.min_lateral_distance(),
-                LTLFormula::Atom(Proposition::LateralDistanceGT {
+                LTLFormula::Atom(Proposition::RectangularDistanceGT {
                     actor1: ego.id.clone(),
                     actor2: pedestrian.id.clone(),
-                    distance: min_lat_dist,
+                    threshold_x: window,
+                    threshold_y: min_lat_dist,
                 }),
                 super::AtomPolarity::Positive,
             );

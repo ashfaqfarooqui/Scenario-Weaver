@@ -8,7 +8,7 @@
 //! for the full audit of which `Proposition` each check corresponds to.
 
 use crate::scenarios::pedestrian_crossing::{
-    PEDESTRIAN_BOX_LATERAL_DIVISOR, PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR,
+    lateral_relevance_window, PEDESTRIAN_BOX_LATERAL_DIVISOR, PEDESTRIAN_BOX_LONGITUDINAL_DIVISOR,
 };
 use crate::solver::backend::Z3Backend;
 use crate::solver::encoder::{GenericEncoder, METRIC_TOL, TTC_CLOSING_SPEED_EPSILON};
@@ -97,7 +97,8 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
     /// | `PedestrianTTCGuard` | `pedestrian_crossing.rs::generate_safety`, `Enforce` only | — | structural antecedent for `PedestrianTTCGT`'s reachability, the pedestrian twin of `Approaching`; it is *the same formula* as that proposition's own guard (one lowering, `encode_pedestrian_ttc_guard`), so its effect shows up in the pedestrian TTC check below rather than in a metric of its own |
     /// | **`DistanceGT`** | `scenarios/mod.rs:217`, `head_on.rs:248,258` | `min_distance` block below, `same_lane`-gated `\|dx\|`, non-strict boundary | **agrees** — same guard predicate ([`encode_same_lane_constraint`]/[`same_lane_f64`]), same boundary |
     /// | **`TTCGT`** | `scenarios/mod.rs:206`, `head_on.rs:223,233` | `min_ttc` block below, `same_lane` + closing-speed gated, same `TTC_CLOSING_SPEED_EPSILON` | **agrees** |
-    /// | **`LateralDistanceGT`** | `scenarios/mod.rs:229`, `pedestrian_crossing.rs:117` | `min_lateral_distance` block, unguarded `\|dy\|`, non-strict boundary | **agrees** |
+    /// | **`LateralDistanceGT`** | `scenarios/mod.rs:229` — every scenario type *except* `pedestrian_crossing`, whose actors are lane-following and never traverse each other's `py` | `min_lateral_distance` block, unguarded `\|dy\|`, non-strict boundary | **agrees** |
+    /// | **`RectangularDistanceGT`** (pedestrian `min_lateral_distance`) | `pedestrian_crossing.rs::generate_safety`, all three modes | `min_lateral_distance` block, **guarded**: `\|dy\| >= d` is required only where `\|dx\| <= W`, `W = ` [`lateral_relevance_window`] | **agrees** — same window function, same non-strict boundary. A crossing pedestrian must pass through `py_ego`, so the unguarded reading is satisfiable only as a sampling artifact; the guard is the property, not a relaxation of it |
     /// | **`VelocityLT`** (`max_velocity`) | `scenarios/mod.rs:262`, all actors, unguarded | per-actor `\|vx\|` check | measured (a test-only re-derivation also exists in `tests/common/invariants.rs`) |
     /// | **`VelocityGT`** (`min_velocity`) | `scenarios/mod.rs:274`, all actors, unguarded | per-actor `\|vx\|` check | measured. No corpus example sets it; covered by a constructed test below |
     /// | **`RelativeVelocityGT`** (`max_relative_velocity`) | `scenarios/mod.rs:245`, all pairs, unguarded, negated polarity | per-pair `\|vx1-vx2\|` check | measured — `unsafe_following.yaml` is an adversarial corpus example built to violate exactly this field |
@@ -182,6 +183,16 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
         // `PedestrianTTCGT` all use elsewhere in this file (encoder.rs), not a
         // value owned by a fenced file.
         let road_width = lane_width * self.spec.get_num_lanes() as f64;
+
+        // The longitudinal window inside which `min_lateral_distance` is a
+        // safety property for an ego-pedestrian pair, from the one definition
+        // the encoder also uses (`pedestrian_crossing::lateral_relevance_window`).
+        // Hoisted out of the per-step loop: it depends only on the spec. It is
+        // computed for every scenario type, not just pedestrian ones, because
+        // it is cheap and doing it here keeps the fallible call out of the
+        // loop; the only way it fails is a spec with no ego, which validation
+        // already rejects, and which no pedestrian pair could exist under.
+        let lateral_window = lateral_relevance_window(&self.spec)?;
 
         // Compute pairwise metrics for all actor combinations
         for (i, actor1) in self.spec.actors.iter().enumerate() {
@@ -440,19 +451,55 @@ impl<B: Z3Backend + 'static> GenericEncoder<B> {
                         }
                     }
 
-                    // Lateral separation. The encoder
-                    // lowers `min_lateral_distance` to
-                    // `Proposition::LateralDistanceGT` — an unguarded
-                    // |py1 - py2| > d at every step — but the validator never
-                    // looked at it, so `multi_lane_safety` could report
-                    // `all_constraints_satisfied: true` with 0.000 m of
-                    // lateral separation. Check exactly what the encoder
-                    // asserts: unguarded, at every step. Unconditional on
-                    // `pedestrian_pair` — this is one of the two rows the
-                    // audit above marks "agrees" regardless of actor role.
+                    // Lateral separation — measured in whichever of the two
+                    // shapes the encoder actually asserted for *this* pair.
+                    //
+                    // For a non-pedestrian pair `scenarios/mod.rs` still lowers
+                    // `Proposition::LateralDistanceGT`, an unguarded
+                    // `|py1 - py2| >= d` at every step, and this is checked
+                    // unguarded to match. (Before SW-31 it was not checked at
+                    // all, so `multi_lane_safety` could report
+                    // `all_constraints_satisfied: true` with 0.000 m of lateral
+                    // separation.)
+                    //
+                    // For a pedestrian pair `pedestrian_crossing.rs` lowers the
+                    // *guarded* form — `|dx| < W => |dy| >= d`, as the box
+                    // `RectangularDistanceGT { threshold_x: W, threshold_y: d }`
+                    // — because a crossing pedestrian must traverse `py_ego`,
+                    // so the unguarded reading is unsatisfiable for any `d`
+                    // larger than half the pedestrian's per-step lateral hop.
+                    // See `pedestrian_crossing::lateral_relevance_window`, which
+                    // is called rather than re-derived here for the same reason
+                    // the box divisors are shared. Measuring the unguarded
+                    // property against the guarded assertion would report the
+                    // whole approach phase as a violation of a constraint the
+                    // solver was never asked to satisfy — a false positive of
+                    // exactly the kind the pedestrian box branch above exists to
+                    // remove.
+                    //
+                    // The tolerance runs toward "safe" on both terms, matching
+                    // every other check in this function and keeping the
+                    // `Violate` negation (`|dx| < W AND |dy| < d`, both strict
+                    // in the encoding) strictly inside what is reported here.
                     if let Some(min_lat) = self.spec.min_lateral_distance {
                         let lateral = (state1.position().y - state2.position().y).abs();
-                        if lateral < min_lat - METRIC_TOL {
+                        if pedestrian_pair {
+                            let longitudinal = (state1.position().x - state2.position().x).abs();
+                            let laterally_relevant = longitudinal <= lateral_window - METRIC_TOL;
+                            if laterally_relevant && lateral < min_lat - METRIC_TOL {
+                                violations.push(format!(
+                                    "Lateral distance violation at t={:.1}s: {}-{}: {:.2}m < \
+                                     {:.2}m while longitudinally within {:.2}m (|dx|={:.2}m)",
+                                    t as f64 * self.spec.time_step,
+                                    id1,
+                                    id2,
+                                    lateral,
+                                    min_lat,
+                                    lateral_window,
+                                    longitudinal
+                                ));
+                            }
+                        } else if lateral < min_lat - METRIC_TOL {
                             violations.push(format!(
                                 "Lateral distance violation at t={:.1}s: {}-{}: {:.2}m < {:.2}m",
                                 t as f64 * self.spec.time_step,

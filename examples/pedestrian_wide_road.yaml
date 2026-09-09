@@ -47,7 +47,17 @@ actors:
 constraint_modes:
   min_ttc: ignore
   min_distance: ignore
+  # The one corpus example that exercises `min_lateral_distance` in `enforce`
+  # mode. For a pedestrian crossing the field is guarded on longitudinal
+  # relevance — `|dx| <= W  =>  |dy| >= min_lateral_distance`, with
+  # `W = max(min_ttc * ego top speed, min_distance / 2) = 18.0 m` here — so the
+  # pedestrian may walk through the ego's lateral position, but only while the
+  # ego is more than 18 m away longitudinally. Unguarded this value would be
+  # unsatisfiable by construction: a crossing pedestrian must traverse `py_ego`.
+  # See docs/yaml-reference.md, `min_lateral_distance`.
+  min_lateral_distance: enforce
 
 min_ttc: 1.5
 min_distance: 1.5
+min_lateral_distance: 2.0  # metres of lateral clearance while within 18 m longitudinally
 num_scenarios: 1
